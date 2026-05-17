@@ -1,0 +1,50 @@
+# Environment
+.env
+.env.bak
+
+# Local config (copy from config.example.json)
+config.json
+
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Ruff linter cache
+.ruff_cache/
+
+# Pytest cache
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+_swarm_progress.md
+
+# Runtime data (all excluded; only .gitkeep is tracked)
+data/*
+!data/.gitkeep
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/
+
+# Claude Code session files
+.claude/
+
+# Local workspace symlinks
+workspace/
+
+# Vim swap files
+*.swp

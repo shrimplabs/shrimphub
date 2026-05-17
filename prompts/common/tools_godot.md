@@ -1,0 +1,29 @@
+AVAILABLE TOOLS (use EXACTLY these names):
+- list_files(path): List files and directories (paths are relative to project root)
+- read_file(path): Read file contents
+- get_file_outline(path): Get functions/classes defined in a file with line numbers — use before editing large files
+- read_file_range(path, start_line, end_line): Read a specific line range (max 300 lines)
+- search_code(query): Search for pattern across .gd files
+- get_file_stats(path): Get line count and size
+- write_file(path, content): Write to a file — for NEW files only; use patch_file to edit existing ones
+- patch_file(path, old_string, new_string): Exact-string replacement in an existing file (read first)
+- append_file(path, content): Append content to end of an existing file
+- run_command(command): Run a shell command
+- git_commit(message): Stage all changes and commit
+- git_push(): Push commits to remote
+- create_task(description, type, priority, dependencies, project, parent_task_id): Create a sub-task. Pass TASK_ID as parent_task_id so the relationship is tracked.
+- list_subtasks(): List sub-tasks you have spawned (id, status, description)
+- delegate_helper(question, files, scope, max_chars): Use this exact tool name for read-only helper analysis. It is a normal swarm tool, not an MCP server.
+- delegate_task_batch(children, mode, project): Use this exact tool name to create durable child tasks with declared file ownership. It is a normal swarm tool, not an MCP server.
+- update_knowledge(content): Save persistent structural facts about this project for future agents
+- get_task_context(): Get active agents, recent completed tasks, and last 5 commits for this project
+- read_shared_knowledge(topic): Read cross-project knowledge base (optional topic filter)
+- update_shared_knowledge(content, topic): Save a cross-project fact for all future agents
+- rag_query(question, top_k): Query Godot 4 documentation via RAG — call this FIRST before writing any code
+- web_search(query, max_results=3): Search for GDScript APIs, Godot answers, or error solutions
+- fetch_url(url, extract_text): Fetch and extract text from a documentation URL
+- mcp_call_tool(server, tool, args): Call an MCP server tool
+- mcp_list_tools(server): List tools available on an MCP server
+- launch_game(project_path): Launch the Godot game headlessly via the StateServer. Returns when the game is ready. Use after making changes to verify the game actually runs.
+- get_game_state(): Read live structured state from the running game (score, positions, scene tree, any fields from get_game_state()). Use to verify game logic is correct after launch_game().
+- wait(seconds): Wait N seconds (use after launch_game to let the game initialise before reading state).

@@ -1,0 +1,421 @@
+"""LLM utilities and tool parsing extracted from agent_runtime.py."""
+
+import json
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+from swarm.provider_utils import LLM_PROVIDERS
+
+class MCPClient:
+    """MCP client for connecting to external MCP servers (godot-mcp, etc.)."""
+
+    def __init__(self, servers: dict, cwd=None):
+        self.servers = servers
+        self.cwd = cwd
+        self.processes: dict = {}
+        self.request_id: int = 0
+        self._initialized: set = set()
+
+    def start_server(self, name: str) -> bool:
+        if name not in self.servers:
+            return False
+        if name in self.processes:
+            return True
+        config = self.servers[name]
+        cmd = [config.get("command", "")] + config.get("args", [])
+        env = dict(os.environ)
+        env.update(config.get("env", {}))
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                cwd=self.cwd,
+            )
+            self.processes[name] = proc
+            self.request_id += 1
+            req = {
+                "jsonrpc": "2.0",
+                "id": self.request_id,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "swarm-agent", "version": "1.0"},
+                },
+            }
+            proc.stdin.write(json.dumps(req) + "\n")
+            proc.stdin.flush()
+            proc.stdout.readline()  # consume init response
+            self._initialized.add(name)
+            return True
+        except Exception:
+            return False
+
+    def _send_request(self, server: str, method: str, params=None) -> dict:
+        if server not in self.processes:
+            return {"error": "Server not running"}
+        proc = self.processes[server]
+        self.request_id += 1
+        req = {"jsonrpc": "2.0", "id": self.request_id, "method": method, "params": params or {}}
+        try:
+            proc.stdin.write(json.dumps(req) + "\n")
+            proc.stdin.flush()
+            resp_str = proc.stdout.readline()
+            if not resp_str:
+                return {"error": "No response"}
+            resp = json.loads(resp_str)
+            if "error" in resp:
+                return {"error": resp["error"]}
+            return resp.get("result", {})
+        except Exception as e:
+            return {"error": str(e)}
+
+    def list_tools(self, server: str) -> list:
+        if server not in self.processes and not self.start_server(server):
+            return []
+        result = self._send_request(server, "tools/list")
+        return result.get("tools", []) if isinstance(result, dict) else []
+
+    def call_tool(self, server: str, tool: str, args=None) -> dict:
+        if server not in self.processes and not self.start_server(server):
+            return {"error": f"Failed to start {server}"}
+        result = self._send_request(server, "tools/call", {"name": tool, "arguments": args or {}})
+        if isinstance(result, dict) and "content" in result:
+            content = result["content"]
+            if content and isinstance(content, list) and content[0].get("type") == "text":
+                text = content[0].get("text", "")
+                try:
+                    return json.loads(text)
+                except Exception:
+                    return {"ok": True, "text": text}
+        return result
+
+    def stop_all(self):
+        for name in list(self.processes.keys()):
+            try:
+                self.processes[name].terminate()
+            except Exception:
+                pass
+            del self.processes[name]
+
+
+
+
+def parse_tool_calls(text: str) -> list:
+    tool_calls = []
+
+    def _try_parse(json_str):
+        # Sanitize common MiniMax formatting quirks before parsing
+        import re as _re2
+        # Replace Ruby/PHP-style hash rockets: "key" => "value" → "key": "value"
+        sanitized = _re2.sub(r'"(\w+)"\s*=>\s*', r'"\1": ', json_str)
+        # Also handle unquoted key => value: key => "value" → "key": "value"
+        sanitized = _re2.sub(r'(\w+)\s*=>\s*', r'"\1": ', sanitized)
+        # Replace CLI-style flag args: --key "value" → "key": "value"
+        # e.g. {"tool": "x", "args": {\n--command "echo hi"\n}}
+        sanitized = _re2.sub(r'--(\w+)\s+"([^"]*)"', r'"\1": "\2"', sanitized)
+        sanitized = _re2.sub(r"--(\w+)\s+'([^']*)'", r'"\1": "\2"', sanitized)
+        # Also handle --key value (unquoted) → "key": "value"
+        sanitized = _re2.sub(r'--(\w+)\s+(\S+)', r'"\1": "\2"', sanitized)
+        for candidate in ([sanitized, json_str] if sanitized != json_str else [json_str]):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                for extra in ["}", "}}", "}}}"]:
+                    try:
+                        return json.loads(candidate + extra)
+                    except json.JSONDecodeError:
+                        pass
+        return None
+
+    # [TOOL_CALL]...[/TOOL_CALL]
+    pos = 0
+    while True:
+        start = text.find("[TOOL_CALL]", pos)
+        if start == -1:
+            break
+        start += len("[TOOL_CALL]")
+        end = text.find("[/TOOL_CALL]", start)
+        if end == -1:
+            # Fallback: model used [TOOL_CALL]...[TOOL_CALL] (wrong closing tag).
+            # Treat the next opening tag as the boundary so it still parses.
+            end = text.find("[TOOL_CALL]", start)
+            if end == -1:
+                break
+            parsed = _try_parse(text[start:end].strip())
+            if parsed:
+                tool_calls.append(parsed)
+            pos = end + len("[TOOL_CALL]")  # skip past the malformed closing tag
+            continue
+        parsed = _try_parse(text[start:end].strip())
+        if parsed:
+            tool_calls.append(parsed)
+        pos = end + len("[/TOOL_CALL]")
+
+    # <tool_call>...</tool_call>
+    pos = 0
+    while True:
+        start = text.find("<tool_call>", pos)
+        if start == -1:
+            break
+        start += len("<tool_call>")
+        end = text.find("</tool_call>", start)
+        if end == -1:
+            break
+        parsed = _try_parse(text[start:end].strip())
+        if parsed:
+            tool_calls.append(parsed)
+        pos = end + len("</tool_call>")
+
+    # <tool name="...">...</tool> (Minimax XML fallback)
+    import re as _re
+    for m in _re.finditer(r'<tool\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</tool>', text, _re.DOTALL):
+        tool_name = m.group(1).strip()
+        inner = m.group(2).strip()
+        # inner may be JSON args or empty
+        if inner:
+            parsed = _try_parse(inner)
+            args = parsed if isinstance(parsed, dict) else {}
+        else:
+            args = {}
+        tool_calls.append({"tool": tool_name, "args": args})
+
+    # <function_calls><invoke name="..."><arg name="...">...</arg></invoke></function_calls> (Kimi format)
+    for invoke_m in _re.finditer(r'<invoke\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</invoke>', text, _re.DOTALL):
+        tool_name = invoke_m.group(1).strip()
+        inner = invoke_m.group(2).strip()
+        args = {}
+        # Match <parameter name="key">value</parameter> or <arg name="key">value</arg>
+        for arg_m in _re.finditer(r'<(?:parameter|arg)\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</(?:parameter|arg)>', inner, _re.DOTALL):
+            args[arg_m.group(1).strip()] = arg_m.group(2).strip()
+        # Also match bare tag names as argument names: <description>value</description>
+        if not args:
+            for arg_m in _re.finditer(r'<([a-zA-Z_][a-zA-Z0-9_]*)>(.*?)</\1>', inner, _re.DOTALL):
+                args[arg_m.group(1).strip()] = arg_m.group(2).strip()
+        # Also try JSON body inside invoke
+        if not args and inner:
+            parsed = _try_parse(inner)
+            if isinstance(parsed, dict):
+                args = parsed
+        tool_calls.append({"tool": tool_name, "args": args})
+
+    return tool_calls
+
+
+
+
+def _record_rate_limit_event(provider_name: str):
+    """Append a timestamp to data/rl_events.jsonl so the monitor can detect pressure."""
+    try:
+        flag_dir = Path(__file__).parent.parent / "data"
+        flag_dir.mkdir(exist_ok=True)
+        import json as _j
+        with open(flag_dir / "rl_events.jsonl", "a") as _f:
+            _f.write(_j.dumps({"t": time.time(), "provider": provider_name}) + "\n")
+    except Exception:
+        pass
+
+
+def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
+    """Call the configured LLM provider. Returns (text: str, tokens: dict).
+
+    provider: override the active provider for this call (e.g. "claude" for
+    the meta-investigator).  Falls back to LLM_PROVIDER if None or unknown.
+    """
+    try:
+        import requests
+    except ImportError:
+        return "requests library not installed", {"input": 0, "output": 0}
+
+    # Resolve provider config (fall back to minimax defaults if unknown provider)
+    # Lazy import to avoid circular dep
+    from swarm.agent_runtime import LLM_PROVIDER, log
+    provider_name = provider or LLM_PROVIDER or "minimax"
+    cfg = dict(LLM_PROVIDERS.get(provider_name, LLM_PROVIDERS.get("minimax", {})))
+
+    # Allow per-provider overrides in the env
+    api_key_env = cfg.get("api_key_env", "MINIMAX_API_KEY")
+    api_key = os.environ.get(api_key_env, "")
+    # Also try legacy MINIMAX-API alias
+    if not api_key and provider_name == "minimax":
+        api_key = os.environ.get("MINIMAX-API", "")
+
+    if not api_key:
+        return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}
+
+    base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
+    model     = cfg.get("model", "MiniMax-M2.7")
+    fmt       = cfg.get("format", "anthropic")
+    max_tok   = cfg.get("max_tokens", 8096)
+
+    # Build request based on wire format
+    if fmt == "anthropic_native":
+        # Direct Anthropic API
+        url = f"{base_url}/messages"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        body = {"model": model, "max_tokens": max_tok, "system": sys_prompt, "messages": messages}
+
+    elif fmt == "openai":
+        # OpenAI-compatible (OpenRouter, local models, etc.)
+        url = f"{base_url}/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        oai_msgs = [{"role": "system", "content": sys_prompt}] + [
+            {"role": m["role"], "content": m["content"] if isinstance(m["content"], str)
+             else "".join(p.get("text", "") for p in m["content"] if p.get("type") == "text")}
+            for m in messages
+        ]
+        body = {"model": model, "max_tokens": max_tok, "messages": oai_msgs}
+
+    else:
+        # Anthropic-compatible Bearer (Minimax, OpenRouter anthropic mode, etc.)
+        url = f"{base_url}/messages"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        body = {"model": model, "max_tokens": max_tok, "system": sys_prompt, "messages": messages}
+        # Minimax group_id extra param
+        group_id = os.environ.get("MINIMAX_GROUP_ID", "")
+        if group_id and provider_name == "minimax":
+            body["group_id"] = group_id
+        # Extended thinking
+        thinking_budget = cfg.get("thinking_budget", 0)
+        if thinking_budget > 0:
+            body["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+
+    # Jitter: spread requests across the minute window to avoid RPM burst spikes.
+    # Use a shared token-bucket file so concurrent agents don't all fire at once.
+    import random as _random
+    _jitter_base = float(os.environ.get("LLM_JITTER_MIN", "1.0"))
+    _jitter_max  = float(os.environ.get("LLM_JITTER_MAX", "6.0"))
+    time.sleep(_random.uniform(_jitter_base, _jitter_max))
+
+    log(f"[LLM] provider={provider_name} model={model}")
+
+    def _parse_sse_stream(resp):
+        """Parse an Anthropic SSE stream, returning (text, tokens)."""
+        import json as _json
+        text_parts: list[str] = []
+        thinking_parts: list[str] = []
+        tokens = {"input": 0, "output": 0}
+        cache_read = cache_write = 0
+        stream_complete = False
+
+        for raw_line in resp.iter_lines(chunk_size=8192):
+            if not raw_line:
+                continue
+            if isinstance(raw_line, bytes):
+                raw_line = raw_line.decode("utf-8", errors="replace")
+            if not raw_line.startswith("data: "):
+                continue
+            data_str = raw_line[6:]
+            if data_str == "[DONE]":
+                stream_complete = True
+                break
+            try:
+                ev = _json.loads(data_str)
+            except Exception:
+                continue
+            ev_type = ev.get("type", "")
+
+            if ev_type == "message_start":
+                usage = ev.get("message", {}).get("usage", {})
+                tokens["input"] = usage.get("input_tokens", 0)
+                cache_read = usage.get("cache_read_input_tokens", 0)
+                cache_write = usage.get("cache_creation_input_tokens", 0)
+
+            elif ev_type == "content_block_delta":
+                delta = ev.get("delta", {})
+                dtype = delta.get("type", "")
+                if dtype == "text_delta":
+                    text_parts.append(delta.get("text", ""))
+                elif dtype == "thinking_delta":
+                    thinking_parts.append(delta.get("thinking", ""))
+
+            elif ev_type == "message_delta":
+                usage = ev.get("usage", {})
+                tokens["output"] = usage.get("output_tokens", 0)
+
+            elif ev_type == "message_stop":
+                stream_complete = True
+
+        if not stream_complete:
+            return "Error: stream truncated before completion", {"input": 0, "output": 0}
+        if cache_read or cache_write:
+            log(f"[LLM] cache read={cache_read} write={cache_write}")
+        if thinking_parts:
+            thinking = "".join(thinking_parts)
+            snippet = thinking[:200].replace("\n", " ")
+            log(f"[LLM] thinking: {snippet}{'…' if len(thinking) > 200 else ''}")
+        return "".join(text_parts), tokens
+
+    def _parse_response(result: dict):
+        """Parse a non-streaming response (OpenAI format fallback)."""
+        usage = result.get("usage", {})
+        tokens = {"input": usage.get("prompt_tokens", 0), "output": usage.get("completion_tokens", 0)}
+        cached = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
+        if cached:
+            log(f"[LLM] cache read={cached}")
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "No response")
+        return text, tokens
+
+    # Use streaming for anthropic formats; non-streaming for openai
+    use_stream = fmt in ("anthropic", "anthropic_native")
+    if use_stream:
+        body["stream"] = True
+
+    backoff = [10, 30, 60, 120, 240]
+    for attempt in range(7):
+        try:
+            if use_stream:
+                resp = requests.post(url, headers=headers, json=body, stream=True, timeout=(10, 300))
+                if resp.status_code == 200:
+                    return _parse_sse_stream(resp)
+                elif resp.status_code in (429, 529):
+                    wait = backoff[min(attempt, len(backoff) - 1)]
+                    log(f"Rate limited ({resp.status_code}) — waiting {wait}s (attempt {attempt+1}/7)")
+                    _record_rate_limit_event(provider_name)
+                    time.sleep(wait)
+                else:
+                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}
+            else:
+                resp = requests.post(url, headers=headers, json=body, timeout=120)
+                if resp.status_code == 200:
+                    return _parse_response(resp.json())
+                elif resp.status_code in (429, 529):
+                    wait = backoff[min(attempt, len(backoff) - 1)]
+                    log(f"Rate limited ({resp.status_code}) — waiting {wait}s (attempt {attempt+1}/7)")
+                    _record_rate_limit_event(provider_name)
+                    time.sleep(wait)
+                else:
+                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}
+        except Exception as e:
+            wait = backoff[min(attempt, len(backoff) - 1)]
+            if attempt < 6:
+                log(f"API error ({e}) — retrying in {wait}s (attempt {attempt+1}/7)")
+                time.sleep(wait)
+            else:
+                return f"Error: {e}", {"input": 0, "output": 0}
+
+    # All retries exhausted on 429 — signal orchestrator to rotate provider / cooldown spawn
+    try:
+        flag_dir = Path(__file__).parent.parent / "data"
+        flag_dir.mkdir(exist_ok=True)
+        (flag_dir / f"rate_limited_{provider_name}.flag").touch()
+        log(f"Rate limit exhausted for {provider_name} — wrote flag for provider rotation")
+    except Exception:
+        pass
+    return f"Error: {provider_name} rate limited after 7 attempts", {"input": 0, "output": 0}
+
+
+# ---------------------------------------------------------------------------
+# Main agent loop
+# ---------------------------------------------------------------------------
+

@@ -1,0 +1,11 @@
+{
+  "workspace": "~/workspace",
+  "max_lines": 5000,
+  "max_active_agents": 3,
+  "agent_timeout": 7200,
+  "godot_path": "",
+  "minimax_base_url": "https://api.minimax.io/anthropic/v1",
+  "managed_projects": [],
+  "paused_projects": [],
+  "disable_remote_repo": true
+}

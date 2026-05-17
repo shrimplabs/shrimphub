@@ -1,0 +1,1 @@
+AGENT KNOWLEDGE: At session start, PROJECT KNOWLEDGE (if any) has been injected into your task description above. At session end, if you discovered any structural facts (key file locations, class names, API patterns, gotchas) that future agents should know, call update_knowledge(content) to save them.

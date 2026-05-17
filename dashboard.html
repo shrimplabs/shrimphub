@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swarm Controller Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        window.Module = window.Module || {};
+        window.Module.TOTAL_MEMORY = 134217728;
+        window.Module.ALLOW_MEMORY_GROWTH = 1;
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="sidebar-title">Projects</div>
+        <div id="sidebar-projects"><!-- populated by JS --></div>
+    </div>
+
+    <div id="main-content">
+        <div class="timestamp">Last updated: <span id="lastUpdated">-</span></div>
+
+    <h1>
+        <span class="title-text">🐜 Swarm Controller</span>
+        <button onclick="openNewProjectModal()" class="btn-chat" title="Describe your project in chat — AI will plan tasks for you">💬 New Project (Chat)</button>
+        <button onclick="openWizard()" class="btn-wizard" title="Fill in a form — AI generates a task plan from your inputs">🧙 New Project (Wizard)</button>
+        <button onclick="openAppendPhaseModal()" class="btn-phase" title="Append a planned task phase to an existing project">➕ Append Phase</button>
+    </h1>
+    
+    <div class="summary">
+        <div class="summary-item">
+            <div class="value" id="totalProjects">-</div>
+            <div class="label">Projects</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="activeTasks">-</div>
+            <div class="label">Active</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="pendingTasks">-</div>
+            <div class="label">Pending</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="completedTasks">-</div>
+            <div class="label">Completed (24h)</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="overflowCount">-</div>
+            <div class="label">Overflow (>5K)</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="activeSubTasks">-</div>
+            <div class="label">Active Sub-tasks</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="totalTokens">-</div>
+            <div class="label">Total Tokens</div>
+        </div>
+    </div>
+    
+    <div id="metrics-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span class="metrics-title">&#x1f4ca Agent Metrics</span>
+            <button class="metrics-refresh" onclick="loadMetrics()">&#x21bb Refresh</button>
+        </div>
+        <div id="metrics-grid"></div>
+    </div>
+
+    <div class="provider-bar" id="providerBar">
+        <label>LLM Provider</label>
+        <select id="providerSelect" onchange="onProviderSelectChange()"></select>
+        <label>Model</label>
+        <input type="text" id="providerModel" placeholder="model name (optional override)">
+        <button onclick="saveProvider()">Apply</button>
+        <span class="provider-key-status" id="providerKeyStatus"></span>
+        <span style="border-left:1px solid #30363d;margin:0 8px;height:20px;display:inline-block;vertical-align:middle"></span>
+        <label>Thinking</label>
+        <button id="thinkingToggle" onclick="toggleThinking()" style="background:transparent;border:1px solid #30363d;border-radius:4px;padding:3px 10px;font-size:12px;color:#8b949e;cursor:pointer">Off</button>
+        <span style="border-left:1px solid #30363d;margin:0 8px;height:20px;display:inline-block;vertical-align:middle"></span>
+        <label>Strategy</label>
+        <select id="strategySelect" onchange="saveStrategy()" style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-size:13px">
+            <option value="priority">priority</option>
+            <option value="refactor_first">refactor_first</option>
+            <option value="round_robin">round_robin</option>
+            <option value="least_recently_worked">least_recently_worked</option>
+            <option value="dependency_aware">dependency_aware</option>
+        </select>
+    </div>
+
+    <div class="quota-bar">
+        <span class="quota-label">MiniMax quota</span>
+        <div class="quota-track"><div class="quota-fill" id="quotaFill"></div></div>
+        <span class="quota-text" id="quotaText">-</span>
+        <span class="quota-reset" id="quotaReset"></span>
+    </div>
+
+    <h2 style="cursor:pointer" onclick="toggleDeps()">Task Dependencies <span id="depsToggle" style="font-size:11px;color:#58a6ff">▲ hide</span></h2>
+    <div id="depsSection">
+        <div id="planBadge" class="deps-plan-badge" style="display:none"></div>
+        <div id="depsGraphControls">
+            <button type="button" class="deps-graph-btn" onclick="zoomDepGraph(1.15)">+</button>
+            <button type="button" class="deps-graph-btn" onclick="zoomDepGraph(1 / 1.15)">−</button>
+            <button type="button" class="deps-graph-btn" onclick="focusActiveDepGraphView()">Focus Active</button>
+            <button type="button" class="deps-graph-btn" onclick="fitDepGraphView()">Fit</button>
+            <button type="button" class="deps-graph-btn" onclick="resetDepGraphView()">Reset</button>
+            <label for="depsHistoryLimit" style="font-size:12px;color:#8b949e;margin-left:8px">Depth</label>
+            <select id="depsHistoryLimit" class="deps-graph-btn" onchange="setDepHistoryLimit(this.value)" style="padding-right:24px">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+            </select>
+            <span id="depsGraphHint">Wheel: zoom · Drag: pan · Focus Active: live tasks · 0: fit · +/-: zoom · R: reset</span>
+        </div>
+        <div id="depsSvg">
+            Loading dependency graph…
+        </div>
+        <div class="deps-legend">
+            <span><span class="deps-legend-swatch deps-legend-pending"></span>pending</span>
+            <span><span class="deps-legend-swatch deps-legend-progress"></span>in progress</span>
+            <span><span class="deps-legend-swatch deps-legend-completed"></span>completed</span>
+            <span><span class="deps-legend-swatch deps-legend-failed"></span>failed</span>
+            <span class="deps-legend-history">✓ / ✗ = completed / failed (history)</span>
+        </div>
+        <div id="integrityPanel" class="integrity-panel">
+            <div class="integrity-panel-header">
+                <div>
+                    <div class="integrity-panel-title">Integrity</div>
+                    <div class="integrity-panel-subtitle" id="integritySubtitle">Loading diagnostics…</div>
+                </div>
+                <button type="button" class="deps-graph-btn" onclick="loadIntegrityPanel()">Refresh</button>
+            </div>
+            <div id="integritySummary" class="integrity-summary"></div>
+            <div id="integrityFindings" class="integrity-findings"></div>
+            <div id="integrityActions" class="integrity-actions"></div>
+        </div>
+        <div id="depNodeDetail">
+            <div class="dep-node-detail-header">
+                <div>
+                    <span id="depNodeId"></span>
+                    <span id="depNodeBadge"></span>
+                </div>
+                <button class="dep-node-detail-close" onclick="document.getElementById('depNodeDetail').style.display='none'">×</button>
+            </div>
+            <div id="depNodeMeta"></div>
+            <pre id="depNodeDesc"></pre>
+        </div>
+    </div>
+
+    <h2>Active Agents</h2>
+    <div class="grid" id="activeTasksGrid"></div>
+
+    <h2>Pending Tasks
+        <button onclick="openAddTaskModal()" style="font-size:12px;padding:3px 10px;margin-left:10px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Task</button>
+        <button onclick="exportTasks()" style="font-size:12px;padding:3px 10px;margin-left:6px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer">↓ Export</button>
+        <label style="font-size:12px;padding:3px 10px;margin-left:6px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer">↑ Import<input type="file" accept=".yaml,.yml,.json" style="display:none" onchange="importTasks(this)"></label>
+    </h2>
+    <div class="grid" id="pendingTasksGrid"></div>
+    
+    <h2 style="cursor:pointer" onclick="toggleProjects()">Project Status & Recent Commits <span id="projectsToggle" style="font-size:11px;color:#58a6ff">▲ hide</span></h2>
+    <div id="projectsSection">
+        <div class="project-toolbar">
+            <label>Sort</label>
+            <select id="projectSortSelect" onchange="setProjectSortMode(this.value)">
+                <option value="active">active work</option>
+                <option value="recent">recently worked</option>
+                <option value="name">name</option>
+                <option value="largest">largest file</option>
+            </select>
+            <label class="project-toolbar-check">
+                <input type="checkbox" id="projectRecentOnly" onchange="setRecentProjectsOnly(this.checked)">
+                recent only
+            </label>
+            <label>Window</label>
+            <select id="projectRecentWindow" onchange="setProjectRecentWindow(this.value)">
+                <option value="1">24h</option>
+                <option value="7" selected>7d</option>
+                <option value="30">30d</option>
+            </select>
+            <span id="projectSortHint"></span>
+        </div>
+        <div class="grid" id="projectsGrid"></div>
+    </div>
+
+    <h2 style="cursor:pointer" onclick="toggleHistory()">Agent History <span id="historyToggle" style="font-size:11px;color:#58a6ff">▼ show</span></h2>
+    <div id="historySection" style="display:none">
+        <div class="grid" id="historyGrid"></div>
+    </div>
+    
+    
+<div class="modal" id="outputModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Agent Output</h3>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div id="modalTaskDesc" style="display:none;padding:8px 20px 0;font-size:12px;color:#8b949e;border-bottom:1px solid #21262d;white-space:pre-wrap;max-height:80px;overflow-y:auto"></div>
+            <div class="modal-body">
+                <div class="output-log" id="modalOutput">Loading...</div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;gap:8px;align-items:center">
+                <input id="modalHintInput" type="text" placeholder="Send hint to agent…" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 10px;font-size:12px;color:#e6edf3;display:none" onkeydown="if(event.key==='Enter')sendHintFromModal()">
+                <button id="modalHintBtn" onclick="sendHintFromModal()" style="display:none;background:#1a3a1a;color:#3fb950;border:1px solid #3fb950;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer">↩ Send Hint</button>
+                <button id="modalKillBtn" onclick="killAgentFromModal()" style="display:none;background:#6e1a1a;color:#f85149;border:1px solid #f85149;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;margin-left:auto">✕ Kill Agent</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div class="modal" id="editTaskModal" onclick="if(event.target===this)closeEditTaskModal()">
+        <div class="modal-content" style="max-width:480px">
+            <div class="modal-header">
+                <h3>Edit Task</h3>
+                <button class="modal-close" onclick="closeEditTaskModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;gap:12px">
+                    <div style="flex:1">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Type</label>
+                        <select id="editTaskType" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                            <option value="feature">feature</option>
+                            <option value="bug">bug</option>
+                            <option value="refactor">refactor</option>
+                            <option value="polish">polish</option>
+                            <option value="art_pass">🎨 Art Pass</option>
+                            <option value="qa">qa (vision)</option>
+                            <option value="hybrid_qa">qa (hybrid)</option>
+                            <option value="harness_qa">qa (harness)</option>
+                            <option value="audit">audit</option>
+                            <option value="research">research</option>
+                            <option value="plan">plan</option>
+                            <option value="python_plan">python_plan</option>
+                            <option value="project_plan">project_plan</option>
+                            <option value="triage">triage</option>
+                        </select>
+                    </div>
+                    <div style="width:80px">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Priority</label>
+                        <input id="editTaskPriority" type="number" min="1" max="100" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Description</label>
+                    <textarea id="editTaskDesc" rows="4" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Dependencies <span style="font-weight:normal;color:#6e7681">(task IDs, one per line)</span></label>
+                    <textarea id="editTaskDeps" rows="2" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box" placeholder="task-id-1&#10;task-id-2"></textarea>
+                </div>
+                <div id="editTaskDelegation" style="display:none;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 12px"></div>
+                <div id="editTaskError" style="color:#f85149;font-size:12px;display:none"></div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">
+                <button onclick="deleteTaskFromModal()" style="background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer">✕ Delete</button>
+                <div style="display:flex;gap:8px">
+                    <button onclick="closeEditTaskModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                    <button onclick="submitEditTask()" style="background:#1f6feb;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Task Modal -->
+    <div class="modal" id="resetTaskModal" onclick="if(event.target===this)closeResetModal()">
+        <div class="modal-content" style="max-width:480px">
+            <div class="modal-header">
+                <h3>↺ Reset Task</h3>
+                <button class="modal-close" onclick="closeResetModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div style="font-size:12px;color:#8b949e" id="resetTaskTitle"></div>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                    <input type="checkbox" id="resetAttemptsCheck" checked style="width:14px;height:14px">
+                    Reset attempt counter (lets it retry from 0)
+                </label>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Recovery note for the agent (optional)</label>
+                    <textarea id="resetNoteInput" rows="5" placeholder="Explain what went wrong and what the agent should do differently..." style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:12px;padding:8px;box-sizing:border-box;resize:vertical;font-family:monospace"></textarea>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Raise max attempts to</label>
+                    <input type="number" id="resetMaxAttempts" placeholder="leave blank to keep current" style="width:120px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:12px;padding:6px 8px">
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+                    <button onclick="closeResetModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                    <button onclick="submitReset()" style="background:#b08800;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer" id="resetSubmitBtn">↺ Reset Task</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Re-queue from History Modal -->
+    <div class="modal" id="requeueModal" onclick="if(event.target===this)closeRequeueModal()">
+        <div class="modal-content" style="max-width:480px">
+            <div class="modal-header">
+                <h3>↺ Re-queue Task</h3>
+                <button class="modal-close" onclick="closeRequeueModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div style="font-size:12px;color:#8b949e">Task: <span id="requeueTaskLabel" style="color:#e6edf3"></span></div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Recovery note for the agent (optional)</label>
+                    <textarea id="requeueNoteInput" rows="4" placeholder="Explain what went wrong and what the agent should do differently..." style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:12px;padding:8px;box-sizing:border-box;resize:vertical;font-family:monospace"></textarea>
+                </div>
+                <div style="font-size:11px;color:#8b949e">The task will be put back in the queue with attempt counter reset. If it was pruned, it will be resurrected from task history.</div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+                    <button onclick="closeRequeueModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                    <button onclick="submitRequeue()" style="background:#b08800;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer" id="requeueSubmitBtn">↺ Re-queue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pre-Gate Task Modal -->
+    <div class="modal" id="preGateModal" onclick="if(event.target===this)closePreGateModal()">
+        <div class="modal-content" style="max-width:480px">
+            <div class="modal-header">
+                <h3>+ Pre-Gate Task</h3>
+                <button class="modal-close" onclick="closePreGateModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div style="font-size:12px;color:#8b949e">Gate: <span id="preGateLabel" style="color:#e6edf3"></span></div>
+                <div style="display:flex;gap:12px">
+                    <div style="flex:1">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Type</label>
+                        <select id="preGateType" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                            <option value="bug">bug</option>
+                            <option value="qa">qa (vision)</option>
+                            <option value="harness_qa">qa (harness)</option>
+                            <option value="hybrid_qa">qa (hybrid)</option>
+                            <option value="feature">feature</option>
+                            <option value="polish">polish</option>
+                            <option value="research">research</option>
+                        </select>
+                    </div>
+                    <div style="width:80px">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Priority</label>
+                        <input id="preGatePriority" type="number" min="1" max="100" value="95" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Description</label>
+                    <textarea id="preGateDesc" rows="4" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box" placeholder="Describe the fix or check that must pass before this gate releases..."></textarea>
+                </div>
+                <div id="preGateError" style="display:none;color:#f85149;font-size:12px"></div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+                    <button onclick="closePreGateModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                    <button onclick="submitPreGateTask()" style="background:#b08800;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer" id="preGateSubmitBtn">+ Insert Task</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Task Modal -->
+    <div class="modal" id="addTaskModal" onclick="if(event.target===this)closeAddTaskModal()">
+        <div class="modal-content" style="max-width:480px">
+            <div class="modal-header">
+                <h3>Add Task</h3>
+                <button class="modal-close" onclick="closeAddTaskModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project</label>
+                    <select id="addTaskProject" onchange="_refreshAddTaskDepChips()" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px"></select>
+                    <div id="addTaskProjectHint" style="display:none;margin-top:6px;font-size:11px;color:#8b949e"></div>
+                </div>
+                <div style="display:flex;gap:12px">
+                    <div style="flex:1">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Type</label>
+                        <select id="addTaskType" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                            <option value="feature">feature</option>
+                            <option value="bug">bug</option>
+                            <option value="refactor">refactor</option>
+                            <option value="polish">polish</option>
+                            <option value="art_pass">🎨 Art Pass</option>
+                            <option value="qa">qa (vision)</option>
+                            <option value="hybrid_qa">qa (hybrid)</option>
+                            <option value="harness_qa">qa (harness)</option>
+                            <option value="audit">audit</option>
+                            <option value="research">research</option>
+                            <option value="plan">plan</option>
+                            <option value="python_plan">python_plan</option>
+                            <option value="project_plan">project_plan</option>
+                            <option value="triage">triage</option>
+                        </select>
+                    </div>
+                    <div style="width:80px">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Priority</label>
+                        <input id="addTaskPriority" type="number" min="1" max="100" value="50" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Description</label>
+                    <textarea id="addTaskDesc" rows="4" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box" placeholder="Describe what the agent should do..."></textarea>
+                </div>
+                <div id="addTaskDepsSection" style="display:none">
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:6px">Depends on <span id="addTaskDepsCount" style="color:#58a6ff"></span></label>
+                    <div id="addTaskDepChips" style="display:flex;flex-wrap:wrap;gap:6px;max-height:130px;overflow-y:auto;padding:2px 0"></div>
+                </div>
+                <div id="addTaskError" style="color:#f85149;font-size:12px;display:none"></div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:flex-end;gap:8px">
+                <button onclick="closeAddTaskModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                <button onclick="submitAddTask()" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Add Task</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Append Phase Modal -->
+    <div class="modal" id="appendPhaseModal" onclick="if(event.target===this)closeAppendPhaseModal()">
+        <div class="modal-content" style="max-width:760px">
+            <div class="modal-header">
+                <h3>➕ Append Project Phase</h3>
+                <button class="modal-close" onclick="closeAppendPhaseModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                <div style="font-size:12px;color:#8b949e;line-height:1.5">
+                    Adds a new task graph after an existing task. Use the QA checkpoint and manual gate when you want the project to pause for testing before the next phase starts.
+                </div>
+                <div style="display:flex;gap:12px">
+                    <div style="flex:1">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project</label>
+                        <select id="appendPhaseProject" onchange="refreshAppendPhaseAnchorHints()" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px"></select>
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Phase name</label>
+                        <input id="appendPhaseName" type="text" placeholder="Phase 2 Strategic Depth" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Anchor task ID <span style="color:#6e7681">(optional; blank uses current project head)</span></label>
+                    <input id="appendPhaseAnchor" list="appendPhaseAnchorOptions" type="text" placeholder="e.g. project-us-018" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                    <datalist id="appendPhaseAnchorOptions"></datalist>
+                    <div id="appendPhaseAnchorHint" style="font-size:11px;color:#6e7681;margin-top:4px"></div>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Overview / PRD note</label>
+                    <textarea id="appendPhaseOverview" rows="3" placeholder="Briefly describe what this phase adds..." style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+                </div>
+                <div>
+                    <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Phase tasks JSON <span style="color:#6e7681">(array, or object with a tasks array)</span></label>
+                    <textarea id="appendPhaseTasks" rows="11" spellcheck="false" placeholder='[
+  {
+    "id": "my-project-p2-001",
+    "type": "feature",
+    "priority": 80,
+    "description": "P2-001: New system...",
+    "dependencies": []
+  }
+]' style="width:100%;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:8px 10px;font-size:12px;font-family:&quot;JetBrains Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical;box-sizing:border-box"></textarea>
+                </div>
+                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center">
+                        <input id="appendPhaseQa" type="checkbox" checked>
+                        Add QA checkpoint before phase
+                    </label>
+                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center">
+                        <input id="appendPhaseGate" type="checkbox" checked>
+                        Add manual phase gate
+                    </label>
+                </div>
+                <div id="appendPhaseError" style="color:#f85149;font-size:12px;display:none;white-space:pre-wrap"></div>
+                <div id="appendPhaseResult" style="color:#3fb950;font-size:12px;display:none;white-space:pre-wrap"></div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:flex-end;gap:8px">
+                <button onclick="closeAppendPhaseModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                <button onclick="submitAppendPhase()" id="appendPhaseSubmitBtn" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Append Phase</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Wizard Modal -->
+    <div class="modal" id="wizardModal" onclick="if(event.target===this)closeWizard()">
+        <div class="modal-content" style="max-width:640px">
+            <div class="modal-header">
+                <h3 id="wizardTitle">🧙 New Project — Wizard</h3>
+                <button class="modal-close" onclick="closeWizard()">×</button>
+            </div>
+
+            <!-- Step 1: Describe -->
+            <div id="wizardStep1">
+                <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+                    <div style="display:flex;gap:12px">
+                        <div style="flex:2">
+                            <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project name <span style="color:#6e7681">(must match workspace folder)</span></label>
+                            <input id="wzProjectName" type="text" placeholder="e.g. my-game"
+                                style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                        </div>
+                        <div style="flex:1">
+                            <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project type</label>
+                            <select id="wzProjectType" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                                <option value="godot">Godot game</option>
+                                <option value="python">Python</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">What are you building? <span style="color:#6e7681">(be specific — agents will use this)</span></label>
+                        <textarea id="wzDescription" rows="5"
+                            style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"
+                            placeholder="Describe the project goal, key features, tech choices, anything the agents should know…"></textarea>
+                    </div>
+                    <div style="display:flex;gap:12px;align-items:flex-end">
+                        <div style="flex:1">
+                            <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Min tasks</label>
+                            <input id="wzMinTasks" type="number" value="10" min="1" max="200"
+                                style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                        </div>
+                        <div style="flex:1">
+                            <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Max tasks</label>
+                            <input id="wzMaxTasks" type="number" value="80" min="1" max="300"
+                                style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                        </div>
+                        <div style="flex:3;padding-bottom:1px">
+                            <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Scope hint</label>
+                            <select id="wzScope" onchange="wzApplyScope(this.value)" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
+                                <option value="">— custom —</option>
+                                <option value="tiny">Tiny (prototype / jam, 5–15)</option>
+                                <option value="small">Small (simple app, 15–30)</option>
+                                <option value="medium" selected>Medium (typical game, 30–80)</option>
+                                <option value="large">Large (complex game, 60–120)</option>
+                                <option value="epic">Epic (full product, 100–200)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project notes <span style="color:#6e7681">(optional — prepended to every agent prompt)</span></label>
+                        <textarea id="wzNotes" rows="2"
+                            style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"
+                            placeholder="e.g. Always use camelCase. Main scene is scenes/main.tscn."></textarea>
+                    </div>
+                    <div id="wizardStep1Error" style="color:#f85149;font-size:12px;display:none"></div>
+                </div>
+                <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:flex-end;gap:8px">
+                    <button onclick="closeWizard()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                    <button onclick="wizardGeneratePlan()" id="wzGenerateBtn" style="background:#1f6feb;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">✨ Generate Plan →</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Review & edit tasks -->
+            <div id="wizardStep2" style="display:none">
+                <div class="modal-body" style="padding:16px 20px">
+                    <div id="wzLoadingMsg" style="text-align:center;padding:32px;color:#8b949e;font-size:14px">
+                        <div style="font-size:24px;margin-bottom:8px">✨</div>
+                        Asking the LLM to plan your project…
+                    </div>
+                    <div id="wzTaskList" style="display:none;display:flex;flex-direction:column;gap:8px"></div>
+                    <div style="margin-top:10px;display:none" id="wzAddTaskRow">
+                        <button onclick="wzAddTask()" style="background:transparent;color:#3fb950;border:1px solid #3fb950;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer">+ Add task</button>
+                    </div>
+                    <div id="wizardStep2Error" style="color:#f85149;font-size:12px;margin-top:8px;display:none"></div>
+                </div>
+                <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">
+                    <button onclick="wizardBack()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">← Back</button>
+                    <div style="display:flex;gap:8px">
+                        <button onclick="closeWizard()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
+                        <button onclick="wizardCreate()" id="wzCreateBtn" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 20px;font-size:12px;cursor:pointer;display:none">✓ Create Project & Tasks</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="refresh-btn" onclick="toggleChat()" id="chatToggleBtn" title="Ask the swarm manager">💬 Ask Manager</button>
+
+    <div style="margin:8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e">
+        <label title="POST a JSON summary here when the queue empties">🔔 Webhook:</label>
+        <input id="webhookUrl" type="url" placeholder="Discord / Slack / ntfy URL (fires when queue empties)"
+            style="flex:1;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px"
+            onblur="saveWebhook()">
+        <button onclick="testWebhook()" style="background:transparent;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap">⚡ Test</button>
+        <span id="webhookTestStatus" style="font-size:11px;color:#8b949e"></span>
+    </div>
+
+    <div style="margin:8px 0;font-size:12px;color:#8b949e">
+        <details>
+            <summary style="cursor:pointer;color:#8b949e;user-select:none">👁 Vision Providers (QA agent)</summary>
+            <div style="margin-top:8px;padding:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label style="min-width:120px">Powerful model:</label>
+                    <input id="visionProvider" placeholder="claude" style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px">
+                    <label style="min-width:80px">Fast model:</label>
+                    <input id="visionProviderFast" placeholder="(same as powerful)" style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px">
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label style="min-width:120px">Providers JSON:</label>
+                    <textarea id="visionProvidersJson" rows="4" placeholder='{"claude":{"format":"anthropic_native","model":"claude-sonnet-4-6","api_key_env":"ANTHROPIC_API_KEY"}}'
+                        style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;font-family:monospace;resize:vertical"></textarea>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button onclick="saveVisionProviders()" style="background:#1f6feb;color:white;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer">💾 Save</button>
+                    <span id="visionSaveStatus" style="font-size:11px;color:#8b949e;align-self:center"></span>
+                </div>
+                <div style="font-size:11px;color:#6e7681">
+                    Format: <code>anthropic_native</code> (Claude) · <code>openai</code> (ollama/mlx) · <code>mcp</code> (Minimax). Provider names match the "Powerful/Fast" fields above.
+                </div>
+            </div>
+        </details>
+    </div>
+
+    <div class="spawn-bar">
+        <label>Max</label>
+        <input type="number" id="maxAgents" value="7" min="1" max="99" onchange="setMaxAgents()" title="Max concurrent agents">
+        <label style="margin-right:8px;border-right:1px solid #30363d;padding-right:8px;">cap</label>
+        <label>QA cycles</label>
+        <input type="number" id="qaMaxCycles" value="3" min="1" max="20" onchange="setQaMaxCycles()" title="Max QA requeue cycles before stopping">
+        <label style="margin-right:8px;border-right:1px solid #30363d;padding-right:8px;">max</label>
+        <label>Spawn</label>
+        <input type="number" id="spawnCount" value="3" min="1" max="99">
+        <label>agents</label>
+        <button id="spawnBtn" onclick="spawnAgents()">▶ Run</button>
+        <button onclick="spawnAll()" style="background:#6e40c9">▶▶ Run All</button>
+        <button id="autoBtn" onclick="toggleAuto()" style="background:#30363d;border:1px solid #58a6ff;color:#58a6ff">⟳ Auto: Off</button>
+        <button id="killAllBtn" onclick="killAllAgents()" style="background:#6e1a1a;color:#f85149;border:1px solid #f85149;margin-left:12px">⏹ Kill All</button>
+        <span class="spawn-status" id="spawnStatus"></span>
+    </div>
+
+
+    <!-- New Project Modal -->
+    <!-- New Project Chat Panel -->
+    <div id="newProjectPanel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;justify-content:center;align-items:center">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:560px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
+            <div style="padding:16px 20px;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between">
+                <div>
+                    <div style="font-size:15px;font-weight:600">💬 New Project — Chat</div>
+                    <div style="font-size:12px;color:#8b949e;margin-top:2px">Describe your idea — the AI will ask questions and generate a task plan</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <select id="npProjectType" onchange="handleNpProjectTypeChange()" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;padding:5px 8px;font-size:12px;cursor:pointer" title="Choose whether this chat designs a game or software project">
+                        <option value="godot">Game</option>
+                        <option value="python">Software</option>
+                    </select>
+                    <button onclick="generateNpIdeas()" id="npIdeasBtn" style="background:#1f6feb;border:1px solid #58a6ff;color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer" title="Generate game and programming project ideas">Ideas</button>
+                    <button onclick="startFreshNewProjectChat()" style="background:transparent;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">New Chat</button>
+                    <button onclick="closeNewProjectPanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:0 4px;line-height:1">×</button>
+                </div>
+            </div>
+            <div id="npMessages" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;min-height:200px;max-height:460px"></div>
+            <div id="npCreatedBanner" style="display:none;padding:10px 20px;background:#0d2818;border-top:1px solid #238636;color:#3fb950;font-size:13px"></div>
+            <div style="padding:12px 16px;border-top:1px solid #30363d;display:flex;gap:8px">
+                <textarea id="npInput" rows="2" placeholder="Tell me about your project idea..." style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;padding:8px 10px;font-size:13px;font-family:inherit;resize:none;outline:none"></textarea>
+                <button onclick="sendNpMessage()" id="npSendBtn" style="background:#238636;color:#fff;border:none;border-radius:6px;padding:0 16px;font-size:18px;cursor:pointer;align-self:stretch">↑</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Chat Panel -->
+
+    <div id="chatPanel">
+        <div id="chatHeader">
+            <span>💬 Swarm Manager</span>
+            <button onclick="toggleChat()" title="Close">✕</button>
+        </div>
+        <div id="chatMessages">
+            <div class="chat-msg assistant">Hi! I can observe the swarm and take actions — kill agents, create bug tasks, toggle auto mode, or restart the server. What do you need?</div>
+        </div>
+        <div id="chatInputRow">
+            <textarea id="chatInput" placeholder="Ask about status, or say 'kill all agents', 'create a bug task for...'" rows="1"></textarea>
+            <button id="chatSendBtn" onclick="sendChat()">Send</button>
+        </div>
+    </div>
+
+    </div><!-- /main-content -->
+
+    <script src="dashboard_deps_integrity.js?v=20260409d"></script>
+    <script src="dashboard_closure.js?v=20260501b"></script>
+    <script src="dashboard.js?v=20260501b"></script>
+</body>
+</html>

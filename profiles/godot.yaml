@@ -1,0 +1,73 @@
+# Godot Project Profile
+# Configuration for Godot/GDScript projects
+
+name: godot
+description: Godot game engine projects using GDScript
+
+# Language and framework
+language: GDScript
+framework: godot
+
+# File extensions to scan
+file_extensions:
+  - .gd
+  - .gdshader
+
+# Max lines before refactor is triggered
+max_lines: 5000
+
+# Directories to ignore
+ignore_dirs:
+  - addons
+  - .godot
+  - .git
+  - export
+  - builds
+
+# File extensions to never modify
+ignore_extensions:
+  - .fbx
+  - .obj
+  - .glb
+  - .gltf
+  - .blend
+  - .png
+  - .jpg
+  - .jpeg
+  - .webp
+  - .svg
+  - .wav
+  - .mp3
+  - .ogg
+  - .opus
+  - .ttf
+  - .otf
+  - .woff
+  - .zip
+  - .tar
+  - .gz
+  - .import
+  - .uid
+
+# Prompt template to use (from prompts/ directory)
+prompt_template: refactor
+
+# Test command
+test_command: godot --headless --script res://test_runner.gd
+
+# Build command
+build_command: godot --headless --export-pack "Linux" export/game.pck
+
+# Task types enabled
+task_types:
+  - refactor
+  - feature
+  - bug
+  - polish
+
+# Priority order (highest first)
+priority_order:
+  - refactor
+  - bug
+  - feature
+  - polish

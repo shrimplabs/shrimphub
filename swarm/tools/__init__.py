@@ -1,0 +1,47 @@
+"""
+swarm.tools — agent tool function modules.
+
+Re-exports all public tool functions for backwards compatibility.
+Config vars are set via _sync_core_globals() / _sync_knowledge_globals()
+in agent_runtime.py (same pattern as _sync_qa_tools_globals).
+"""
+
+from swarm.tools.core import (  # noqa: F401
+    broadcast_read,
+    broadcast_write,
+    log,
+    _project_root,
+    _safe_cwd,
+    run,
+    read_file,
+    list_files,
+    search_code,
+    get_file_stats,
+    get_file_outline,
+    read_file_range,
+    patch_file,
+    write_file,
+    append_file,
+    run_command,
+    git_commit,
+    git_push,
+    mcp_call_tool,
+    mcp_list_tools,
+    rag_query,
+    web_search,
+    fetch_url,
+    create_task,
+    create_tasks_file_aware,
+    list_tasks,
+    list_subtasks,
+)
+
+from swarm.tools.knowledge import (  # noqa: F401
+    scratchpad_write,
+    scratchpad_read,
+    read_agent_knowledge,
+    update_knowledge,
+    get_task_context,
+    read_shared_knowledge,
+    update_shared_knowledge,
+)
