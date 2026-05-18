@@ -124,12 +124,45 @@ def _post_task_validation_in_worktree(
         return False
 
     def _detect_type():
+        # .swarm_validate always wins — project declares its own validator
+        if (project_path / ".swarm_validate").exists():
+            return "custom"
         if (project_path / "project.godot").exists():
             return "godot"
         if (project_path / "requirements.txt").exists() or (project_path / "pyproject.toml").exists():
             return "python"
         if _has_python_sources(project_path):
             return "python"
+        # Swift / iOS
+        if (
+            (project_path / "Package.swift").exists()
+            or any(project_path.glob("*.xcodeproj"))
+            or any(project_path.glob("*.xcworkspace"))
+        ):
+            return "swift"
+        # Unity
+        if (project_path / "ProjectSettings" / "ProjectVersion.txt").exists():
+            return "unity"
+        # Node / TypeScript
+        if (project_path / "package.json").exists():
+            return "node"
+        # Rust
+        if (project_path / "Cargo.toml").exists():
+            return "rust"
+        # Go
+        if (project_path / "go.mod").exists():
+            return "go"
+        # C# (standalone — not Unity)
+        if any(project_path.glob("*.csproj")) or any(project_path.glob("*.sln")):
+            return "csharp"
+        # C / C++
+        if (
+            (project_path / "CMakeLists.txt").exists()
+            or any(project_path.glob("*.vcxproj"))
+            or (project_path / "Makefile").exists()
+            or (project_path / "makefile").exists()
+        ):
+            return "cpp"
         return "unknown"
 
     project_type = _detect_type()
@@ -496,9 +529,298 @@ func _initialize():
                     error_output = str(e)
                     break
             if not validation_passed and not validation_failed:
-                # All patterns failed with "no such file" — no .py files found
+                # All patterns failed with "no such file" — no .py files found, skip cleanly
+                print(f"[PostValidation] No Python files found for {project} — skipping py_compile")
+
+    elif project_type == "custom":
+        # .swarm_validate: one line, shell command, exit code = result
+        try:
+            cmd_text = (project_path / ".swarm_validate").read_text().strip()
+            if cmd_text:
+                result = subprocess.run(
+                    cmd_text, shell=True, cwd=project_path,
+                    capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] .swarm_validate FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] .swarm_validate passed for {project} {task_id}")
+            else:
+                print(f"[PostValidation] .swarm_validate is empty for {project} — skipping")
+        except Exception as e:
+            print(f"[PostValidation] .swarm_validate error for {project}: {e}")
+
+    elif project_type == "swift":
+        # Collect all .swift files excluding .build/
+        swift_files = [
+            str(f.relative_to(project_path))
+            for f in project_path.rglob("*.swift")
+            if ".build" not in f.parts and ".swiftpm" not in f.parts
+        ]
+        if swift_files:
+            try:
+                result = subprocess.run(
+                    ["swiftc", "-parse"] + swift_files,
+                    cwd=project_path, capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] swiftc -parse FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] swiftc -parse passed for {project} {task_id} ({len(swift_files)} files)")
+            except FileNotFoundError:
+                print(f"[PostValidation] swiftc not found for {project} — skipping Swift validation")
+            except Exception as e:
+                print(f"[PostValidation] Swift validation error for {project}: {e}")
+        else:
+            print(f"[PostValidation] No .swift files found for {project} — skipping")
+
+    elif project_type == "unity":
+        # Preferred: dotnet build on the generated .csproj (Unity generates these in project root)
+        # Fallback: Unity's bundled mcs --parse for syntax checking
+        # Unity editor generates Assembly-CSharp.csproj when project is opened/synced.
+        csproj_files = list(project_path.glob("*.csproj"))
+        if csproj_files:
+            try:
+                result = subprocess.run(
+                    ["dotnet", "build", str(csproj_files[0]), "--nologo", "-v", "quiet"],
+                    cwd=project_path, capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] dotnet build FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] dotnet build passed for {project} {task_id}")
+            except FileNotFoundError:
+                print(f"[PostValidation] dotnet not found for {project} — falling back to mcs --parse")
+                csproj_files = []  # fall through to mcs below
+            except Exception as e:
+                print(f"[PostValidation] Unity dotnet build error for {project}: {e}")
+
+        if not csproj_files and not validation_failed:
+            # No .csproj yet (project not opened in editor) — use mcs --parse for syntax check.
+            # Prefer Unity's bundled mcs over system mono; find highest installed editor version.
+            unity_mcs = None
+            _unity_hub_candidates = [
+                # macOS
+                Path("/Applications/Unity/Hub/Editor"),
+                # Windows
+                Path("C:/Program Files/Unity/Hub/Editor"),
+                Path("C:/Program Files (x86)/Unity/Hub/Editor"),
+                # Linux
+                Path.home() / "Unity/Hub/Editor",
+                Path("/opt/unity/hub/editor"),
+                Path("/opt/Unity/Hub/Editor"),
+            ]
+            _mcs_rel = {
+                "darwin": "Unity.app/Contents/Resources/Scripting/MonoBleedingEdge/bin/mcs",
+                "win32": "Editor/Data/MonoBleedingEdge/bin/mcs.bat",
+                "linux": "Editor/Data/MonoBleedingEdge/bin/mcs",
+            }
+            import platform as _platform
+            _sys = _platform.system().lower()
+            _mcs_suffix = (
+                _mcs_rel["darwin"] if _sys == "darwin"
+                else _mcs_rel["win32"] if _sys == "windows"
+                else _mcs_rel["linux"]
+            )
+            for _hub in _unity_hub_candidates:
+                if not _hub.exists():
+                    continue
+                for editor_dir in sorted(_hub.iterdir(), reverse=True):
+                    candidate = editor_dir / _mcs_suffix
+                    if candidate.exists():
+                        unity_mcs = str(candidate)
+                        break
+                if unity_mcs:
+                    break
+            mcs_cmd = unity_mcs or "mcs"
+
+            cs_files = list(project_path.rglob("Assets/**/*.cs"))
+            if not cs_files:
+                cs_files = [f for f in project_path.rglob("*.cs") if "Library" not in f.parts and "Temp" not in f.parts]
+            if cs_files:
+                try:
+                    result = subprocess.run(
+                        [mcs_cmd, "--parse"] + [str(f) for f in cs_files[:200]],
+                        cwd=project_path, capture_output=True, text=True, timeout=60,
+                    )
+                    if result.returncode != 0:
+                        validation_failed = True
+                        error_output = (result.stdout or "") + (result.stderr or "")
+                        print(f"[PostValidation] mcs --parse FAILED for {project} {task_id}")
+                    else:
+                        src = "Unity bundled mcs" if unity_mcs else "system mcs"
+                        print(f"[PostValidation] mcs --parse passed for {project} {task_id} ({len(cs_files)} files, {src})")
+                except FileNotFoundError:
+                    print(f"[PostValidation] mcs not found for {project} — skipping Unity validation")
+                except Exception as e:
+                    print(f"[PostValidation] Unity mcs --parse error for {project}: {e}")
+            else:
+                print(f"[PostValidation] No .cs files found for {project} — skipping Unity validation")
+
+    elif project_type == "node":
+        # Use tsc --noEmit if tsconfig.json exists, else node --check on entry point
+        tsconfig = project_path / "tsconfig.json"
+        if tsconfig.exists():
+            try:
+                # Prefer local tsc; fall back to global
+                local_tsc = project_path / "node_modules" / ".bin" / "tsc"
+                tsc_cmd = str(local_tsc) if local_tsc.exists() else "tsc"
+                result = subprocess.run(
+                    [tsc_cmd, "--noEmit"],
+                    cwd=project_path, capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] tsc --noEmit FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] tsc --noEmit passed for {project} {task_id}")
+            except FileNotFoundError:
+                print(f"[PostValidation] tsc not found for {project} — skipping TypeScript validation")
+            except Exception as e:
+                print(f"[PostValidation] Node/TS validation error for {project}: {e}")
+        else:
+            # Plain JS — check main entry if declared in package.json
+            try:
+                import json as _json
+                pkg = _json.loads((project_path / "package.json").read_text())
+                main = pkg.get("main") or pkg.get("module")
+                if main and (project_path / main).exists():
+                    result = subprocess.run(
+                        ["node", "--check", main],
+                        cwd=project_path, capture_output=True, text=True, timeout=30,
+                    )
+                    if result.returncode != 0:
+                        validation_failed = True
+                        error_output = (result.stdout or "") + (result.stderr or "")
+                        print(f"[PostValidation] node --check FAILED for {project} {task_id}")
+                    else:
+                        print(f"[PostValidation] node --check passed for {project} {task_id}: {main}")
+                else:
+                    print(f"[PostValidation] No tsconfig or main entry for {project} — skipping Node validation")
+            except Exception as e:
+                print(f"[PostValidation] Node validation error for {project}: {e}")
+
+    elif project_type == "rust":
+        try:
+            result = subprocess.run(
+                ["cargo", "check", "--quiet"],
+                cwd=project_path, capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode != 0:
                 validation_failed = True
-                error_output = f"No Python files found matching {patterns}"
+                error_output = (result.stdout or "") + (result.stderr or "")
+                print(f"[PostValidation] cargo check FAILED for {project} {task_id}")
+            else:
+                print(f"[PostValidation] cargo check passed for {project} {task_id}")
+        except FileNotFoundError:
+            print(f"[PostValidation] cargo not found for {project} — skipping Rust validation")
+        except Exception as e:
+            print(f"[PostValidation] Rust validation error for {project}: {e}")
+
+    elif project_type == "go":
+        try:
+            result = subprocess.run(
+                ["go", "build", "./..."],
+                cwd=project_path, capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                validation_failed = True
+                error_output = (result.stdout or "") + (result.stderr or "")
+                print(f"[PostValidation] go build FAILED for {project} {task_id}")
+            else:
+                print(f"[PostValidation] go build passed for {project} {task_id}")
+        except FileNotFoundError:
+            print(f"[PostValidation] go not found for {project} — skipping Go validation")
+        except Exception as e:
+            print(f"[PostValidation] Go validation error for {project}: {e}")
+
+    elif project_type == "csharp":
+        # Prefer solution file; fall back to first .csproj found
+        sln_files = list(project_path.glob("*.sln"))
+        csproj_files = list(project_path.glob("*.csproj"))
+        build_target = str(sln_files[0]) if sln_files else (str(csproj_files[0]) if csproj_files else None)
+        if build_target:
+            try:
+                result = subprocess.run(
+                    ["dotnet", "build", build_target, "--nologo", "-v", "quiet"],
+                    cwd=project_path, capture_output=True, text=True, timeout=180,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] dotnet build FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] dotnet build passed for {project} {task_id}")
+            except FileNotFoundError:
+                print(f"[PostValidation] dotnet not found for {project} — skipping C# validation")
+            except Exception as e:
+                print(f"[PostValidation] C# validation error for {project}: {e}")
+        else:
+            print(f"[PostValidation] No .sln or .csproj found for {project} — skipping C# validation")
+
+    elif project_type == "cpp":
+        cmake = project_path / "CMakeLists.txt"
+        build_dir = project_path / "build"
+        try:
+            if cmake.exists():
+                if build_dir.exists():
+                    # Already configured — just build
+                    result = subprocess.run(
+                        ["cmake", "--build", str(build_dir), "--", "-j4"],
+                        cwd=project_path, capture_output=True, text=True, timeout=300,
+                    )
+                else:
+                    # Configure only — catches most syntax and link errors without a full build
+                    result = subprocess.run(
+                        ["cmake", "-S", ".", "-B", "build"],
+                        cwd=project_path, capture_output=True, text=True, timeout=120,
+                    )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] cmake FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] cmake passed for {project} {task_id}")
+            elif (project_path / "Makefile").exists() or (project_path / "makefile").exists():
+                # Dry run — checks syntax without actually compiling
+                result = subprocess.run(
+                    ["make", "-n"],
+                    cwd=project_path, capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] make -n FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] make -n passed for {project} {task_id}")
+            elif any(project_path.glob("*.vcxproj")):
+                # MSBuild (Windows) — dotnet build handles .vcxproj on modern toolchains
+                vcxproj = next(project_path.glob("*.vcxproj"))
+                result = subprocess.run(
+                    ["dotnet", "build", str(vcxproj), "--nologo", "-v", "quiet"],
+                    cwd=project_path, capture_output=True, text=True, timeout=180,
+                )
+                if result.returncode != 0:
+                    validation_failed = True
+                    error_output = (result.stdout or "") + (result.stderr or "")
+                    print(f"[PostValidation] msbuild FAILED for {project} {task_id}")
+                else:
+                    print(f"[PostValidation] msbuild passed for {project} {task_id}")
+        except FileNotFoundError as e:
+            print(f"[PostValidation] C++ build tool not found for {project} ({e}) — skipping")
+        except Exception as e:
+            print(f"[PostValidation] C++ validation error for {project}: {e}")
+
+    else:
+        # unknown — skip cleanly, never false-positive
+        print(f"[PostValidation] Unknown project type for {project} — skipping validation")
 
     if validation_failed and error_output:
         print(f"[PostValidation] Failed for {project} (path={project_path.name})")

@@ -1730,8 +1730,8 @@ def prune_history():
         with task_history_file.open("a") as f:
             for task in finished_tasks:
                 f.write(json.dumps(task) + "\n")
-        # Prune task-history.jsonl: keep only the last 2000 entries
-        _TASK_HISTORY_MAX = 2000
+        # Prune task-history.jsonl: keep only the last 20000 entries
+        _TASK_HISTORY_MAX = 20000
         try:
             existing = task_history_file.read_text().splitlines()
             if len(existing) > _TASK_HISTORY_MAX:
