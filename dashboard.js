@@ -1,6 +1,32 @@
 // file:// gives origin="null"; fall back to localhost for local dev/testing
 const API = (window.location.protocol === 'file:') ? 'http://localhost:5001' : window.location.origin;
 
+/* ─── Theme switcher ─────────────────────────────────────────────── */
+const THEMES = ['cyberpunk', 'dark', 'light'];
+const THEME_LABELS = { cyberpunk: '🌆', dark: '🌑', light: '☀️' };
+
+function initTheme() {
+    const saved = localStorage.getItem('swarm-theme') || 'cyberpunk';
+    applyTheme(saved);
+}
+
+function applyTheme(theme) {
+    document.body.setAttribute('data-theme', theme);
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = THEME_LABELS[theme] || '🎨';
+    localStorage.setItem('swarm-theme', theme);
+}
+
+function cycleTheme() {
+    const current = document.body.getAttribute('data-theme') || 'cyberpunk';
+    const idx = THEMES.indexOf(current);
+    const next = THEMES[(idx + 1) % THEMES.length];
+    applyTheme(next);
+}
+
+// Apply before first paint
+initTheme();
+
 async function loadData() {
         console.log('Loading data...');
     try {
