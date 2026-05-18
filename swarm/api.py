@@ -550,14 +550,29 @@ def create_app(
         data = request.json or {}
         if "managed_projects" in data:
             requested = {str(name) for name in data["managed_projects"]}
-            for name, proj in project_registry.get_all().items():
-                project_registry.set_managed(name, name in requested)
-            for name in requested:
-                if not project_registry.get(name):
-                    project_registry.add_project(name, managed=True)
-                else:
-                    project_registry.set_managed(name, True)
-            config["managed_projects"] = sorted(requested)
+            merge = bool(data.get("merge", False))
+            if merge:
+                # Additive: add requested projects without unmanaging anything else
+                for name in requested:
+                    if not project_registry.get(name):
+                        project_registry.add_project(name, managed=True)
+                    else:
+                        project_registry.set_managed(name, True)
+            else:
+                # Replace: unmanage everything not in the list, but guard against
+                # accidental empty-list wipe.
+                if requested:
+                    for name, proj in project_registry.get_all().items():
+                        project_registry.set_managed(name, name in requested)
+                for name in requested:
+                    if not project_registry.get(name):
+                        project_registry.add_project(name, managed=True)
+                    else:
+                        project_registry.set_managed(name, True)
+            config["managed_projects"] = sorted(
+                n for n, p in project_registry.get_all().items()
+                if getattr(p, "managed", True)
+            )
             orchestrator.MANAGED_PROJECTS = config["managed_projects"]
         if "paused_projects" in data:
             orchestrator.PAUSED_PROJECTS = list(data["paused_projects"])

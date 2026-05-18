@@ -575,10 +575,7 @@ def swarm_register_project(name: str, managed: bool = True) -> str:
         current = _get("/api/managed-projects")
         if "error" in current:
             return f"Project registered but could not fetch managed list: {current['error']}"
-        mp = current.get("managed_projects", [])
-        if name not in mp:
-            mp.append(name)
-        upd = _post("/api/managed-projects", {"managed_projects": mp})
+        upd = _post("/api/managed-projects", {"managed_projects": [name], "merge": True})
         if "error" in upd:
             return f"Project registered but could not add to managed list: {upd['error']}"
         return f"Project '{name}' registered and added to managed_projects.\n{json.dumps(upd, indent=2)}"
