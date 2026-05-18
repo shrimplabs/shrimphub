@@ -93,13 +93,14 @@ def install_gut_into_project(project_path: Path, version: str = GUT_VERSION) -> 
     shutil.copytree(cached, project_addon, dirs_exist_ok=True)
 
     # Register GUT class_names so headless GUT runs don't fail with
-    # "Some GUT class_names have not been imported".
+    # "Some GUT class_names have not been imported". Run in background so
+    # project creation doesn't block waiting for Godot to finish importing.
     from swarm.platform import resolve_godot_binary
     godot = resolve_godot_binary()
-    subprocess.run(
-        [godot, "--headless", "--path", str(project_path), "--import"],
-        capture_output=True,
-        timeout=120,
+    subprocess.Popen(
+        [godot, "--headless", "--path", str(project_path), "--import", "--quit"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     return project_addon
