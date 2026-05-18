@@ -2489,6 +2489,7 @@ loadPausedProjects();
 setInterval(() => { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }, 5000);
 setInterval(syncAutoMode, 5000);
 setInterval(syncProviders, 30000);
+setInterval(loadMetrics, 30000);
 let _npHistory = [];
 let _npCreated = false;
 let _npTasksPreview = [];
