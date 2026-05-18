@@ -897,11 +897,13 @@ def _spawn_validation_bug_task(
     # that will permanently block the bug task.
     completed_ids = db.task_get_completed_ids()
     active_ids = {t["id"] for t in db.task_get_all()}
-    bug_task_deps = (
-        [original_task_id]
-        if original_task_id in active_ids and original_task_id not in completed_ids
-        else []
-    )
+    if original_task_id in active_ids and original_task_id not in completed_ids:
+        bug_task_deps = [original_task_id]
+    else:
+        # Original task is gone — chain to project head so the bug task
+        # is never a free-floating node in the dependency graph.
+        from swarm.task_chains import chain_to_project_head
+        bug_task_deps = chain_to_project_head(db, project, task_id=bug_task_id, ensure_head=True)
 
     # Decay priority with chain depth so nested bug chains don't crowd out feature work.
     # base 100, -5 per level, floor at 70.
