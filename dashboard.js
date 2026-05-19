@@ -3133,6 +3133,60 @@ async function confirmNpTasks() {
 }
 
 function openNewProjectModal() { openNewProjectPanel(); }
+
+function openInstantModal() {
+    document.getElementById('instantHint').value = '';
+    document.getElementById('instantCount').value = '1';
+    document.getElementById('instantType').value = 'godot';
+    document.getElementById('instantStatus').textContent = '';
+    document.getElementById('instantRunBtn').disabled = false;
+    document.getElementById('instantRunBtn').textContent = '⚡ Create';
+    document.getElementById('instantModal').style.display = 'flex';
+}
+
+function closeInstantModal() {
+    document.getElementById('instantModal').style.display = 'none';
+}
+
+async function runInstantProject() {
+    const btn = document.getElementById('instantRunBtn');
+    const status = document.getElementById('instantStatus');
+    const count = parseInt(document.getElementById('instantCount').value) || 1;
+    const type = document.getElementById('instantType').value;
+    const hint = document.getElementById('instantHint').value.trim();
+
+    btn.disabled = true;
+    btn.textContent = count === 1 ? '⏳ Working…' : `⏳ Creating ${count} projects…`;
+    status.textContent = count === 1
+        ? 'Inventing concept, planning tasks, scaffolding repo…'
+        : `This may take a while for ${count} projects…`;
+
+    try {
+        const resp = await fetch('/api/wizard/create-instant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_type: type, hint, count }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            status.textContent = `Error: ${data.error || resp.statusText}`;
+            btn.disabled = false;
+            btn.textContent = '⚡ Create';
+            return;
+        }
+        const created = data.created || 0;
+        const results = data.results || [];
+        const names = results.filter(r => r.success).map(r => r.project_name).join(', ');
+        status.textContent = `✓ Created ${created}/${data.requested}: ${names}`;
+        btn.textContent = '✓ Done';
+        setTimeout(() => { loadProjects(); loadTasks(); }, 1000);
+    } catch (e) {
+        status.textContent = `Network error: ${e.message}`;
+        btn.disabled = false;
+        btn.textContent = '⚡ Create';
+    }
+}
+
 let chatHistory = [];
 
 function toggleChat() {

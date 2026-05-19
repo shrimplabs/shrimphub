@@ -494,6 +494,13 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
         closure_status = (project_row.get("closure_status") or "").strip().lower()
         if closure_status not in {"frozen", "stalled"}:
             return False
+        # Only block expansion when there are actual open regressions to fix.
+        # A frozen status with zero regressions (e.g. new project with an
+        # auto-generated closure spec that hasn't been validated yet) should
+        # not halt all feature work — there's nothing concrete to repair.
+        open_regressions = int(project_row.get("open_regression_count") or 0)
+        if open_regressions == 0:
+            return False
         metadata = t.get("metadata") or {}
         if metadata.get("is_recovery_task") or metadata.get("is_closure_repair_task"):
             return False

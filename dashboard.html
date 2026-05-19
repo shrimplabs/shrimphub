@@ -30,6 +30,7 @@
         <button onclick="openNewProjectModal()" class="btn-chat" title="Describe your project in chat — AI will plan tasks for you">💬 New Project (Chat)</button>
         <button onclick="openWizard()" class="btn-wizard" title="Fill in a form — AI generates a task plan from your inputs">🧙 New Project (Wizard)</button>
         <button onclick="openAppendPhaseModal()" class="btn-phase" title="Append a planned task phase to an existing project">➕ Append Phase</button>
+        <button onclick="openInstantModal()" class="btn-instant" title="AI invents and builds a project with zero input from you">⚡ Instant Project</button>
     </h1>
     
     <div class="summary">
@@ -194,6 +195,38 @@
     </div>
     
     
+<!-- Instant Project Modal -->
+<div class="modal" id="instantModal" onclick="if(event.target===this)closeInstantModal()">
+    <div class="modal-content" style="max-width:440px">
+        <div class="modal-header">
+            <h3>⚡ Instant Project</h3>
+            <button class="modal-close" onclick="closeInstantModal()">×</button>
+        </div>
+        <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px">
+            <p style="color:var(--text-muted);font-size:13px;margin:0">The AI will invent a concept, plan all tasks, and create the project — no input required.</p>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <label style="font-size:12px;color:var(--text-muted)">Type</label>
+                <select id="instantType" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
+                    <option value="godot">Godot Game</option>
+                    <option value="python">Python</option>
+                    <option value="typescript">TypeScript / Node</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <label style="font-size:12px;color:var(--text-muted)">Creative nudge <span style="opacity:0.5">(optional)</span></label>
+                <input id="instantHint" type="text" placeholder="e.g. something weird, horror themed, massive scope…" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <label style="font-size:12px;color:var(--text-muted)">Number of projects</label>
+                <input id="instantCount" type="number" value="1" min="1" max="50" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px;width:80px">
+            </div>
+            <div id="instantStatus" style="font-size:12px;color:var(--text-muted);min-height:18px"></div>
+            <button onclick="runInstantProject()" id="instantRunBtn" style="background:var(--accent);color:#000;font-weight:700;border:none;border-radius:6px;padding:10px;font-size:14px;cursor:pointer">⚡ Create</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal" id="outputModal">
         <div class="modal-content">
             <div class="modal-header">
