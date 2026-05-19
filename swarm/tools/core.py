@@ -1642,17 +1642,16 @@ def list_subtasks(parent_task_id: str = None) -> dict:
 def _get_downstream_task_ids(task_id: str, all_tasks: list) -> set:
     """Return all task IDs that transitively depend on task_id."""
     dependents = set()
-    changed = True
     frontier = {task_id}
-    while changed:
-        changed = False
+    while frontier:
+        next_frontier = set()
         for t in all_tasks:
             if t["id"] in dependents:
                 continue
             if any(d in frontier for d in (t.get("dependencies") or [])):
                 dependents.add(t["id"])
-                frontier = {t["id"]}
-                changed = True
+                next_frontier.add(t["id"])
+        frontier = next_frontier
     return dependents
 
 
@@ -1753,7 +1752,7 @@ def split_task(task_id: str, replacement_tasks: list) -> dict:
     if not original:
         return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
     if task_id not in downstream_ids:
-        return {"ok": False, "error": f"Task {task_id} is not downstream of the current task {TASK_ID} — cannot split"}
+        return {"ok": False, "error": f"Task {task_id} is not downstream of the current task {TASK_ID} — cannot split. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() instead to pass context forward."}
     if original["status"] != "pending":
         return {"ok": False, "error": f"Task {task_id} is {original['status']} — can only split pending tasks"}
 
@@ -1852,7 +1851,7 @@ def prune_task(task_id: str, reason: str) -> dict:
     if not target:
         return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
     if task_id not in downstream_ids:
-        return {"ok": False, "error": f"Task {task_id} is not downstream of {TASK_ID} — cannot prune"}
+        return {"ok": False, "error": f"Task {task_id} is not downstream of {TASK_ID} — cannot prune. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() to pass context to tasks you cannot prune."}
     if target["status"] != "pending":
         return {"ok": False, "error": f"Task {task_id} is {target['status']} — can only prune pending tasks"}
 
@@ -1901,9 +1900,9 @@ def insert_dependency(from_task_id: str, to_task_id: str) -> dict:
     if not to_task:
         return {"ok": False, "error": f"Task {to_task_id} not found"}
     if from_task_id not in downstream_ids:
-        return {"ok": False, "error": f"{from_task_id} is not downstream of {TASK_ID}"}
+        return {"ok": False, "error": f"{from_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
     if to_task_id not in downstream_ids:
-        return {"ok": False, "error": f"{to_task_id} is not downstream of {TASK_ID}"}
+        return {"ok": False, "error": f"{to_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
     if from_task["status"] != "pending":
         return {"ok": False, "error": f"{from_task_id} is {from_task['status']} — can only insert deps on pending tasks"}
     if to_task["status"] == "in_progress":
