@@ -127,6 +127,7 @@ def create_app(
     orchestrator.LOCK_PROJECT        = config.get("lock_project", False)
     orchestrator.AGENT_TIMEOUT       = config.get("agent_timeout", AGENT_TIMEOUT)
     orchestrator.QUOTA_LIMIT_PERCENT = config.get("quota_limit_percent", 90)
+    orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
     orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
     orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
     orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))

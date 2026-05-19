@@ -63,6 +63,10 @@ WEBHOOK_URL: str = ""
 MINIMAX_API_KEY: str = ""
 MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 
+# Max agents to spawn per fill_slots call — prevents burst spawning after a cooldown.
+# Set low (e.g. 2-3) so slots fill gradually across monitor cycles rather than all at once.
+SPAWN_PER_CYCLE: int = 3
+
 _fill_slots_lock = threading.Lock()
 
 # Auto-QA: track completed (non-QA) tasks per Godot project since last QA spawn
@@ -316,7 +320,9 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                     })
                     print(f"[Swarm] Sprint QA passed for {proj} — spawned next sprint planner")
 
-        while len(spawned) < limit:
+        # Cap per-cycle spawning to avoid burst after cooldown expiry.
+        cycle_limit = min(limit, SPAWN_PER_CYCLE)
+        while len(spawned) < cycle_limit:
             if get_active_count() >= MAX_ACTIVE_AGENTS:
                 break
 
