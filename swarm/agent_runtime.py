@@ -1936,6 +1936,139 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_spawned"}))
         return 0
 
+    # ---------------------------------------------------------------------------
+    # Post-completion graph reflection loop
+    # Runs outside the main tool budget — does NOT count toward MAX_TOOL_LOOPS.
+    # Allowed tools: list_tasks + the 5 adaptive graph mutators only.
+    # Cap: 40 calls. Nudge at 35 to wrap up.
+    # Skipped for read-only, qa, manager, project_create, audit, triage, project_plan.
+    # ---------------------------------------------------------------------------
+    _REFLECTION_SKIP_TYPES = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "harness_qa"}
+    _REFLECTION_ALLOWED_TOOLS = {
+        "list_tasks", "annotate_downstream_tasks", "split_task",
+        "prune_task", "insert_dependency", "set_task_complexity",
+    }
+    _REFLECTION_MAX = 40
+    _REFLECTION_NUDGE_AT = 35
+
+    if task_complete_hit and not loop_limit_hit and not context_limit_hit \
+            and not READONLY and TASK_TYPE not in _REFLECTION_SKIP_TYPES:
+        try:
+            # Gather context: diff stat from the just-completed work
+            _ref_diff = ""
+            try:
+                _, _ref_diff, _ = run("git diff HEAD~1..HEAD --stat")
+                if not _ref_diff.strip():
+                    _, _ref_diff, _ = run("git diff --stat")
+            except Exception:
+                pass
+
+            _ref_system = (
+                "You are in the GRAPH REFLECTION phase. Your implementation work is done.\n"
+                "Your job now is to review the downstream task queue and improve it based on what you just learned.\n\n"
+                "ALLOWED TOOLS (ONLY these — no file reads, no writes, no git):\n"
+                "- list_tasks(project): list all tasks for the project with their IDs and status\n"
+                "- annotate_downstream_tasks(findings, task_ids): prepend context to downstream pending tasks\n"
+                "- split_task(task_id, replacement_tasks): replace a pending downstream task with smaller pieces\n"
+                "- prune_task(task_id, reason): mark a downstream task completed if your work made it redundant\n"
+                "- insert_dependency(from_task_id, to_task_id): add an ordering constraint between two pending tasks\n"
+                "- set_task_complexity(task_id, complexity, reason): tag a task 'simple' or 'complex'\n\n"
+                "WORKFLOW:\n"
+                "1. Call list_tasks() to see what's pending downstream\n"
+                "2. Reflect on what you built and what that means for those tasks\n"
+                "3. Make only changes that are genuinely useful — do nothing if the plan looks correct\n"
+                "4. When done, output REFLECTION_COMPLETE on its own line\n\n"
+                "Do NOT: read files, write files, run commands, commit, or do any implementation work.\n"
+                "Do NOT: annotate every task — only ones where you have specific, concrete information to add."
+            )
+
+            _ref_user_seed = (
+                f"Task just completed: {TASK_DESC[:600]}\n\n"
+                + (f"Files changed:\n{_ref_diff.strip()[:800]}\n\n" if _ref_diff.strip() else "")
+                + f"Project: {PROJECT}\n\n"
+                "Now call list_tasks() to see the downstream queue, then decide what (if anything) to change."
+            )
+
+            _ref_conv = [
+                {"role": "user", "content": _ref_user_seed},
+            ]
+            _ref_loop = 0
+            _ref_nudge_injected = False
+
+            log("[Reflection] Starting post-completion graph reflection loop")
+
+            while _ref_loop < _REFLECTION_MAX:
+                # Nudge at 35
+                if _ref_loop >= _REFLECTION_NUDGE_AT and not _ref_nudge_injected:
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": (
+                            f"You have used {_ref_loop} of {_REFLECTION_MAX} reflection calls. "
+                            "Finish up now. If you have any remaining tool calls to make, make them, "
+                            "then output REFLECTION_COMPLETE."
+                        ),
+                    })
+                    _ref_nudge_injected = True
+
+                _ref_resp, _ref_tokens = call_llm(_ref_system, _ref_conv)
+                total_input_tokens += _ref_tokens.get("input", 0)
+                total_output_tokens += _ref_tokens.get("output", 0)
+
+                _ref_conv.append({"role": "assistant", "content": _ref_resp})
+
+                if "REFLECTION_COMPLETE" in _ref_resp:
+                    log(f"[Reflection] Complete after {_ref_loop + 1} calls")
+                    break
+
+                _ref_tool_calls = parse_tool_calls(_ref_resp)
+
+                # Filter to allowed tools only — silently drop disallowed calls
+                _ref_allowed = [tc for tc in _ref_tool_calls if tc.get("tool") in _REFLECTION_ALLOWED_TOOLS]
+                _ref_blocked = [tc.get("tool") for tc in _ref_tool_calls if tc.get("tool") not in _REFLECTION_ALLOWED_TOOLS]
+                if _ref_blocked:
+                    log(f"[Reflection] Blocked disallowed tool calls: {_ref_blocked}")
+
+                if not _ref_allowed and not _ref_tool_calls:
+                    # No tool calls — nudge once then bail
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": "No tool calls detected. If you are done, output REFLECTION_COMPLETE.",
+                    })
+                    _ref_loop += 1
+                    continue
+
+                if not _ref_allowed:
+                    # All calls were blocked
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": (
+                            f"Those tools are not available in reflection mode: {_ref_blocked}. "
+                            "Use only: list_tasks, annotate_downstream_tasks, split_task, "
+                            "prune_task, insert_dependency, set_task_complexity. "
+                            "If you have nothing more to do, output REFLECTION_COMPLETE."
+                        ),
+                    })
+                    _ref_loop += 1
+                    continue
+
+                _ref_results = []
+                for tc in _ref_allowed:
+                    result = execute_tool(tc)
+                    _ref_results.append(f"[{tc['tool']}] → {json.dumps(result)[:400]}")
+                    log(f"[Reflection] Tool {tc['tool']} → {str(result)[:200]}")
+
+                _ref_conv.append({
+                    "role": "user",
+                    "content": "\n".join(_ref_results),
+                })
+                _ref_loop += 1
+
+            if _ref_loop >= _REFLECTION_MAX:
+                log(f"[Reflection] Hit call cap ({_REFLECTION_MAX}) — exiting")
+
+        except Exception as _ref_exc:
+            log(f"[Reflection] ERROR (non-fatal): {_ref_exc}")
+
     # Auto-commit any remaining uncommitted changes
     if TASK_TYPE in ("manager", "project_create", "qa", "audit", "triage", "project_plan"):
         pass  # No git commit needed for these task types
