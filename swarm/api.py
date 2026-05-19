@@ -128,6 +128,12 @@ def create_app(
     orchestrator.AGENT_TIMEOUT       = config.get("agent_timeout", AGENT_TIMEOUT)
     orchestrator.QUOTA_LIMIT_PERCENT = config.get("quota_limit_percent", 90)
     orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
+    orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
+    orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
+    orchestrator._auto_scale_current = max(1, min(
+        config.get("max_active_agents", 3),
+        config.get("max_active_agents", 60),
+    ))
     orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
     orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
     orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))
@@ -336,28 +342,31 @@ def create_app(
                     print(f"[Auto] {rate_limited} rate limited — spawn cooldown {_rate_limit_cooldown_secs}s")
 
                 # Also check rolling 429 event pressure (agents write rl_events.jsonl)
+                _recent_429_count = 0
                 try:
                     _rl_file = data_dir / "rl_events.jsonl"
                     if _rl_file.exists():
                         _now = time.time()
                         _window = 120  # 2-minute window
                         _rl_lines = _rl_file.read_text().splitlines()
-                        _recent_count = 0
                         for _l in _rl_lines:
                             try:
                                 _ev = json.loads(_l)
                                 if _now - _ev.get("t", 0) < _window:
-                                    _recent_count += 1
+                                    _recent_429_count += 1
                             except Exception:
                                 pass
                         # Trim old events (keep last 200 lines)
                         if len(_rl_lines) > 200:
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")
-                        if _recent_count >= 5 and time.time() >= _rate_limit_cooldown_until[0]:
+                        if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0]:
                             _rate_limit_cooldown_until[0] = time.time() + _rate_limit_cooldown_secs
-                            print(f"[Auto] {_recent_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
+                            print(f"[Auto] {_recent_429_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
                 except Exception:
                     pass
+
+                # Auto-scale: adjust MAX_ACTIVE_AGENTS based on 429 pressure
+                orchestrator.auto_scale_step(_recent_429_count)
 
                 over_limit, pct_used, *_ = orchestrator.check_quota_limit()
                 if over_limit:

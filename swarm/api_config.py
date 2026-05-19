@@ -45,7 +45,11 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
         if not isinstance(value, int) or value < 1:
             return jsonify({"error": "max_active_agents must be a positive integer"}), 400
         config["max_active_agents"] = value
-        orchestrator.MAX_ACTIVE_AGENTS = value
+        if orchestrator.AUTO_SCALE:
+            # In auto-scale mode, max_active_agents is the ceiling — don't override live count
+            orchestrator.AUTO_SCALE_CEILING = value
+        else:
+            orchestrator.MAX_ACTIVE_AGENTS = value
         with _config_write_lock:
             cfg = {}
             if config_file.exists():
@@ -88,6 +92,45 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             return jsonify({"enabled": True, "spawned": len(spawned_ids)})
         print("[Auto] Mode disabled")
         return jsonify({"enabled": auto_mode_state["enabled"]})
+# ---------- Auto-scale ----------
+    @app.route("/api/auto-scale", methods=["GET"])
+    def get_auto_scale():
+        return jsonify({
+            "enabled": orchestrator.AUTO_SCALE,
+            "current": orchestrator.MAX_ACTIVE_AGENTS,
+            "ceiling": orchestrator.AUTO_SCALE_CEILING,
+        })
+
+    @app.route("/api/auto-scale", methods=["POST"])
+    def set_auto_scale():
+        data = request.json or {}
+        enabled = bool(data.get("enabled", False))
+        orchestrator.AUTO_SCALE = enabled
+        config["auto_scale"] = enabled
+        if enabled:
+            # Ceiling = whatever max_active_agents is currently set to
+            orchestrator.AUTO_SCALE_CEILING = config.get("max_active_agents", 60)
+            orchestrator._auto_scale_current = max(1, orchestrator.get_active_count() or 3)
+            orchestrator._auto_scale_last_change = 0.0
+            orchestrator._auto_scale_clean_cycles = 0
+        else:
+            # Restore MAX_ACTIVE_AGENTS to the config ceiling when disabling
+            orchestrator.MAX_ACTIVE_AGENTS = config.get("max_active_agents", 3)
+        with _config_write_lock:
+            cfg = {}
+            if config_file.exists():
+                try:
+                    cfg = json.loads(config_file.read_text())
+                except Exception:
+                    pass
+            cfg["auto_scale"] = enabled
+            config_file.write_text(json.dumps(cfg, indent=2) + "\n")
+        print(f"[AutoScale] {'enabled' if enabled else 'disabled'} (ceiling={orchestrator.AUTO_SCALE_CEILING})")
+        return jsonify({
+            "enabled": enabled,
+            "current": orchestrator.MAX_ACTIVE_AGENTS,
+            "ceiling": orchestrator.AUTO_SCALE_CEILING,
+        })
 # ---------- Rescan ----------
     @app.route("/api/rescan", methods=["POST"])
     def rescan():
