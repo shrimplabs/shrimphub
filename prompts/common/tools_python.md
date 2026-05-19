@@ -19,3 +19,10 @@ AVAILABLE TOOLS (use EXACTLY these names):
 - update_shared_knowledge(content, topic): Save a cross-project fact for all future agents
 - web_search(query, max_results=3): Search for Python docs, library APIs, or error solutions
 - fetch_url(url): Fetch and extract text from a documentation URL
+
+ADAPTIVE GRAPH TOOLS — call these before TASK_COMPLETE to improve downstream work:
+- list_tasks(project): List all tasks for the project with their IDs and status — use to see what's downstream
+- annotate_downstream_tasks(findings, task_ids): Prepend a context block to downstream pending tasks sharing what you learned (API shapes, constraints, architectural decisions, gotchas)
+- split_task(task_id, replacement_tasks): Replace a pending downstream task with multiple smaller tasks; deps are rewired automatically
+- prune_task(task_id, reason): Mark a downstream task completed if your work made it redundant
+- insert_dependency(from_task_id, to_task_id): Add an ordering constraint between two downstream tasks you discovered must be sequenced

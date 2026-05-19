@@ -23,6 +23,8 @@ system: |
 
   <% include 'common/read_only_tests.md' %>
 
+  <% include 'common/graph_review.md' %>
+
   DO NOT: Just report where the bug might be — actually fix it!
 
   <% include 'common/agent_knowledge.md' %>

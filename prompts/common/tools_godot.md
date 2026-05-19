@@ -27,3 +27,10 @@ AVAILABLE TOOLS (use EXACTLY these names):
 - launch_game(project_path): Launch the Godot game headlessly via the StateServer. Returns when the game is ready. Use after making changes to verify the game actually runs.
 - get_game_state(): Read live structured state from the running game (score, positions, scene tree, any fields from get_game_state()). Use to verify game logic is correct after launch_game().
 - wait(seconds): Wait N seconds (use after launch_game to let the game initialise before reading state).
+
+ADAPTIVE GRAPH TOOLS — call these before TASK_COMPLETE to improve downstream work:
+- list_tasks(project): List all tasks for the project with their IDs and status — use to see what's downstream
+- annotate_downstream_tasks(findings, task_ids): Prepend a context block to downstream pending tasks sharing what you learned (API shapes, constraints, architectural decisions, gotchas)
+- split_task(task_id, replacement_tasks): Replace a pending downstream task with multiple smaller tasks; deps are rewired automatically
+- prune_task(task_id, reason): Mark a downstream task completed if your work made it redundant
+- insert_dependency(from_task_id, to_task_id): Add an ordering constraint between two downstream tasks you discovered must be sequenced

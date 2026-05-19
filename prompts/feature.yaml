@@ -40,6 +40,8 @@ system: |
 
   10. << validation_block >>
   10b. Launch the game and verify it runs: launch_game(project_path="<< project_path >>"), then wait(seconds=3), then get_game_state(). Confirm the game is running and the state fields your feature introduces are present and sensible. If the game crashes or get_game_state() returns an error, fix it before committing.
+  <% include 'common/graph_review.md' %>
+
   11. Only say TASK_COMPLETE after committing and pushing actual changes
 
   <% include 'common/web_search_tips_godot.md' %>

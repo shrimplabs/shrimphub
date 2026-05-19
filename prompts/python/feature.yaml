@@ -21,6 +21,8 @@ system: |
 
   <% include 'common/patch_file_editing.md' %>
 
+  <% include 'common/graph_review.md' %>
+
   DO NOT: Just check file sizes or report what needs to be done — actually implement it!
 
   <% include 'common/agent_knowledge.md' %>
