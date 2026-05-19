@@ -58,7 +58,7 @@ from swarm.tools.core import (  # noqa: F401
     mcp_call_tool, mcp_list_tools,
     rag_query, web_search, fetch_url,
     create_task, create_tasks_file_aware, list_tasks, list_subtasks,
-    annotate_downstream_tasks, split_task, prune_task, insert_dependency,
+    annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
     broadcast_read, broadcast_write, delegate_helper, delegate_task_batch,
 )
 from swarm.tools.knowledge import (  # noqa: F401
@@ -771,6 +771,7 @@ _TOOL_REQUIRED_ARGS: dict = {
     "split_task":       ["task_id", "replacement_tasks"],
     "prune_task":       ["task_id", "reason"],
     "insert_dependency": ["from_task_id", "to_task_id"],
+    "set_task_complexity": ["task_id", "complexity"],
 }
 
 
@@ -903,6 +904,11 @@ def execute_tool(tool_call: dict) -> dict:
         "insert_dependency": lambda: insert_dependency(
             args.get("from_task_id", ""),
             args.get("to_task_id", ""),
+        ),
+        "set_task_complexity": lambda: set_task_complexity(
+            args.get("task_id", ""),
+            args.get("complexity", ""),
+            args.get("reason", ""),
         ),
     }
 

@@ -1929,3 +1929,52 @@ def insert_dependency(from_task_id: str, to_task_id: str) -> dict:
         return {"ok": True, "inserted": {"from": from_task_id, "to": to_task_id}}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def set_task_complexity(task_id: str, complexity: str, reason: str = "") -> dict:
+    """Tag a task with a complexity estimate: 'simple' or 'complex'.
+
+    Use this when you discover during your work that a downstream pending task is
+    significantly harder or easier than typical. The scheduler uses this to adjust
+    priority and attempt allocation.
+
+    complexity: 'simple' (straightforward, likely 1 attempt) or
+                'complex' (high risk, many unknowns, benefits from extra attempts)
+    reason: brief explanation (shown in dashboard, helps future agents)
+
+    Safety:
+    - Only pending tasks may be annotated
+    - complexity must be 'simple' or 'complex'
+    """
+    if complexity not in {"simple", "complex"}:
+        return {"ok": False, "error": "complexity must be 'simple' or 'complex'"}
+
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    task = next((t for t in all_tasks if t["id"] == task_id), None)
+    if not task:
+        return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
+    if task["status"] != "pending":
+        return {"ok": False, "error": f"Task {task_id} is {task['status']} — can only annotate pending tasks"}
+
+    metadata = dict(task.get("metadata") or {})
+    metadata["complexity"] = complexity
+    if reason:
+        metadata["complexity_reason"] = reason
+
+    # Bump max_attempts for complex tasks so they get extra chances
+    update: dict = {"metadata": metadata}
+    if complexity == "complex":
+        current_max = task.get("max_attempts", 3)
+        if current_max < 5:
+            update["max_attempts"] = 5
+
+    try:
+        _api_request("PATCH", f"/api/tasks/{task_id}", update)
+        log(f"[AdaptiveGraph] Set complexity={complexity} on {task_id}: {reason}")
+        return {"ok": True, "task_id": task_id, "complexity": complexity, "max_attempts": update.get("max_attempts")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

@@ -21,5 +21,10 @@ call list_tasks() and look at what tasks depend on yours. Then ask:
 4. **Did you discover that two downstream tasks must run in a specific order?**
    → Call insert_dependency(from_task_id, to_task_id) to enforce the ordering.
 
+5. **Do you now know that a downstream task is significantly harder or simpler than average?**
+   → Call set_task_complexity(task_id, "complex", reason) or set_task_complexity(task_id, "simple", reason).
+   Complex tasks get extra max_attempts and a scheduler priority boost.
+   Simple tasks are slightly deferred so more demanding work gets picked first.
+
 You don't have to do all of these — only act when you genuinely learned something
 useful. If the downstream tasks look correct as planned, do nothing and proceed.

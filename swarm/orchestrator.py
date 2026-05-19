@@ -465,6 +465,18 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
     def _conflict_first(t: Dict) -> int:
         return 0 if t.get("priority", 50) >= 200 else 1
 
+    def _complexity_adjusted_priority(t: Dict) -> int:
+        """Return effective priority with complexity adjustment.
+        complex tasks get +5 so they're picked slightly earlier (more buffer time).
+        simple tasks get -5 so they're deferred in favour of more demanding peers."""
+        base = t.get("priority", 50)
+        complexity = (t.get("metadata") or {}).get("complexity", "")
+        if complexity == "complex":
+            return base + 5
+        if complexity == "simple":
+            return base - 5
+        return base
+
     def _closure_policy_rank(t: Dict) -> tuple[int, int]:
         project_row = project_rows.get(t.get("project") or "")
         if not project_row:
@@ -512,15 +524,15 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
             _conflict_first(t),
             _closure_policy_rank(t),
             _TYPE_PRIORITY.get(t.get("type", ""), 99),
-            -t.get("priority", 50),
+            -_complexity_adjusted_priority(t),
             t.get("created", ""),
         ))
     elif TASK_SELECTION_STRATEGY == "round_robin":
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("project", ""), -t.get("priority", 50)))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("project", ""), -_complexity_adjusted_priority(t)))
     elif TASK_SELECTION_STRATEGY == "least_recently_worked":
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("created", ""), -t.get("priority", 50)))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("created", ""), -_complexity_adjusted_priority(t)))
     else:  # "priority" (default) and "dependency_aware"
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), -t.get("priority", 50), t.get("created", "")))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), -_complexity_adjusted_priority(t), t.get("created", "")))
     tasks[:] = [task for task in tasks if not _is_expansion_blocked(task)]
 
 

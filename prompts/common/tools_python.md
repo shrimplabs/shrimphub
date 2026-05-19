@@ -26,3 +26,4 @@ ADAPTIVE GRAPH TOOLS — call these before TASK_COMPLETE to improve downstream w
 - split_task(task_id, replacement_tasks): Replace a pending downstream task with multiple smaller tasks; deps are rewired automatically
 - prune_task(task_id, reason): Mark a downstream task completed if your work made it redundant
 - insert_dependency(from_task_id, to_task_id): Add an ordering constraint between two downstream tasks you discovered must be sequenced
+- set_task_complexity(task_id, complexity, reason): Tag a downstream pending task as 'simple' or 'complex'; complex tasks get extra max_attempts and scheduler priority boost
