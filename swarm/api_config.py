@@ -110,7 +110,9 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
         if enabled:
             # Ceiling = whatever max_active_agents is currently set to
             orchestrator.AUTO_SCALE_CEILING = config.get("max_active_agents", 60)
-            orchestrator._auto_scale_current = max(1, orchestrator.get_active_count() or 3)
+            # Start from current active count so we don't burst above where we already are
+            orchestrator._auto_scale_current = max(3, orchestrator.get_active_count() or 3)
+            orchestrator.MAX_ACTIVE_AGENTS = orchestrator._auto_scale_current
             orchestrator._auto_scale_last_change = 0.0
             orchestrator._auto_scale_clean_cycles = 0
         else:
