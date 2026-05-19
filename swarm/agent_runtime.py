@@ -58,6 +58,7 @@ from swarm.tools.core import (  # noqa: F401
     mcp_call_tool, mcp_list_tools,
     rag_query, web_search, fetch_url,
     create_task, create_tasks_file_aware, list_tasks, list_subtasks,
+    annotate_downstream_tasks, split_task, prune_task, insert_dependency,
     broadcast_read, broadcast_write, delegate_helper, delegate_task_batch,
 )
 from swarm.tools.knowledge import (  # noqa: F401
@@ -766,6 +767,10 @@ _TOOL_REQUIRED_ARGS: dict = {
     "broadcast_write": ["message"],
     "delegate_helper": ["question"],
     "delegate_task_batch": ["children"],
+    "annotate_downstream_tasks": ["findings"],
+    "split_task":       ["task_id", "replacement_tasks"],
+    "prune_task":       ["task_id", "reason"],
+    "insert_dependency": ["from_task_id", "to_task_id"],
 }
 
 
@@ -882,6 +887,22 @@ def execute_tool(tool_call: dict) -> dict:
             args.get("children", []),
             args.get("mode", "integrate"),
             args.get("project"),
+        ),
+        "annotate_downstream_tasks": lambda: annotate_downstream_tasks(
+            args.get("findings", ""),
+            args.get("task_ids"),
+        ),
+        "split_task": lambda: split_task(
+            args.get("task_id", ""),
+            args.get("replacement_tasks", []),
+        ),
+        "prune_task": lambda: prune_task(
+            args.get("task_id", ""),
+            args.get("reason", ""),
+        ),
+        "insert_dependency": lambda: insert_dependency(
+            args.get("from_task_id", ""),
+            args.get("to_task_id", ""),
         ),
     }
 
