@@ -2056,7 +2056,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 _ref_results = []
                 for tc in _ref_allowed:
                     result = execute_tool(tc)
-                    _ref_results.append(f"[{tc['tool']}] → {json.dumps(result)[:400]}")
+                    _ref_results.append(f"[{tc['tool']}] → {json.dumps(result)[:8000]}")
                     log(f"[Reflection] Tool {tc['tool']} → {str(result)[:200]}")
 
                 _ref_conv.append({
