@@ -1966,6 +1966,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             _ref_system = (
                 "You are in the GRAPH REFLECTION phase. Your implementation work is done.\n"
                 "Your job now is to review the downstream task queue and improve it based on what you just learned.\n\n"
+                "TOOL CALL FORMAT — you MUST use this exact format for every tool call:\n"
+                "[TOOL_CALL]{\"tool\": \"tool_name\", \"args\": {\"key\": \"value\"}}[/TOOL_CALL]\n\n"
                 "ALLOWED TOOLS (ONLY these — no file reads, no writes, no git):\n"
                 "- list_tasks(project): list all tasks for the project with their IDs and status\n"
                 "- annotate_downstream_tasks(findings, task_ids): prepend context to downstream pending tasks\n"
