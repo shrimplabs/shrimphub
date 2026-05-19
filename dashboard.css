@@ -575,6 +575,18 @@ h2 {
     box-shadow: var(--shadow-btn);
 }
 
+.btn-instant {
+    background: linear-gradient(135deg, #b45309, #f59e0b);
+    color: #000;
+    font-weight: 700;
+}
+[data-theme="dark"] .btn-instant  { background: linear-gradient(135deg, #92400e, #d97706); color: #fff; }
+[data-theme="light"] .btn-instant { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.btn-instant:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-btn);
+}
+
 /* ── Generic button base ── */
 button, .btn {
     font-family: inherit;

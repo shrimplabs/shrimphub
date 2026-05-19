@@ -63,6 +63,156 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
 
     from datetime import datetime
 
+    @app.route("/api/wizard/imagine", methods=["POST"])
+    def wizard_imagine():
+        """Ask the LLM to invent a project concept from scratch."""
+        data = request.json or {}
+        project_type = _normalize_project_type(data.get("project_type", "godot"))
+        hint = data.get("hint", "").strip()  # optional creative nudge, e.g. "something weird"
+
+        type_hints = {
+            "godot":      "a Godot 4 game (GDScript)",
+            "python":     "a Python application or tool",
+            "typescript": "a TypeScript/Node application",
+            "other":      "a software project",
+        }
+        type_desc = type_hints.get(project_type, type_hints["other"])
+
+        system = (
+            "You are a wildly creative game designer and software inventor. "
+            "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+        )
+        hint_line = f"\nCreative nudge from the human: {hint}" if hint else ""
+        prompt = f"""Invent a completely original concept for {type_desc}.{hint_line}
+
+You have total creative freedom. No scope limits — if you want to design an MMO, a physics sandbox,
+a generative art tool, or something that has never been built before, go for it.
+
+Return a JSON object with this exact structure:
+{{
+  "project_name": "slug-style-name-no-spaces",
+  "display_name": "Human Readable Title",
+  "project_type": "{project_type}",
+  "description": "2-4 sentences describing the concept, core mechanics, and what makes it interesting",
+  "genre": "one word or short phrase",
+  "ambition_level": "small | medium | large | massive"
+}}
+
+Rules:
+- project_name must be lowercase, hyphens only, no spaces, 2-4 words
+- Be genuinely creative — avoid the most obvious ideas (simple snake, basic platformer, todo app)
+- description should be specific enough that an AI agent can start building immediately
+- Output ONLY the JSON object, nothing else"""
+
+        try:
+            raw = _llm_call(prompt, system, config)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            concept = json.loads(raw)
+            return jsonify(concept)
+        except json.JSONDecodeError as e:
+            return jsonify({"error": f"LLM returned invalid JSON: {e}", "raw": raw[:500]}), 500
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/wizard/create-instant", methods=["POST"])
+    def wizard_create_instant():
+        """Imagine + plan + create in one shot. No human review step.
+
+        Body (all optional):
+          project_type  — godot | python | typescript | other (default: godot)
+          hint          — creative nudge passed to the imagine step
+          count         — create N projects (default: 1, max: 50)
+          min_tasks     — passed to planner (default: 10)
+          max_tasks     — passed to planner (default: 80)
+        """
+        import uuid as _uuid
+        data = request.json or {}
+        project_type = _normalize_project_type(data.get("project_type", "godot"))
+        hint = data.get("hint", "").strip()
+        count = max(1, min(int(data.get("count", 1)), 50))
+        min_tasks = int(data.get("min_tasks", 10))
+        max_tasks = int(data.get("max_tasks", 80))
+
+        results = []
+        for i in range(count):
+            entry = {"index": i + 1}
+            try:
+                # Step 1: Imagine
+                imagine_resp = app.test_client().post(
+                    "/api/wizard/imagine",
+                    json={"project_type": project_type, "hint": hint},
+                )
+                concept = json.loads(imagine_resp.data)
+                if "error" in concept:
+                    entry["error"] = f"imagine failed: {concept['error']}"
+                    results.append(entry)
+                    continue
+
+                project_name = concept["project_name"]
+                description = concept["description"]
+                entry["project_name"] = project_name
+                entry["concept"] = concept
+                print(f"[Instant] ({i+1}/{count}) Conceived: {project_name} — {concept.get('genre','')}")
+
+                # Step 2: Plan
+                plan_resp = app.test_client().post(
+                    "/api/wizard/plan",
+                    json={
+                        "project_name": project_name,
+                        "project_type": project_type,
+                        "description": description,
+                        "min_tasks": min_tasks,
+                        "max_tasks": max_tasks,
+                    },
+                )
+                plan = json.loads(plan_resp.data)
+                if "error" in plan:
+                    entry["error"] = f"plan failed: {plan['error']}"
+                    results.append(entry)
+                    continue
+
+                tasks = plan.get("tasks", [])
+                entry["tasks_planned"] = len(tasks)
+                print(f"[Instant] ({i+1}/{count}) Planned {len(tasks)} tasks for {project_name}")
+
+                # Step 3: Create
+                create_resp = app.test_client().post(
+                    "/api/wizard/create",
+                    json={
+                        "project_name": project_name,
+                        "project_type": project_type,
+                        "notes": description,
+                        "tasks": tasks,
+                    },
+                )
+                result = json.loads(create_resp.data)
+                if "error" in result:
+                    entry["error"] = f"create failed: {result['error']}"
+                    results.append(entry)
+                    continue
+
+                entry["tasks_created"] = result.get("tasks_created", 0)
+                entry["gitea_url"] = result.get("gitea_url")
+                entry["success"] = True
+                print(f"[Instant] ({i+1}/{count}) Created {project_name} with {entry['tasks_created']} tasks")
+
+            except Exception as e:
+                entry["error"] = str(e)
+
+            results.append(entry)
+
+        successful = [r for r in results if r.get("success")]
+        return jsonify({
+            "requested": count,
+            "created": len(successful),
+            "results": results,
+        })
+
     @app.route("/api/wizard/plan", methods=["POST"])
     def wizard_plan():
         """Call the LLM to generate a task plan for a new project."""
