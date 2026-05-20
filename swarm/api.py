@@ -336,8 +336,10 @@ def create_app(
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
                 # than the quota-suspension flag (which would immediately auto-resume).
+                # When auto-scale is on, skip the cooldown — the scaler handles rate
+                # reduction by stepping down MAX_ACTIVE_AGENTS directly.
                 rate_limited = orchestrator.check_rate_limit_flags()
-                if rate_limited:
+                if rate_limited and not orchestrator.AUTO_SCALE:
                     new_cooldown = time.time() + _rate_limit_cooldown_secs
                     _rate_limit_cooldown_until[0] = new_cooldown
                     print(f"[Auto] {rate_limited} rate limited — spawn cooldown {_rate_limit_cooldown_secs}s")
@@ -360,7 +362,7 @@ def create_app(
                         # Trim old events (keep last 200 lines)
                         if len(_rl_lines) > 200:
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")
-                        if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0]:
+                        if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0] and not orchestrator.AUTO_SCALE:
                             _rate_limit_cooldown_until[0] = time.time() + _rate_limit_cooldown_secs
                             print(f"[Auto] {_recent_429_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
                 except Exception:
