@@ -309,10 +309,56 @@ def create_app(
     _last_monitor_tick = [time.time()]  # mutable container for closure
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
+    _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
 
     def _is_transient_monitor_db_error(exc: Exception) -> bool:
         """Tests and startup can swap DBs while an old daemon monitor is winding down."""
         return isinstance(exc, sqlite3.OperationalError) and "no such table:" in str(exc)
+
+    def _sweep_ghost_deps(db, data_dir) -> list:
+        """Remove dep edges that point to task IDs absent from both the active DB
+        and task-history.jsonl.  These are true ghosts — deleted or never created —
+        that permanently block their dependents.
+
+        Returns a list of (task_id, removed_dep_id) tuples for logging.
+        """
+        all_tasks = db.task_get_all()
+        active_ids = {t["id"] for t in all_tasks}
+        completed_ids = db.task_get_completed_ids()
+
+        # Load history IDs (completed/failed tasks whose live row was pruned)
+        history_ids: set = set()
+        history_file = data_dir / "task-history.jsonl"
+        if history_file.exists():
+            try:
+                for line in history_file.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        if rec.get("id"):
+                            history_ids.add(rec["id"])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        known_ids = active_ids | completed_ids | history_ids
+        pruned = []
+
+        for task in all_tasks:
+            if task.get("status") not in ("pending", "failed"):
+                continue
+            deps = list(task.get("dependencies") or [])
+            ghost_deps = [d for d in deps if d not in known_ids]
+            if ghost_deps:
+                new_deps = [d for d in deps if d not in ghost_deps]
+                db.task_update(task["id"], {"dependencies": new_deps})
+                for gd in ghost_deps:
+                    pruned.append((task["id"], gd))
+
+        return pruned
 
     def _monitor():
         while True:
@@ -332,6 +378,20 @@ def create_app(
                 orchestrator.check_ghost_merge_tasks()
                 orchestrator.check_dep_violations()
                 orchestrator.check_agent_status()
+
+                # Periodic ghost dep sweep: remove dep edges pointing to IDs that
+                # are absent from both the active DB and task history.  These are
+                # truly deleted/never-created tasks that will never unblock their
+                # dependents.  Runs every 20 cycles (~100s) to avoid DB churn.
+                _ghost_sweep_counter[0] += 1
+                if _ghost_sweep_counter[0] >= 20:
+                    _ghost_sweep_counter[0] = 0
+                    try:
+                        _sweep_pruned = _sweep_ghost_deps(db, data_dir)
+                        if _sweep_pruned:
+                            print(f"[Monitor] Ghost dep sweep pruned {len(_sweep_pruned)} stale edge(s): {_sweep_pruned}")
+                    except Exception as _sweep_err:
+                        print(f"[Monitor] Ghost dep sweep error: {_sweep_err}")
 
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather

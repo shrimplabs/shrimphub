@@ -746,52 +746,117 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                 for dep_id in (task.get("dependencies") or []):
                     if dep_id not in all_task_ids and dep_id not in completed_ids:
                         broken_deps.add(dep_id)
-        if broken_deps:
-            history_by_id = {}
-            task_history_file = data_dir / "task-history.jsonl"
-            if task_history_file.exists():
-                for line in task_history_file.read_text().splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                        if rec.get("id"):
-                            history_by_id[rec["id"]] = rec
-                    except Exception:
-                        pass
-            for dep_id in broken_deps:
-                rec = history_by_id.get(dep_id, {})
-                live_resolvable_deps = [
-                    d for d in (rec.get("dependencies") or [])
-                    if d in all_task_ids or d in completed_ids
-                ]
-                metadata = {"resurrected_by_repair": True}
-                dropped_archival = [
-                    d for d in (rec.get("dependencies") or [])
-                    if d not in live_resolvable_deps
-                ]
-                if dropped_archival:
-                    metadata["dropped_archival_dependencies"] = dropped_archival
-                db.task_upsert({
-                    "id": dep_id,
-                    "project": rec.get("project", project_name),
-                    "type": rec.get("type", "feature"),
-                    "description": rec.get("description", "(Resurrected by repair — original description unavailable)"),
-                    "priority": rec.get("priority", 50),
-                    "status": "pending",
-                    "attempts": 0,
-                    "max_attempts": rec.get("max_attempts", 3),
-                    "dependencies": chain_to_project_head(
-                        db,
-                        rec.get("project", project_name),
-                        live_resolvable_deps,
-                        task_id=dep_id,
-                        ensure_head=True,
-                    ),
-                    "metadata": metadata,
-                })
-                resurrected.append(dep_id)
+
+        # Load task history once for both resurrection and ghost-pruning decisions
+        history_by_id = {}
+        task_history_file = data_dir / "task-history.jsonl"
+        if task_history_file.exists():
+            for line in task_history_file.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get("id"):
+                        history_by_id[rec["id"]] = rec
+                except Exception:
+                    pass
+
+        history_ids = set(history_by_id.keys())
+
+        # Ghost dep pruning: remove stale dep edges that point to IDs absent from
+        # both the active DB and task history.  Tasks in history completed or
+        # failed normally — their dependents already unblocked.  IDs absent from
+        # both are true ghosts (deleted / never created) and will never unblock
+        # their dependents without this cleanup.
+        pruned_ghost_deps = []
+        for task in project_tasks:
+            if task["status"] not in ("pending", "failed"):
+                continue
+            deps = list(task.get("dependencies") or [])
+            ghost_deps = [
+                d for d in deps
+                if d not in all_task_ids
+                and d not in completed_ids
+                and d not in history_ids
+            ]
+            if ghost_deps:
+                new_deps = [d for d in deps if d not in ghost_deps]
+                db.task_update(task["id"], {"dependencies": new_deps})
+                pruned_ghost_deps.append({"task_id": task["id"], "removed": ghost_deps})
+
+        # Refresh project_tasks after pruning so resurrection/floating checks see
+        # the updated dep lists.
+        all_db_tasks = db.task_get_all()
+        project_tasks = [t for t in all_db_tasks if t["project"] == project_name]
+        all_task_ids = {t["id"] for t in all_db_tasks}
+
+        # Resurrect broken deps that ARE in history (completed/failed tasks whose
+        # live row was pruned but whose dependents still reference them).
+        resurrected_deps = broken_deps - {g for entry in pruned_ghost_deps for g in entry["removed"]}
+        for dep_id in resurrected_deps:
+            rec = history_by_id.get(dep_id, {})
+            live_resolvable_deps = [
+                d for d in (rec.get("dependencies") or [])
+                if d in all_task_ids or d in completed_ids
+            ]
+            metadata = {"resurrected_by_repair": True}
+            dropped_archival = [
+                d for d in (rec.get("dependencies") or [])
+                if d not in live_resolvable_deps
+            ]
+            if dropped_archival:
+                metadata["dropped_archival_dependencies"] = dropped_archival
+            db.task_upsert({
+                "id": dep_id,
+                "project": rec.get("project", project_name),
+                "type": rec.get("type", "feature"),
+                "description": rec.get("description", "(Resurrected by repair — original description unavailable)"),
+                "priority": rec.get("priority", 50),
+                "status": "pending",
+                "attempts": 0,
+                "max_attempts": rec.get("max_attempts", 3),
+                "dependencies": chain_to_project_head(
+                    db,
+                    rec.get("project", project_name),
+                    live_resolvable_deps,
+                    task_id=dep_id,
+                    ensure_head=True,
+                ),
+                "metadata": metadata,
+            })
+            resurrected.append(dep_id)
+
+        # Floating node detection: pending tasks with no deps and nothing
+        # depending on them are disconnected islands — wire them to the project
+        # head so they run in the correct order rather than as rogue roots.
+        depended_on = set()
+        for task in project_tasks:
+            for d in (task.get("dependencies") or []):
+                depended_on.add(d)
+        project_head = (db.project_get(project_name) or {}).get("head_task_id")
+        rewired_floating = []
+        for task in project_tasks:
+            if task["status"] not in ("pending", "failed"):
+                continue
+            if task.get("dependencies"):
+                continue
+            if task["id"] in depended_on:
+                continue
+            if task["id"] == project_head:
+                continue
+            # Genuine floating node — attach to project head
+            new_deps = chain_to_project_head(
+                db,
+                project_name,
+                [],
+                task_id=task["id"],
+                ensure_head=True,
+            )
+            if new_deps:
+                db.task_update(task["id"], {"dependencies": new_deps})
+                rewired_floating.append({"task_id": task["id"], "dependencies": new_deps})
+
         return jsonify({
             "project": project_name,
             "head_repair": head_repair,
@@ -800,6 +865,8 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             "reset_orphaned": reset_orphaned,
             "reanchored": reanchored,
             "resurrected": resurrected,
+            "pruned_ghost_deps": pruned_ghost_deps,
+            "rewired_floating": rewired_floating,
         })
 
     @app.route("/api/projects/<project_name>/reconcile-head", methods=["POST"])
