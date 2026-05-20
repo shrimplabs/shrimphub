@@ -63,6 +63,22 @@ WEBHOOK_URL: str = ""
 MINIMAX_API_KEY: str = ""
 MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 
+# Max agents to spawn per fill_slots call — prevents burst spawning after a cooldown.
+# Set low (e.g. 2-3) so slots fill gradually across monitor cycles rather than all at once.
+SPAWN_PER_CYCLE: int = 3
+
+# Auto-scaling: when enabled, the monitor adjusts MAX_ACTIVE_AGENTS dynamically based
+# on observed 429 pressure, up to the configured ceiling (max_active_agents in config).
+# MAX_ACTIVE_AGENTS becomes the live count; AUTO_SCALE_CEILING is the user's cap.
+AUTO_SCALE: bool = False
+AUTO_SCALE_CEILING: int = 60  # hard cap — never exceed this regardless of 429 pressure
+_auto_scale_floor: int = 1    # never drop below this
+
+# Auto-scale state (managed by monitor thread)
+_auto_scale_current: int = 3          # current dynamic max (starts at floor, ramps up)
+_auto_scale_last_change: float = 0.0  # timestamp of last increment/decrement
+_auto_scale_clean_cycles: int = 0     # consecutive cycles with zero 429s
+
 _fill_slots_lock = threading.Lock()
 
 # Auto-QA: track completed (non-QA) tasks per Godot project since last QA spawn
@@ -203,6 +219,45 @@ def rotate_provider(rate_limited_provider: str, llm_providers: dict) -> Optional
     return candidates[0]
 
 
+def auto_scale_step(recent_429_count: int) -> None:
+    """
+    Adjust MAX_ACTIVE_AGENTS dynamically based on observed 429 pressure.
+    Called once per monitor cycle when AUTO_SCALE is enabled.
+
+    Strategy:
+    - Any 429s in the last 2 min → decrement by 1 (min cooldown: 60s between decrements)
+    - Zero 429s for 3 consecutive cycles → increment by 1 (min cooldown: 120s between increments)
+    - Never go below _auto_scale_floor or above AUTO_SCALE_CEILING
+    """
+    global MAX_ACTIVE_AGENTS, _auto_scale_current, _auto_scale_last_change, _auto_scale_clean_cycles
+
+    if not AUTO_SCALE:
+        return
+
+    now = time.time()
+    ceiling = min(AUTO_SCALE_CEILING, MAX_ACTIVE_AGENTS if not AUTO_SCALE else AUTO_SCALE_CEILING)
+
+    if recent_429_count > 0:
+        _auto_scale_clean_cycles = 0
+        # Decrement: at most once per 60s to avoid thrashing
+        if now - _auto_scale_last_change >= 60 and _auto_scale_current > _auto_scale_floor:
+            _auto_scale_current -= 1
+            _auto_scale_last_change = now
+            MAX_ACTIVE_AGENTS = _auto_scale_current
+            print(f"[AutoScale] {recent_429_count} 429s — reducing to {_auto_scale_current} agents")
+    else:
+        _auto_scale_clean_cycles += 1
+        # Increment: only after 3 clean cycles AND at least 120s since last change
+        if (_auto_scale_clean_cycles >= 3
+                and now - _auto_scale_last_change >= 120
+                and _auto_scale_current < ceiling):
+            _auto_scale_current += 1
+            _auto_scale_last_change = now
+            MAX_ACTIVE_AGENTS = _auto_scale_current
+            _auto_scale_clean_cycles = 0
+            print(f"[AutoScale] Clean — increasing to {_auto_scale_current} agents (ceiling={ceiling})")
+
+
 # ---------------------------------------------------------------------------
 # Fill slots (core auto-mode loop)
 # ---------------------------------------------------------------------------
@@ -316,7 +371,9 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                     })
                     print(f"[Swarm] Sprint QA passed for {proj} — spawned next sprint planner")
 
-        while len(spawned) < limit:
+        # Cap per-cycle spawning to avoid burst after cooldown expiry.
+        cycle_limit = min(limit, SPAWN_PER_CYCLE)
+        while len(spawned) < cycle_limit:
             if get_active_count() >= MAX_ACTIVE_AGENTS:
                 break
 
@@ -465,6 +522,18 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
     def _conflict_first(t: Dict) -> int:
         return 0 if t.get("priority", 50) >= 200 else 1
 
+    def _complexity_adjusted_priority(t: Dict) -> int:
+        """Return effective priority with complexity adjustment.
+        complex tasks get +5 so they're picked slightly earlier (more buffer time).
+        simple tasks get -5 so they're deferred in favour of more demanding peers."""
+        base = t.get("priority", 50)
+        complexity = (t.get("metadata") or {}).get("complexity", "")
+        if complexity == "complex":
+            return base + 5
+        if complexity == "simple":
+            return base - 5
+        return base
+
     def _closure_policy_rank(t: Dict) -> tuple[int, int]:
         project_row = project_rows.get(t.get("project") or "")
         if not project_row:
@@ -512,15 +581,15 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
             _conflict_first(t),
             _closure_policy_rank(t),
             _TYPE_PRIORITY.get(t.get("type", ""), 99),
-            -t.get("priority", 50),
+            -_complexity_adjusted_priority(t),
             t.get("created", ""),
         ))
     elif TASK_SELECTION_STRATEGY == "round_robin":
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("project", ""), -t.get("priority", 50)))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("project", ""), -_complexity_adjusted_priority(t)))
     elif TASK_SELECTION_STRATEGY == "least_recently_worked":
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("created", ""), -t.get("priority", 50)))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("created", ""), -_complexity_adjusted_priority(t)))
     else:  # "priority" (default) and "dependency_aware"
-        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), -t.get("priority", 50), t.get("created", "")))
+        tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), -_complexity_adjusted_priority(t), t.get("created", "")))
     tasks[:] = [task for task in tasks if not _is_expansion_blocked(task)]
 
 

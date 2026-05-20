@@ -1632,3 +1632,348 @@ def list_subtasks(parent_task_id: str = None) -> dict:
         return {"ok": True, "subtasks": subtasks, "parent_task_id": target}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ── Adaptive Graph tools ──────────────────────────────────────────────────────
+# These tools allow an agent to mutate downstream tasks in the dependency graph
+# as it discovers information during its own work. Agents may only touch tasks
+# that are downstream of their own task (pending, not in-progress).
+
+def _get_downstream_task_ids(task_id: str, all_tasks: list) -> set:
+    """Return all task IDs that transitively depend on task_id."""
+    dependents = set()
+    frontier = {task_id}
+    while frontier:
+        next_frontier = set()
+        for t in all_tasks:
+            if t["id"] in dependents:
+                continue
+            if any(d in frontier for d in (t.get("dependencies") or [])):
+                dependents.add(t["id"])
+                next_frontier.add(t["id"])
+        frontier = next_frontier
+    return dependents
+
+
+def _fetch_all_project_tasks(proj: str) -> tuple[list, str]:
+    """Fetch all tasks for the project. Returns (tasks, error)."""
+    try:
+        with _ur.urlopen(f"http://localhost:{API_PORT}/api/tasks", timeout=10) as resp:
+            data = json.loads(resp.read())
+        tasks = [t for t in data.get("tasks", []) if t.get("project") == proj]
+        return tasks, ""
+    except Exception as e:
+        return [], str(e)
+
+
+def annotate_downstream_tasks(findings: str, task_ids: list = None) -> dict:
+    """Prepend a 'CONTEXT FROM UPSTREAM AGENT' block to downstream pending tasks.
+
+    Call this before TASK_COMPLETE to share what you learned with agents that
+    will work on tasks that depend on yours. Useful for:
+    - Sharing API shapes, file paths, or architectural decisions you made
+    - Warning about constraints or gotchas you discovered
+    - Clarifying assumptions the planner made that turned out to be wrong
+
+    findings: free-text summary of what you learned (2-10 sentences)
+    task_ids: optional list of specific downstream task IDs to annotate;
+              if omitted, all pending downstream tasks are annotated
+    """
+    if not findings or not findings.strip():
+        return {"ok": False, "error": "findings must not be empty"}
+
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    downstream_ids = _get_downstream_task_ids(TASK_ID, all_tasks)
+    targets = [
+        t for t in all_tasks
+        if t["id"] in downstream_ids
+        and t["status"] == "pending"
+        and (task_ids is None or t["id"] in task_ids)
+    ]
+
+    if not targets:
+        return {"ok": True, "annotated": 0, "note": "no eligible downstream tasks found"}
+
+    annotation_block = (
+        f"\n\n---\n"
+        f"CONTEXT FROM UPSTREAM AGENT (task {TASK_ID}):\n"
+        f"{findings.strip()}\n"
+        f"---\n"
+    )
+
+    annotated = []
+    errors = []
+    for t in targets:
+        new_desc = t.get("description", "") + annotation_block
+        try:
+            result = _api_request("PATCH", f"/api/tasks/{t['id']}", {"description": new_desc})
+            if result.get("error"):
+                errors.append(f"{t['id']}: {result['error']}")
+            else:
+                annotated.append(t["id"])
+                log(f"[AdaptiveGraph] Annotated downstream task {t['id']}")
+        except Exception as e:
+            errors.append(f"{t['id']}: {e}")
+
+    return {"ok": True, "annotated": len(annotated), "task_ids": annotated, "errors": errors}
+
+
+def split_task(task_id: str, replacement_tasks: list) -> dict:
+    """Replace a pending downstream task with multiple smaller tasks.
+
+    The original task is deleted. Tasks that depended on it are rewired to
+    depend on the last replacement task. The replacements are chained in order
+    (each depends on the previous).
+
+    task_id: ID of the downstream pending task to replace
+    replacement_tasks: list of dicts, each with:
+        - description (required)
+        - type: feature | bug | refactor | polish (default: same as original)
+        - priority: int (default: same as original)
+
+    Safety: only works on pending tasks downstream of the current task.
+    Cannot split tasks that are in-progress or already completed.
+    """
+    if not replacement_tasks or len(replacement_tasks) < 2:
+        return {"ok": False, "error": "replacement_tasks must contain at least 2 tasks"}
+
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    # Safety: must be downstream and pending
+    downstream_ids = _get_downstream_task_ids(TASK_ID, all_tasks)
+    original = next((t for t in all_tasks if t["id"] == task_id), None)
+    if not original:
+        return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
+    if task_id not in downstream_ids:
+        return {"ok": False, "error": f"Task {task_id} is not downstream of the current task {TASK_ID} — cannot split. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() instead to pass context forward."}
+    if original["status"] != "pending":
+        return {"ok": False, "error": f"Task {task_id} is {original['status']} — can only split pending tasks"}
+
+    original_deps = original.get("dependencies") or []
+    original_type = original.get("type", "feature")
+    original_priority = original.get("priority", 50)
+
+    # Build replacement task records, chained in sequence
+    new_ids = []
+    new_tasks = []
+    for i, rt in enumerate(replacement_tasks):
+        new_id = f"{proj}-split-{int(time.time() * 1000) % 10**9}-{i}"
+        deps = original_deps if i == 0 else [new_ids[i - 1]]
+        new_tasks.append({
+            "id": new_id,
+            "project": proj,
+            "type": rt.get("type", original_type),
+            "priority": int(rt.get("priority", original_priority)),
+            "description": rt["description"].strip(),
+            "status": "pending",
+            "dependencies": deps,
+            "metadata": {"split_from": task_id, "split_index": i, "created_by_agent": TASK_ID},
+        })
+        new_ids.append(new_id)
+
+    # Cycle check: verify no new task introduces a cycle
+    # (simple check: none of the new IDs appear in their own transitive deps)
+    existing_ids = {t["id"] for t in all_tasks}
+    for nt in new_tasks:
+        for d in nt["dependencies"]:
+            if d not in existing_ids and d not in new_ids:
+                return {"ok": False, "error": f"Dependency {d} does not exist"}
+
+    # Create replacement tasks
+    created = []
+    for nt in new_tasks:
+        try:
+            result = _api_request("POST", "/api/tasks", nt)
+            if result.get("error"):
+                return {"ok": False, "error": f"Failed to create replacement task: {result['error']}", "created_so_far": created}
+            created.append(nt["id"])
+        except Exception as e:
+            return {"ok": False, "error": str(e), "created_so_far": created}
+
+    # Rewire: tasks that depended on the original now depend on the last replacement
+    last_id = new_ids[-1]
+    rewired = []
+    for t in all_tasks:
+        deps = t.get("dependencies") or []
+        if task_id in deps and t["id"] != task_id:
+            new_deps = [last_id if d == task_id else d for d in deps]
+            try:
+                _api_request("PATCH", f"/api/tasks/{t['id']}", {"dependencies": new_deps})
+                rewired.append(t["id"])
+            except Exception as e:
+                log(f"[AdaptiveGraph] Warning: failed to rewire {t['id']}: {e}")
+
+    # Delete the original task
+    try:
+        _api_request("DELETE", f"/api/tasks/{task_id}")
+        log(f"[AdaptiveGraph] Deleted original task {task_id}, replaced with {new_ids}")
+    except Exception as e:
+        return {"ok": False, "error": f"Replacements created but failed to delete original: {e}",
+                "created": created, "rewired": rewired}
+
+    return {
+        "ok": True,
+        "original_deleted": task_id,
+        "replacements_created": created,
+        "tasks_rewired": rewired,
+    }
+
+
+def prune_task(task_id: str, reason: str) -> dict:
+    """Mark a pending downstream task as completed (redundant/already done).
+
+    Use this when your work has made a downstream task unnecessary — for example
+    you implemented something that was going to be a separate task, or you
+    discovered the task described work that doesn't need to happen.
+
+    task_id: ID of the downstream pending task to prune
+    reason: explanation of why the task is no longer needed (recorded in metadata)
+
+    Safety: only works on pending tasks downstream of the current task.
+    """
+    if not reason or not reason.strip():
+        return {"ok": False, "error": "reason must not be empty"}
+
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    downstream_ids = _get_downstream_task_ids(TASK_ID, all_tasks)
+    target = next((t for t in all_tasks if t["id"] == task_id), None)
+    if not target:
+        return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
+    if task_id not in downstream_ids:
+        return {"ok": False, "error": f"Task {task_id} is not downstream of {TASK_ID} — cannot prune. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() to pass context to tasks you cannot prune."}
+    if target["status"] != "pending":
+        return {"ok": False, "error": f"Task {task_id} is {target['status']} — can only prune pending tasks"}
+
+    existing_meta = target.get("metadata") or {}
+    try:
+        _api_request("PATCH", f"/api/tasks/{task_id}", {
+            "status": "completed",
+            "metadata": {
+                **existing_meta,
+                "pruned_by_agent": TASK_ID,
+                "prune_reason": reason.strip(),
+            },
+        })
+        log(f"[AdaptiveGraph] Pruned task {task_id}: {reason[:80]}")
+        return {"ok": True, "pruned": task_id, "reason": reason.strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def insert_dependency(from_task_id: str, to_task_id: str) -> dict:
+    """Add a dependency edge: from_task_id will now depend on to_task_id.
+
+    Use this when you discover that two existing downstream tasks have an
+    ordering constraint the planner didn't know about — i.e. from_task_id
+    cannot safely run until to_task_id completes.
+
+    from_task_id: the task that needs to wait
+    to_task_id: the task that must complete first
+
+    Safety:
+    - Both tasks must be pending and downstream of the current task
+    - The edge must not create a cycle
+    - Cannot modify tasks that are in-progress or completed
+    """
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    downstream_ids = _get_downstream_task_ids(TASK_ID, all_tasks)
+    from_task = next((t for t in all_tasks if t["id"] == from_task_id), None)
+    to_task = next((t for t in all_tasks if t["id"] == to_task_id), None)
+
+    if not from_task:
+        return {"ok": False, "error": f"Task {from_task_id} not found"}
+    if not to_task:
+        return {"ok": False, "error": f"Task {to_task_id} not found"}
+    if from_task_id not in downstream_ids:
+        return {"ok": False, "error": f"{from_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
+    if to_task_id not in downstream_ids:
+        return {"ok": False, "error": f"{to_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
+    if from_task["status"] != "pending":
+        return {"ok": False, "error": f"{from_task_id} is {from_task['status']} — can only insert deps on pending tasks"}
+    if to_task["status"] == "in_progress":
+        return {"ok": False, "error": f"{to_task_id} is in_progress — inserting this dep would block work already underway"}
+
+    # Cycle check: would adding from→to create a cycle?
+    # A cycle exists if to_task_id is already reachable from from_task_id
+    # (i.e. to already transitively depends on from)
+    reachable_from_from = _get_downstream_task_ids(from_task_id, all_tasks)
+    if to_task_id in reachable_from_from:
+        return {"ok": False, "error": f"Adding {from_task_id} → {to_task_id} would create a cycle"}
+    if from_task_id == to_task_id:
+        return {"ok": False, "error": "A task cannot depend on itself"}
+
+    existing_deps = list(from_task.get("dependencies") or [])
+    if to_task_id in existing_deps:
+        return {"ok": True, "note": "dependency already exists", "from": from_task_id, "to": to_task_id}
+
+    new_deps = existing_deps + [to_task_id]
+    try:
+        _api_request("PATCH", f"/api/tasks/{from_task_id}", {"dependencies": new_deps})
+        log(f"[AdaptiveGraph] Inserted dep: {from_task_id} now depends on {to_task_id}")
+        return {"ok": True, "inserted": {"from": from_task_id, "to": to_task_id}}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def set_task_complexity(task_id: str, complexity: str, reason: str = "") -> dict:
+    """Tag a task with a complexity estimate: 'simple' or 'complex'.
+
+    Use this when you discover during your work that a downstream pending task is
+    significantly harder or easier than typical. The scheduler uses this to adjust
+    priority and attempt allocation.
+
+    complexity: 'simple' (straightforward, likely 1 attempt) or
+                'complex' (high risk, many unknowns, benefits from extra attempts)
+    reason: brief explanation (shown in dashboard, helps future agents)
+
+    Safety:
+    - Only pending tasks may be annotated
+    - complexity must be 'simple' or 'complex'
+    """
+    if complexity not in {"simple", "complex"}:
+        return {"ok": False, "error": "complexity must be 'simple' or 'complex'"}
+
+    proj = PROJECT
+    all_tasks, err = _fetch_all_project_tasks(proj)
+    if err:
+        return {"ok": False, "error": err}
+
+    task = next((t for t in all_tasks if t["id"] == task_id), None)
+    if not task:
+        return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
+    if task["status"] != "pending":
+        return {"ok": False, "error": f"Task {task_id} is {task['status']} — can only annotate pending tasks"}
+
+    metadata = dict(task.get("metadata") or {})
+    metadata["complexity"] = complexity
+    if reason:
+        metadata["complexity_reason"] = reason
+
+    # Bump max_attempts for complex tasks so they get extra chances
+    update: dict = {"metadata": metadata}
+    if complexity == "complex":
+        current_max = task.get("max_attempts", 3)
+        if current_max < 5:
+            update["max_attempts"] = 5
+
+    try:
+        _api_request("PATCH", f"/api/tasks/{task_id}", update)
+        log(f"[AdaptiveGraph] Set complexity={complexity} on {task_id}: {reason}")
+        return {"ok": True, "task_id": task_id, "complexity": complexity, "max_attempts": update.get("max_attempts")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

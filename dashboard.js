@@ -965,6 +965,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         : '';
 
     const notesId = `notes-${name.replace(/[^a-z0-9]/gi, '_')}`;
+    const blurbId = `blurb-${name.replace(/[^a-z0-9]/gi, '_')}`;
 
     const pauseBtn = `<button onclick="toggleProjectPause(event,'${escapeHtml(name)}')" title="${isPaused ? 'Resume project' : 'Pause project'}"
         style="background:transparent;color:${isPaused ? '#f0883e' : '#8b949e'};border:1px solid ${isPaused ? '#f0883e' : '#30363d'};border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">
@@ -1012,6 +1013,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     <span class="status ${data.status}" style="margin-left:4px">${data.status}</span>
                 </div>
             </div>
+            <div id="${blurbId}" style="font-size:11px;color:#8b949e;margin:2px 0 6px 0;font-style:italic;min-height:14px"></div>
             <div class="stat">Largest: <span>${escapeHtml(largest[0])}</span>
                 <span style="color: ${isOverflow ? '#f0883e' : '#3fb950'}; margin-left:6px">${largest[1]} lines ${isOverflow ? '⚠️' : '✓'}</span>
             </div>
@@ -1038,6 +1040,13 @@ async function loadProjectNotes(name, elementId) {
             const data = await res.json();
             const el = document.getElementById(elementId);
             if (el) el.value = data.notes || '';
+            // Extract first descriptive sentence for the blurb
+            const blurbEl = document.getElementById(`blurb-${name.replace(/[^a-z0-9]/gi, '_')}`);
+            if (blurbEl && data.notes) {
+                const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('##'));
+                const blurb = lines[0] || '';
+                blurbEl.textContent = blurb.length > 120 ? blurb.slice(0, 117) + '…' : blurb;
+            }
         }
     } catch(e) {}
 }
@@ -1824,6 +1833,56 @@ async function syncAutoMode() {
     } catch(e) {}
 }
 
+let autoScaleEnabled = false;
+
+function updateAutoScaleBtn() {
+    const btn = document.getElementById('autoScaleBtn');
+    if (!btn) return;
+    if (autoScaleEnabled) {
+        btn.textContent = '⚖ Scale: On';
+        btn.style.background = '#1a3a1f';
+        btn.style.color = '#3fb950';
+        btn.style.borderColor = '#3fb950';
+    } else {
+        btn.textContent = '⚖ Scale: Off';
+        btn.style.background = '#30363d';
+        btn.style.color = '#3fb950';
+        btn.style.borderColor = '#3fb950';
+    }
+}
+
+async function toggleAutoScale() {
+    autoScaleEnabled = !autoScaleEnabled;
+    const btn = document.getElementById('autoScaleBtn');
+    btn.disabled = true;
+    try {
+        const res = await fetch(API + '/api/auto-scale', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: autoScaleEnabled})
+        });
+        const data = await res.json();
+        autoScaleEnabled = data.enabled;
+        updateAutoScaleBtn();
+        if (data.enabled) {
+            document.getElementById('spawnStatus').textContent =
+                `Auto-scale on — ceiling: ${data.ceiling}, current: ${data.current}`;
+        }
+    } catch(e) {
+        autoScaleEnabled = !autoScaleEnabled;
+    }
+    btn.disabled = false;
+}
+
+async function syncAutoScale() {
+    try {
+        const res = await fetch(API + '/api/auto-scale');
+        const data = await res.json();
+        autoScaleEnabled = data.enabled;
+        updateAutoScaleBtn();
+    } catch(e) {}
+}
+
 let maxLines = 2000;
 
 async function loadWebhook() {
@@ -2502,6 +2561,7 @@ loadData().then(() => { if (_depsVisible) renderDepsGraph(); });
 document.getElementById('outputModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
 document.getElementById('editTaskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditTaskModal(); });
 syncAutoMode();
+syncAutoScale();
 syncMaxAgents();
 syncQaMaxCycles();
 syncProviders();

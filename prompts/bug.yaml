@@ -32,6 +32,8 @@ system: |
   <% include 'common/acceptance_criteria.md' %>
 
   12. << validation_block >>
+  <% include 'common/graph_review.md' %>
+
   13. Only say TASK_COMPLETE after the bug is fixed and committed
 
   <% include 'common/web_search_tips_godot.md' %>

@@ -192,7 +192,9 @@ Rules:
                 )
                 result = json.loads(create_resp.data)
                 if "error" in result:
-                    entry["error"] = f"create failed: {result['error']}"
+                    details = result.get("details", [])
+                    detail_str = "; ".join(details) if details else ""
+                    entry["error"] = f"create failed: {result['error']}" + (f" — {detail_str}" if detail_str else "")
                     results.append(entry)
                     continue
 
@@ -263,13 +265,14 @@ ATOMICITY RULES — each task must be a single, self-contained unit of work:
 - Target size: what one agent can do in ~30 tool loops
 
 DEPENDENCY GRAPH RULES:
-- Use a DAG (directed acyclic graph), NOT a chain. Most tasks should run in parallel.
+- Use a DAG (directed acyclic graph) with meaningful branching AND convergence.
 - A task only depends on another if it literally cannot start without that task's output.
-- Ask: "Can this task be worked on at the same time as another?" If yes, they should be parallel (no dependency between them).
-- Foundation tasks (data models, core loop, base classes) come first; everything that builds on them fans out in parallel.
+- Foundation tasks (data models, core loop, base classes) come first; systems that build on them fan out in parallel.
 - Integration/wiring tasks come last and depend on the systems they connect.
 - WRONG: A → B → C → D → E (pure chain, wastes parallelism)
+- WRONG: A, B, C, D, E (all roots — no sequencing, everything launches at once)
 - RIGHT: A → [B, C, D in parallel] → E (fan out, then converge)
+- RULE: No more than half of all tasks should be root tasks (no dependencies). Most tasks should depend on something.
 
 SPLITTING HEURISTICS:
 - "Create X and write tests" → Task 1: Create X / Task 2: Write tests (depends on Task 1)

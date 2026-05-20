@@ -127,6 +127,14 @@ def create_app(
     orchestrator.LOCK_PROJECT        = config.get("lock_project", False)
     orchestrator.AGENT_TIMEOUT       = config.get("agent_timeout", AGENT_TIMEOUT)
     orchestrator.QUOTA_LIMIT_PERCENT = config.get("quota_limit_percent", 90)
+    orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
+    orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
+    orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
+    # Start auto-scaler conservatively at 3 so it ramps up gradually rather than
+    # immediately filling to the ceiling on restart.
+    orchestrator._auto_scale_current = 3
+    if config.get("auto_scale", False):
+        orchestrator.MAX_ACTIVE_AGENTS = 3
     orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
     orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
     orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))
@@ -328,35 +336,40 @@ def create_app(
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
                 # than the quota-suspension flag (which would immediately auto-resume).
+                # When auto-scale is on, skip the cooldown — the scaler handles rate
+                # reduction by stepping down MAX_ACTIVE_AGENTS directly.
                 rate_limited = orchestrator.check_rate_limit_flags()
-                if rate_limited:
+                if rate_limited and not orchestrator.AUTO_SCALE:
                     new_cooldown = time.time() + _rate_limit_cooldown_secs
                     _rate_limit_cooldown_until[0] = new_cooldown
                     print(f"[Auto] {rate_limited} rate limited — spawn cooldown {_rate_limit_cooldown_secs}s")
 
                 # Also check rolling 429 event pressure (agents write rl_events.jsonl)
+                _recent_429_count = 0
                 try:
                     _rl_file = data_dir / "rl_events.jsonl"
                     if _rl_file.exists():
                         _now = time.time()
                         _window = 120  # 2-minute window
                         _rl_lines = _rl_file.read_text().splitlines()
-                        _recent_count = 0
                         for _l in _rl_lines:
                             try:
                                 _ev = json.loads(_l)
                                 if _now - _ev.get("t", 0) < _window:
-                                    _recent_count += 1
+                                    _recent_429_count += 1
                             except Exception:
                                 pass
                         # Trim old events (keep last 200 lines)
                         if len(_rl_lines) > 200:
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")
-                        if _recent_count >= 5 and time.time() >= _rate_limit_cooldown_until[0]:
+                        if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0] and not orchestrator.AUTO_SCALE:
                             _rate_limit_cooldown_until[0] = time.time() + _rate_limit_cooldown_secs
-                            print(f"[Auto] {_recent_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
+                            print(f"[Auto] {_recent_429_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
                 except Exception:
                     pass
+
+                # Auto-scale: adjust MAX_ACTIVE_AGENTS based on 429 pressure
+                orchestrator.auto_scale_step(_recent_429_count)
 
                 over_limit, pct_used, *_ = orchestrator.check_quota_limit()
                 if over_limit:
@@ -365,14 +378,16 @@ def create_app(
                             auto_mode_state["enabled"] = False
                             auto_mode_state["suspended_for_quota"] = True
                             print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) — auto mode suspended")
-                    continue
+                else:
+                    # Quota cleared — resume if we suspended due to quota
+                    with auto_mode_state["lock"]:
+                        if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
+                            auto_mode_state["enabled"] = True
+                            auto_mode_state["suspended_for_quota"] = False
+                            print("[Auto] Quota OK — auto mode resumed")
 
-                # Quota cleared — resume if we suspended due to quota
-                with auto_mode_state["lock"]:
-                    if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
-                        auto_mode_state["enabled"] = True
-                        auto_mode_state["suspended_for_quota"] = False
-                        print("[Auto] Quota OK — auto mode resumed")
+                if over_limit:
+                    continue
 
                 # Fill agent slots if auto mode is on and not in rate-limit cooldown
                 with auto_mode_state["lock"]:
