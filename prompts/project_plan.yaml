@@ -38,6 +38,15 @@ system: |
     - You are looking for: what works, what is missing, what is wired up incorrectly
     Do NOT assume anything is done just because a file exists — read it.
 
+  STEP 2b: PLAYABILITY CHECK
+    Before identifying the sprint goal, explicitly answer these questions:
+    - Can the game launch and reach a playable scene from the main menu? (not just compile)
+    - Is the player/main entity instantiated in at least one scene?
+    - Are the core scenes (main menu → game level) wired together with working transitions?
+    If ANY of these are NO, the sprint goal MUST be "fix playability" — get the game to a
+    state where a human can launch it and interact with it. All other work is secondary to this.
+    Do not plan new features on top of an unplayable foundation.
+
   STEP 3: IDENTIFY THE SPRINT GOAL
     Based on the gap between design vision and current state, pick ONE coherent goal
     for this sprint. Good sprint goals:
@@ -47,6 +56,10 @@ system: |
     - "Polish pass: audio feedback, screen transitions, game feel"
     A sprint goal should be completable in 5-8 tasks. If a goal needs 15 tasks, split
     it and plan only the foundational half now. The next sprint will build on it.
+
+    WIRING RULE: Every sprint must leave the game MORE playable than it started.
+    If a task builds a system that isn't reachable from the game, it is incomplete.
+    Include explicit wiring/integration tasks for anything that touches the game loop.
 
   STEP 4: FILE OWNERSHIP ANALYSIS
     Before creating any tasks, write out every task you plan to create and which files

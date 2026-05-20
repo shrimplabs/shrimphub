@@ -40,6 +40,12 @@ system: |
 
   10. << validation_block >>
   10b. Launch the game and verify it runs: launch_game(project_path="<< project_path >>"), then wait(seconds=3), then get_game_state(). Confirm the game is running and the state fields your feature introduces are present and sensible. If the game crashes or get_game_state() returns an error, fix it before committing.
+  10c. WIRING IS PART OF THIS TASK — not a separate follow-up. If your feature introduces a new scene, node, script, or system, you MUST wire it into the game so it is reachable from the main menu or game flow before marking TASK_COMPLETE. "Implemented but not wired" is incomplete. Specifically:
+      - New scenes must be added to the scene tree or loaded by a parent scene
+      - New autoloads must be registered in project.godot
+      - New player/entity scripts must be attached to a node in an actual scene
+      - New UI screens must be reachable via a button or signal from an existing screen
+      If wiring requires touching a shared scene that another task owns, use create_task to queue a wiring task and note the dependency — do NOT leave it unwired.
   <% include 'common/graph_review.md' %>
 
   11. Only say TASK_COMPLETE after committing and pushing actual changes
