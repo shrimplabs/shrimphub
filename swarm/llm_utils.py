@@ -223,36 +223,43 @@ def _record_rate_limit_event(provider_name: str):
 
 
 def _quota_sleep_if_needed(log_fn=None):
-    """Check MiniMax quota via the local API and sleep until reset if over threshold.
+    """Check MiniMax quota via the local API and poll-sleep until quota clears.
 
     Reads QUOTA_SLEEP_THRESHOLD env var (default 88) — slightly below the
     swarm's quota_limit_percent (90) so agents pause before the orchestrator
-    suspends spawning. Uses remains_time from the quota response to sleep
-    exactly until the interval resets rather than guessing.
+    suspends spawning. Polls every 60s so agents wake up immediately when the
+    interval resets rather than sleeping for the full remaining window.
     """
     threshold = float(os.environ.get("QUOTA_SLEEP_THRESHOLD", "88"))
     api_port = os.environ.get("API_PORT", "5001")
-    try:
-        import urllib.request as _ur
-        with _ur.urlopen(f"http://localhost:{api_port}/api/quota", timeout=5) as resp:
-            data = json.loads(resp.read())
-        for m in data.get("model_remains", []):
-            if m.get("model_name") != "MiniMax-M*":
-                continue
-            total = m.get("current_interval_total_count", 0)
-            used = m.get("current_interval_usage_count", 0)
-            if total <= 0:
+    poll_interval = 60  # re-check quota every 60s
+    logged = False
+    while True:
+        try:
+            import urllib.request as _ur
+            with _ur.urlopen(f"http://localhost:{api_port}/api/quota", timeout=5) as resp:
+                data = json.loads(resp.read())
+            over = False
+            for m in data.get("model_remains", []):
+                if m.get("model_name") != "MiniMax-M*":
+                    continue
+                total = m.get("current_interval_total_count", 0)
+                remaining = m.get("current_interval_usage_count", 0)
+                used = total - remaining
+                if total <= 0:
+                    break
+                pct = 100.0 * used / total
+                if pct >= threshold:
+                    over = True
+                    if log_fn and not logged:
+                        log_fn(f"[LLM] Quota at {pct:.1f}% (threshold {threshold}%) — polling every {poll_interval}s until interval resets")
+                        logged = True
                 break
-            pct = 100.0 * used / total
-            if pct >= threshold:
-                remains_ms = m.get("remains_time", 60000)
-                sleep_s = max(remains_ms / 1000.0, 5.0) + 2.0  # +2s buffer
-                if log_fn:
-                    log_fn(f"[LLM] Quota at {pct:.1f}% (threshold {threshold}%) — sleeping {sleep_s:.0f}s until interval resets")
-                time.sleep(sleep_s)
-            break
-    except Exception:
-        pass  # Don't block LLM calls if quota check fails
+            if not over:
+                return  # quota cleared, proceed with LLM call
+            time.sleep(poll_interval)
+        except Exception:
+            return  # Don't block LLM calls if quota check fails
 
 
 def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
