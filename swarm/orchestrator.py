@@ -590,7 +590,14 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
         tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), t.get("created", ""), -_complexity_adjusted_priority(t)))
     else:  # "priority" (default) and "dependency_aware"
         tasks.sort(key=lambda t: (_conflict_first(t), _closure_policy_rank(t), -_complexity_adjusted_priority(t), t.get("created", "")))
-    tasks[:] = [task for task in tasks if not _is_expansion_blocked(task)]
+    # Only filter out expansion tasks when non-blocked alternatives exist.
+    # If ALL ready tasks are expansion-blocked the closure policy would create a
+    # deadlock (bug tasks depend on blocked feature tasks → nothing can run).
+    # In that case allow expansion tasks through so the chain can make progress.
+    non_blocked = [task for task in tasks if not _is_expansion_blocked(task)]
+    if non_blocked:
+        tasks[:] = non_blocked
+    # else: leave tasks as-is to avoid deadlock
 
 
 # ---------------------------------------------------------------------------
