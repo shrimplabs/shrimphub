@@ -376,14 +376,16 @@ def create_app(
                             auto_mode_state["enabled"] = False
                             auto_mode_state["suspended_for_quota"] = True
                             print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) — auto mode suspended")
-                    continue
+                else:
+                    # Quota cleared — resume if we suspended due to quota
+                    with auto_mode_state["lock"]:
+                        if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
+                            auto_mode_state["enabled"] = True
+                            auto_mode_state["suspended_for_quota"] = False
+                            print("[Auto] Quota OK — auto mode resumed")
 
-                # Quota cleared — resume if we suspended due to quota
-                with auto_mode_state["lock"]:
-                    if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
-                        auto_mode_state["enabled"] = True
-                        auto_mode_state["suspended_for_quota"] = False
-                        print("[Auto] Quota OK — auto mode resumed")
+                if over_limit:
+                    continue
 
                 # Fill agent slots if auto mode is on and not in rate-limit cooldown
                 with auto_mode_state["lock"]:
