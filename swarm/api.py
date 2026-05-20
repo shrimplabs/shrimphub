@@ -130,11 +130,12 @@ def create_app(
     orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
     orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
     orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
-    # Start auto-scaler conservatively at 3 so it ramps up gradually rather than
-    # immediately filling to the ceiling on restart.
-    orchestrator._auto_scale_current = 3
+    # On restart, begin at the ceiling so any surviving orphan agents don't
+    # immediately stall fill_slots.  The scaler will decrement if 429s appear.
+    _startup_ceiling = config.get("max_active_agents", 60)
+    orchestrator._auto_scale_current = _startup_ceiling
     if config.get("auto_scale", False):
-        orchestrator.MAX_ACTIVE_AGENTS = 3
+        orchestrator.MAX_ACTIVE_AGENTS = _startup_ceiling
     orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
     orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
     orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))

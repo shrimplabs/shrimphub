@@ -9,7 +9,12 @@ Also exposes generate_task_script which swarm.api imports to build agent wrapper
 import json
 import os
 
+# Force unbuffered stdout so monitor thread prints appear immediately in logs
+# even when running under nohup or other output-redirecting wrappers.
+os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 from pathlib import Path
 import re
 from collections.abc import Iterable
