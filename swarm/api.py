@@ -359,7 +359,20 @@ def create_app(
                                     _recent_429_count += 1
                             except Exception:
                                 pass
-                        # Trim old events (keep last 200 lines)
+                        # Archive new events to rl_events_archive.jsonl (never trimmed)
+                        _archive_file = data_dir / "rl_events_archive.jsonl"
+                        _existing_archive = set()
+                        if _archive_file.exists():
+                            for _al in _archive_file.read_text().splitlines():
+                                try:
+                                    _existing_archive.add(_al.strip())
+                                except Exception:
+                                    pass
+                        _new_lines = [_l for _l in _rl_lines if _l.strip() and _l.strip() not in _existing_archive]
+                        if _new_lines:
+                            with open(_archive_file, "a") as _af:
+                                _af.write("\n".join(_new_lines) + "\n")
+                        # Trim rolling file (keep last 200 lines)
                         if len(_rl_lines) > 200:
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")
                         if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0] and not orchestrator.AUTO_SCALE:

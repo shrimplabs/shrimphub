@@ -1883,6 +1883,69 @@ async function syncAutoScale() {
     } catch(e) {}
 }
 
+async function loadRlHistory() {
+    try {
+        const res = await fetch(API + '/api/auto-scale/history');
+        if (!res.ok) return;
+        const data = await res.json();
+        const byHour = data.by_hour || [];
+        const total = data.total || 0;
+
+        const totalEl = document.getElementById('rlHistoryTotal');
+        if (totalEl) totalEl.textContent = total > 0 ? `${total.toLocaleString()} total events` : 'no data yet';
+
+        const canvas = document.getElementById('rlHistoryChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = 48 * dpr;
+        ctx.scale(dpr, dpr);
+
+        const W = rect.width, H = 48;
+        const counts = byHour.map(b => b.count);
+        const maxCount = Math.max(...counts, 1);
+        const barW = W / 24;
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Current hour highlight
+        const currentHour = new Date().getHours();
+
+        counts.forEach((count, h) => {
+            const barH = count > 0 ? Math.max(2, (count / maxCount) * (H - 8)) : 0;
+            const x = h * barW;
+            const y = H - barH;
+            const alpha = h === currentHour ? 1.0 : 0.7;
+            const intensity = count > 0 ? Math.max(0.3, count / maxCount) : 0.08;
+            ctx.fillStyle = count > 0
+                ? `rgba(248, 81, 73, ${intensity * alpha})`
+                : `rgba(33, 38, 45, 0.6)`;
+            ctx.fillRect(x + 1, y, barW - 2, barH);
+        });
+
+        // Hour axis labels (0, 6, 12, 18, 23)
+        ctx.fillStyle = '#484f58';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        [0, 6, 12, 18, 23].forEach(h => {
+            ctx.fillText(h, h * barW + barW / 2, H - 1);
+        });
+
+        // Tooltip on hover
+        const tooltip = document.getElementById('rlHistoryTooltip');
+        canvas.onmousemove = (e) => {
+            const x = e.offsetX;
+            const h = Math.min(23, Math.floor(x / barW));
+            const c = counts[h];
+            const label = h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h-12}pm`;
+            if (tooltip) tooltip.textContent = `${label}: ${c} event${c !== 1 ? 's' : ''}`;
+        };
+        canvas.onmouseleave = () => { if (tooltip) tooltip.textContent = ''; };
+    } catch(e) {}
+}
+
 let maxLines = 2000;
 
 async function loadWebhook() {
@@ -2562,6 +2625,7 @@ document.getElementById('outputModal').addEventListener('click', (e) => { if (e.
 document.getElementById('editTaskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditTaskModal(); });
 syncAutoMode();
 syncAutoScale();
+loadRlHistory();
 syncMaxAgents();
 syncQaMaxCycles();
 syncProviders();

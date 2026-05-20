@@ -140,6 +140,46 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             tuple(config.get("file_extensions", [".gd"]))
         )
         return jsonify({"status": "ok"})
+# ---------- Auto-scale history ----------
+    @app.route("/api/auto-scale/history", methods=["GET"])
+    def get_auto_scale_history():
+        """Return 429 event counts bucketed by hour-of-day and by date for graphing."""
+        import json as _json
+        from datetime import datetime as _dt
+        from collections import defaultdict as _dd
+        archive = data_dir / "rl_events_archive.jsonl"
+        by_hour = _dd(int)   # hour 0-23 → count (all-time)
+        by_date_hour = _dd(lambda: _dd(int))  # date str → hour → count
+        total = 0
+        if archive.exists():
+            for line in archive.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    ev = _json.loads(line)
+                    t = ev.get("t", 0)
+                    dt = _dt.fromtimestamp(t)
+                    by_hour[dt.hour] += 1
+                    by_date_hour[dt.strftime("%Y-%m-%d")][dt.hour] += 1
+                    total += 1
+                except Exception:
+                    pass
+        # Build hourly series (0-23, fill missing with 0)
+        hourly = [{"hour": h, "count": by_hour.get(h, 0)} for h in range(24)]
+        # Build daily breakdown (last 7 days)
+        from datetime import timedelta as _td
+        today = _dt.now().date()
+        daily = []
+        for i in range(6, -1, -1):
+            d = (today - _td(days=i)).strftime("%Y-%m-%d")
+            day_hours = by_date_hour.get(d, {})
+            daily.append({
+                "date": d,
+                "total": sum(day_hours.values()),
+                "by_hour": [day_hours.get(h, 0) for h in range(24)],
+            })
+        return jsonify({"total": total, "by_hour": hourly, "daily": daily})
+
 # ---------- Quota ----------
     @app.route("/api/quota", methods=["GET"])
     def get_quota():
