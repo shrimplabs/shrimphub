@@ -791,6 +791,23 @@ button, .btn {
     box-shadow: 0 0 6px rgba(255, 105, 180, 0.6);
 }
 
+.active-led {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #3fb950;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    box-shadow: 0 0 6px rgba(63, 185, 80, 0.8);
+    animation: ledPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ledPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(63, 185, 80, 0.6); opacity: 0.85; }
+    50%       { box-shadow: 0 0 10px rgba(63, 185, 80, 1.0); opacity: 1.0; }
+}
+
 /* ─── Commit list ───────────────────────────────────────────────── */
 .commit-list {
     margin-top: 8px;

@@ -100,9 +100,11 @@ async function loadData() {
         const totalTokenCount = activeAgents.reduce((sum, a) => sum + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
         const totalTokensLabel = totalTokenCount > 0 ? `${(totalTokenCount/1000).toFixed(1)}k` : '0';
 
-        // Build project-level token totals from active agents
+        // Build project-level token totals and active-project set from active agents
         _projectTokenMap = {};
+        _activeProjectSet = new Set();
         for (const a of activeAgents) {
+            if (a.project) _activeProjectSet.add(a.project);
             const tok = (a.input_tokens || 0) + (a.output_tokens || 0);
             if (tok > 0 && a.project) {
                 _projectTokenMap[a.project] = (_projectTokenMap[a.project] || 0) + tok;
@@ -799,6 +801,7 @@ async function fetchProjectClosureProposal(name) {
 let _pausedProjects = new Set();
 let _autoReplanProjects = new Set();
 let _projectTokenMap = {};
+let _activeProjectSet = new Set();
 let _selectedProject = null;  // null = all projects
 let _allProjectNames = [];
 let _integrityData = null;
@@ -996,11 +999,14 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         ? `<span style="font-size:11px;color:#8b949e;margin-left:8px">${(projectTokens/1000).toFixed(1)}k tok</span>`
         : '';
 
+    const isActive = _activeProjectSet.has(name);
+    const activeLed = isActive ? '<span class="active-led" title="Agent running"></span>' : '';
+
     return `
         <div class="card" data-has-project="${escapeHtml(name)}" style="${isPaused ? 'opacity:0.6' : ''}">
             <div class="card-header">
                 <span class="project-name">
-                    ${isLocked ? '<span class="locked-badge"></span>' : ''}${escapeHtml(name)}
+                    ${activeLed}${isLocked ? '<span class="locked-badge"></span>' : ''}${escapeHtml(name)}
                     ${isPaused ? '<span style="font-size:10px;color:#f0883e;margin-left:6px">PAUSED</span>' : ''}
                     ${projectTokensHtml}
                 </span>
@@ -2192,9 +2198,11 @@ function renderSidebar(projectNames, projectTaskCounts) {
     container.innerHTML = items.map(item => {
         const active = _selectedProject === item.key;
         const dataAttr = item.key !== null ? `data-project="${escapeHtml(item.name)}"` : '';
+        const hasAgent = item.key !== null && _activeProjectSet.has(item.key);
         return `
             <div class="sidebar-item ${active ? 'active' : ''}" ${dataAttr}
                  onclick="selectSidebarProject(${item.key === null ? 'null' : "'" + item.name + "'"})">
+                ${hasAgent ? '<span class="active-led"></span>' : ''}
                 <span class="sidebar-item-name">${escapeHtml(item.name)}</span>
                 <span class="sidebar-item-count">${item.count}</span>
             </div>`;
@@ -2206,6 +2214,34 @@ function selectSidebarProject(name) {
     renderSidebar(_allProjectNames, _sidebarTaskCounts);
     applyProjectFilter();
     if (_depsVisible) renderDepsGraph();
+
+    const banner = document.getElementById('project-focus-banner');
+    const focusName = document.getElementById('project-focus-name');
+    const focusBlurb = document.getElementById('project-focus-blurb');
+    const descBar = document.getElementById('project-description-bar');
+    const descName = document.getElementById('project-desc-name');
+    const descBlurb = document.getElementById('project-desc-blurb');
+    if (!name) {
+        banner.style.display = 'none';
+        descBar.style.display = 'none';
+        return;
+    }
+    focusName.textContent = name;
+    focusBlurb.textContent = '';
+    banner.style.display = '';
+    descName.textContent = name;
+    descBlurb.textContent = '';
+    descBar.style.display = '';
+    fetch(`${API}/api/projects/${encodeURIComponent(name)}/notes`).then(r => r.json()).then(data => {
+        let blurb = '';
+        if (data.notes) {
+            const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+            blurb = lines[0] || '';
+        }
+        if (!blurb && data.concept) blurb = data.concept;
+        focusBlurb.textContent = blurb;
+        descBlurb.textContent = blurb;
+    }).catch(() => {});
 }
 
 function applyProjectFilter() {

@@ -11,7 +11,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Automatic task retry with failure context fed back into prompts
 - Recovery tasks spawned when retries exhausted; dependents reparented automatically
 - Dependency self-healing: chains unblock when pruned-failed deps are detected
-- Post-task validation with auto-spawned bug tasks on failure (runs synchronously in monitor thread — can block up to ~5 min for GUT tests)
+- Post-task validation with auto-spawned bug tasks on failure (runs synchronously in monitor thread -- can block up to ~5 min for GUT tests)
 - Real-time log streaming via SSE, per-project health metrics
 - Loop stall detection: injects a redirect prompt when the same tool call repeats 3× identically
 - Token tracking: input/output tokens recorded per agent, visible in dashboard
@@ -19,7 +19,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Auto-audit: Godot projects receive an audit task every 20 completions
 - Auto-replan: per-project opt-in toggle that spawns `project_plan` when a project's task queue empties
 - Context compaction: long agent conversations are summarised mid-run to reduce token usage; threshold is 120k estimated tokens (~80k buffer before MiniMax's 200k window)
-- Jitter: random 0.5–3 s sleep before every LLM call to spread RPM load
+- Jitter: random 0.5-3 s sleep before every LLM call to spread RPM load
 - Project registry persistence: all managed projects are registered on startup so they always appear in the dashboard
 - QA cycle cap: QA agents stop requeuing themselves after `qa_max_cycles` (default 3, configurable); prevents infinite QA loops
 - Dep violation checker: monitor kills any agent whose task has unmet dependencies (catches both in-memory and DB-tracked agents after restart)
@@ -47,7 +47,7 @@ echo "MINIMAX_API_KEY=your_key" > .env
 
 ```bash
 .venv/bin/python swarm_runner.py api        # API server + dashboard at http://localhost:5001
-.venv/bin/pytest                            # full test suite (excludes dashboard — see below)
+.venv/bin/pytest                            # full test suite (excludes dashboard -- see below)
 .venv/bin/pytest tests/test_api.py          # single file
 .venv/bin/pytest tests/test_api.py::TestClass::test_name  # single test
 
@@ -58,7 +58,7 @@ echo "MINIMAX_API_KEY=your_key" > .env
 
 ## Issue Tracking
 
-This repo uses **bd** (beads) for issue tracking — not TodoWrite or markdown TODO lists.
+This repo uses **bd** (beads) for issue tracking -- not TodoWrite or markdown TODO lists.
 
 ```bash
 bd prime                    # full workflow context + session-close protocol
@@ -175,21 +175,21 @@ flask_app = create_app(
 ### Timeout design
 
 Two independent limits apply to agents:
-- **Loop limit** (`MAX_TOOL_LOOPS = 200` in `swarm/constants.py`) — the primary governor; agents exit cleanly at loop 200
-- **Wall-clock watchdog** (`AGENT_TIMEOUT = 7200s` default in `constants.py`, overridable via `config.json`) — safety net for truly hung processes only; should not fire on working agents
+- **Loop limit** (`MAX_TOOL_LOOPS = 200` in `swarm/constants.py`) -- the primary governor; agents exit cleanly at loop 200
+- **Wall-clock watchdog** (`AGENT_TIMEOUT = 7200s` default in `constants.py`, overridable via `config.json`) -- safety net for truly hung processes only; should not fire on working agents
 
 ### Recovery and self-healing
 
 - When a task exhausts `max_attempts`, `_spawn_review_task()` creates a recovery task with full failure history and reparents all dependents to it
-- Recovery tasks have `is_recovery_task: True` in metadata — they never spawn further recovery tasks (prevents infinite chains)
-- `_get_next_task()` treats a dep as "met" if it's completed OR if it no longer exists in the active tasks table — chains self-heal when deps are pruned as failed
-- Recovery task creation is NOT gated on MANAGED_PROJECTS (only PAUSED_PROJECTS skip) — recovery always fires
+- Recovery tasks have `is_recovery_task: True` in metadata -- they never spawn further recovery tasks (prevents infinite chains)
+- `_get_next_task()` treats a dep as "met" if it's completed OR if it no longer exists in the active tasks table -- chains self-heal when deps are pruned as failed
+- Recovery task creation is NOT gated on MANAGED_PROJECTS (only PAUSED_PROJECTS skip) -- recovery always fires
 
 ### Continuation task dependency reparenting
 
 When an agent hits the loop or context limit and spawns a continuation task, `_finish_agent()` parses `"Continuation task created: <id>"` from the agent log and reparents all downstream tasks that depended on the original task to depend on the continuation instead. This prevents the chain from fragmenting.
 
-Lock conflicts also serialize via continuation nodes — the second agent creates a continuation task pointing to the lock holder rather than running in parallel.
+Lock conflicts also serialize via continuation nodes -- the second agent creates a continuation task pointing to the lock holder rather than running in parallel.
 
 ### Validation bug task reparenting
 
@@ -200,14 +200,14 @@ Lock conflicts also serialize via continuation nodes — the second agent create
 ### Dependency violation checker
 
 `orchestrator.check_dep_violations()` is called by the monitor thread before `check_agent_status()`. It kills and resets to `pending` any agent whose task has unmet dependencies. Checks two sources:
-1. `_active_handles` — in-memory handles for agents spawned in the current server session
-2. `db.agent_get_active()` — DB-tracked agents (survive server restarts as separate PIDs)
+1. `_active_handles` -- in-memory handles for agents spawned in the current server session
+2. `db.agent_get_active()` -- DB-tracked agents (survive server restarts as separate PIDs)
 
 This catches the "two agents running the same chain" scenario that can arise after restarts or dep reparenting races.
 
 ### Worktree `.godot` cache seeding
 
-Godot requires `.godot/global_script_class_cache.cfg` to resolve `class_name` types. This file is gitignored, so fresh worktrees don't have it — causing validation runs to fail with "Could not find type X", spawning false-positive bug tasks.
+Godot requires `.godot/global_script_class_cache.cfg` to resolve `class_name` types. This file is gitignored, so fresh worktrees don't have it -- causing validation runs to fail with "Could not find type X", spawning false-positive bug tasks.
 
 Fix: `_create_worktree()` and `_post_task_validation_in_worktree()` both copy `.godot/` from the main project path into the worktree if it exists and isn't already there.
 
@@ -222,7 +222,7 @@ Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`.
 
 ## Configuration
 
-`config.json` (gitignored) — all optional:
+`config.json` (gitignored) -- all optional:
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -240,14 +240,14 @@ Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`.
 | `task_selection_strategy` | `"refactor_first"` | Task picker |
 | `auto_replan_projects` | `[]` | Projects that auto-spawn `project_plan` when task queue empties |
 | `qa_max_cycles` | `3` | Max times a QA agent may requeue itself before stopping |
-| `meta_investigation` | `true` | **EXPERIMENT** — fires an out-of-band LLM investigator when the same error repeats 3+ times; injects a hint into the agent context. Set `false` to disable. |
+| `meta_investigation` | `true` | **EXPERIMENT** -- fires an out-of-band LLM investigator when the same error repeats 3+ times; injects a hint into the agent context. Set `false` to disable. |
 | `meta_investigation_provider` | `""` | LLM provider used for investigation calls (defaults to the main provider; set to `"claude"` etc. to override) |
 | `thinking_task_types` | `[]` | Task types that get thinking enabled (e.g. `["bug", "qa"]`) |
 | `thinking_task_budget` | `10000` | Thinking budget tokens for task types listed in `thinking_task_types` |
 | `vision_provider` | `"minimax-mcp"` | Vision model backend for QA agents |
 | `vision_provider_fast` | `"local"` | Fast vision backend (local mlx-vlm) |
 | `vision_providers` | `{}` | Per-vision-provider config overrides |
-| `rag` | `{}` | RAG config (`enabled`, `index_path`, `backend`, `top_k`) — see RAG section below |
+| `rag` | `{}` | RAG config (`enabled`, `index_path`, `backend`, `top_k`) -- see RAG section below |
 | `completion_webhook_url` | `""` | URL to POST when an agent completes |
 | `fallback_providers` | `[]` | Provider names to try if primary fails |
 | `godot_path` | `""` | Absolute path to Godot binary; inherited by agents as `GODOT_PATH` |
@@ -257,7 +257,7 @@ Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`.
 
 ## Security / Authentication
 
-Authentication is **off by default** — the API is open to anyone on the network. To enable it, add `"login_required": true` to `config.json`. Default credentials are then `admin` / `admin`.
+Authentication is **off by default** -- the API is open to anyone on the network. To enable it, add `"login_required": true` to `config.json`. Default credentials are then `admin` / `admin`.
 
 To set a strong password before enabling:
 
@@ -283,9 +283,9 @@ Built-in providers in `swarm/provider_utils.py`:
 | `kimi` | `anthropic` (Bearer) | `KIMI_API_KEY` | k2p5 |
 
 `format` values:
-- `anthropic` — `Authorization: Bearer`, `/messages` endpoint, Anthropic body
-- `anthropic_native` — `x-api-key` + `anthropic-version: 2023-06-01`, `/messages` endpoint
-- `openai` — `Authorization: Bearer`, `/chat/completions`, OpenAI body
+- `anthropic` -- `Authorization: Bearer`, `/messages` endpoint, Anthropic body
+- `anthropic_native` -- `x-api-key` + `anthropic-version: 2023-06-01`, `/messages` endpoint
+- `openai` -- `Authorization: Bearer`, `/chat/completions`, OpenAI body
 
 Custom providers can be registered at runtime via `POST /api/provider`.
 
@@ -320,7 +320,7 @@ On failure: if `attempts < max_attempts`, task resets to `pending` with `metadat
 | `data/agent_<id>.py` | Generated wrapper script (deleted on completion) |
 | `data/agent_<task_id>_tokens.json` | Transient token counts written by agent, read by orchestrator on finish |
 
-SQLite schema evolution: `swarm/db.py:_evolve_schema()` adds new columns to existing DBs via `ALTER TABLE` on startup — safe to run on any DB version.
+SQLite schema evolution: `swarm/db.py:_evolve_schema()` adds new columns to existing DBs via `ALTER TABLE` on startup -- safe to run on any DB version.
 
 ## Prompt Types
 
@@ -357,31 +357,31 @@ Prompt YAML files live in `prompts/`. Each maps to a task type:
 
 ### Core
 - `GET /api/projects` `/api/tasks` `/api/agents`
-- `GET /api/health` — monitor alive, lag seconds, uptime
-- `POST /api/spawn` — spawn for a specific project
-- `POST /api/spawn-batch` — fill all slots (checks quota first)
-- `GET/POST /api/auto-mode` — returns `{enabled, suspended_for_quota}`
+- `GET /api/health` -- monitor alive, lag seconds, uptime
+- `POST /api/spawn` -- spawn for a specific project
+- `POST /api/spawn-batch` -- fill all slots (checks quota first)
+- `GET/POST /api/auto-mode` -- returns `{enabled, suspended_for_quota}`
 - `GET /api/history`
 
 ### Projects
-- `GET /api/projects/<name>/health` — score, task counts, avg lines, last commit age
-- `POST /api/projects/<name>/repair` — reset failed/orphaned tasks, resurrect missing dep tasks
-- `POST /api/projects/<name>/restart` — reset ALL tasks to pending, attempts=0
+- `GET /api/projects/<name>/health` -- score, task counts, avg lines, last commit age
+- `POST /api/projects/<name>/repair` -- reset failed/orphaned tasks, resurrect missing dep tasks
+- `POST /api/projects/<name>/restart` -- reset ALL tasks to pending, attempts=0
 - `POST /api/projects/<name>/scan`
 - `GET/POST /api/projects/<name>/lock` `/unlock` `/locks`
 
 ### Tasks
-- `GET /api/tasks` — list all tasks
-- `POST /api/tasks` — create one task `{project, type, description, priority, dependencies, metadata}`
-- `GET /api/tasks/<id>` — get task
-- `PUT/PATCH /api/tasks/<id>` — update task (merge: only fields present in body are touched)
-- `DELETE /api/tasks/<id>` — delete task
-- `GET /api/tasks/<id>/dependencies` — read dep list
-- `PUT /api/tasks/<id>/dependencies` — replace full dep list `{dependencies: [...]}`
-- `POST /api/tasks/<id>/dependencies` — add deps without replacing `{dependency: "<id>"}` or `{dependencies: [...]}`
-- `DELETE /api/tasks/<id>/dependencies/<dep_id>` — remove single dep edge
-- `POST /api/tasks/<id>/reset` — reset failed task to pending (clear attempts, add note)
-- `POST /api/history/<agent_id>/requeue` — resurrect task from agent/task history
+- `GET /api/tasks` -- list all tasks
+- `POST /api/tasks` -- create one task `{project, type, description, priority, dependencies, metadata}`
+- `GET /api/tasks/<id>` -- get task
+- `PUT/PATCH /api/tasks/<id>` -- update task (merge: only fields present in body are touched)
+- `DELETE /api/tasks/<id>` -- delete task
+- `GET /api/tasks/<id>/dependencies` -- read dep list
+- `PUT /api/tasks/<id>/dependencies` -- replace full dep list `{dependencies: [...]}`
+- `POST /api/tasks/<id>/dependencies` -- add deps without replacing `{dependency: "<id>"}` or `{dependencies: [...]}`
+- `DELETE /api/tasks/<id>/dependencies/<dep_id>` -- remove single dep edge
+- `POST /api/tasks/<id>/reset` -- reset failed task to pending (clear attempts, add note)
+- `POST /api/history/<agent_id>/requeue` -- resurrect task from agent/task history
 
 #### Batch task creation (`POST /api/tasks/batch`)
 
@@ -399,60 +399,55 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 }
 ```
 
-- **`depends_on`** — list of integer indices into the `tasks` array; resolved to actual IDs before any task is created (no chicken-and-egg, no hardcoded IDs)
-- **`dependencies`** — explicit task ID strings; merged with `depends_on` results
-- **`project`** — top-level default; per-item `project` overrides it
-- **`chain: true`** — each task automatically depends on the previous one (linear sequence)
+- **`depends_on`** -- list of integer indices into the `tasks` array; resolved to actual IDs before any task is created (no chicken-and-egg, no hardcoded IDs)
+- **`dependencies`** -- explicit task ID strings; merged with `depends_on` results
+- **`project`** -- top-level default; per-item `project` overrides it
+- **`chain: true`** -- each task automatically depends on the previous one (linear sequence)
 - IDs are generated upfront with an index suffix so same-millisecond creation never collides
 - Response includes `id_map: {"0": "<id>", "1": "<id>", ...}` for referencing generated IDs afterward
 
 ### Agents
-- `GET /api/agents/<id>/stream` — SSE live log stream
+- `GET /api/agents/<id>/stream` -- SSE live log stream
 - `POST /api/agents/<id>/kill`
 
 ### Manager Chat
-- `POST /api/chat` — conversational control of tasks/agents (create, kill, query state, toggle auto-mode)
-- `POST /api/project-chat` — project-scoped conversational control
-- `POST /api/create-project-tasks` — create tasks from a project overview via LLM
+- `POST /api/chat` -- conversational control of tasks/agents (create, kill, query state, toggle auto-mode)
+- `POST /api/project-chat` -- project-scoped conversational control
+- `POST /api/create-project-tasks` -- create tasks from a project overview via LLM
 
 ### Project Creation Wizard
-- `POST /api/wizard/plan` — generate a project plan (git repo + task DAG) from a description
-- `POST /api/wizard/create` — execute a wizard plan (create repo, scaffold, seed tasks)
+- `POST /api/wizard/plan` -- generate a project plan (git repo + task DAG) from a description
+- `POST /api/wizard/create` -- execute a wizard plan (create repo, scaffold, seed tasks)
 
 ### LLM Providers
-- `GET /api/providers` — all providers + key status
-- `GET/POST /api/provider` — get/set active provider; POST can register new providers
+- `GET /api/providers` -- all providers + key status
+- `GET/POST /api/provider` -- get/set active provider; POST can register new providers
 
 ### Config (all persist to config.json)
-- `GET/POST /api/managed-projects` — live update managed_projects and paused_projects
+- `GET/POST /api/managed-projects` -- live update managed_projects and paused_projects
 - `GET/POST /api/max-agents` `/api/quota-limit` `/api/pi-subagents` `/api/mcp-servers`
-- `GET/POST /api/qa-max-cycles` — get/set max QA requeue cycles (default 3)
+- `GET/POST /api/qa-max-cycles` -- get/set max QA requeue cycles (default 3)
 - `GET/POST /api/strategy` `/api/strategies`
-- `GET/POST /api/thinking` — enable/disable thinking budget (MiniMax: budget controls whether thinking blocks appear in response)
-- `GET /api/auto-replan` — list projects with auto-replan enabled
-- `POST /api/auto-replan/<name>` — toggle auto-replan for a project (persists to config.json)
+- `GET/POST /api/thinking` -- enable/disable thinking budget (MiniMax: budget controls whether thinking blocks appear in response)
+- `GET /api/auto-replan` -- list projects with auto-replan enabled
+- `POST /api/auto-replan/<name>` -- toggle auto-replan for a project (persists to config.json)
 
 ### Project Actions
-- `POST /api/projects/<name>/replan` — immediately spawn a `project_plan` task for a project
+- `POST /api/projects/<name>/replan` -- immediately spawn a `project_plan` task for a project
 
 ### Dependencies & Integrity
 - `GET /api/dependencies` `/api/dependencies/dot` `/api/dependencies/ready` `/api/dependencies/execution-order`
-- `GET /api/dependencies/integrity` — live integrity report (orphans, dep violations, state ownership)
-- `POST /api/dependencies/integrity` — trigger integrity repair actions
-- `GET /api/task-lookup/<task_id>` — resolve task by partial ID or description match
+- `GET /api/dependencies/integrity` -- live integrity report (orphans, dep violations, state ownership)
+- `POST /api/dependencies/integrity` -- trigger integrity repair actions
+- `GET /api/task-lookup/<task_id>` -- resolve task by partial ID or description match
 
 ## Known Test Failures
 
-As of the open-source release these tests fail and are tracked as bugs — do not introduce further regressions in these areas:
+As of the open-source release these tests fail and are tracked as bugs -- do not introduce further regressions in these areas:
 
 - `test_api.py::TestDependencies::test_ready_tasks_honor_task_history_completed_dependencies`
 - `test_closure_status.py::test_closure_status_green_when_required_gates_pass`
 - `test_closure_verification.py::test_resolve_godot_command_rewrites_legacy_gut`
-- `test_fill_slots.py::TestFillSlots::test_fill_slots_triggers_idle_verification_when_only_frozen_expansion_remains`
-- `test_fill_slots.py::TestRunAfter::test_stalled_project_blocks_expansion_when_no_repair_path_exists`
-- `test_improvements.py::TestSelfImprovementReviewTask::test_review_task_has_appropriate_priority`
-- `test_lifecycle.py::TestRecoveryPrompt::test_recovery_task_becomes_project_head_when_failed_task_was_head`
-- `test_lifecycle.py::TestRecoveryPrompt::test_terminal_recovery_continuation_reparents_dependents_and_head`
 - `test_orchestrator.py::TestPostTaskValidation::test_main_scene_startup_script_error_fails_validation`
 - `test_script_generation.py::TestProjectTypeDetection::test_godot_path_is_embedded_in_generated_prompts`
 
@@ -469,21 +464,21 @@ These two are network-flaky and allowed to fail in CI:
 - Task dependencies must be acyclic; `swarm/dependencies.py` validates this
 - Agents use `[TOOL_CALL]{...}[/TOOL_CALL]` format; the runtime also accepts `<tool_call>` tags
 - Write one file at a time in prompts to avoid LLM truncation
-- Never kill/restart the server process from within an agent — use task tools only
-- Shell variable interpolation fails in JSON curl — hardcode task IDs in dependency arrays
+- Never kill/restart the server process from within an agent -- use task tools only
+- Shell variable interpolation fails in JSON curl -- hardcode task IDs in dependency arrays
 
 ## Post-task Validation
 
-After a successful run, `_post_task_validation_in_worktree()` runs synchronously in the monitor thread (blocking). This can delay the monitor by up to ~5 minutes when GUT tests run. GUT tests only run when `addons/gut/` exists AND has a complete install (checked via `_gut_installation_complete()` — requires `gut_loader.gd`):
+After a successful run, `_post_task_validation_in_worktree()` runs synchronously in the monitor thread (blocking). This can delay the monitor by up to ~5 minutes when GUT tests run. GUT tests only run when `addons/gut/` exists AND has a complete install (checked via `_gut_installation_complete()` -- requires `gut_loader.gd`):
 
-- **Godot** — `godot --headless --script res://check_scripts.gd`; also greps combined stdout+stderr for `ERROR:` / `SCRIPT ERROR:` even when exit code is 0
-- **Python** — `python -m py_compile *.py` in the project directory
+- **Godot** -- `godot --headless --script res://check_scripts.gd`; also greps combined stdout+stderr for `ERROR:` / `SCRIPT ERROR:` even when exit code is 0
+- **Python** -- `python -m py_compile *.py` in the project directory
 
 Failure → `_spawn_validation_bug_task()` creates a priority-100 bug task.
 
 ## Auto-QA
 
-After every `QA_AUTO_THRESHOLD` (default: 8) successful task completions on a Godot project, `_finish_agent()` automatically creates a `qa` task (priority 75). Detection uses `project.godot` presence — Python/other projects are never auto-QA'd. Won't double-spawn if a QA task is already pending or in-progress for that project.
+After every `QA_AUTO_THRESHOLD` (default: 8) successful task completions on a Godot project, `_finish_agent()` automatically creates a `qa` task (priority 75). Detection uses `project.godot` presence -- Python/other projects are never auto-QA'd. Won't double-spawn if a QA task is already pending or in-progress for that project.
 
 After every `AUDIT_AUTO_THRESHOLD` (default: 20) completions, an `audit` task is similarly auto-spawned.
 
@@ -500,7 +495,7 @@ QA agents may requeue themselves after finding bugs (each requeue depends on the
 
 When QA finds multiple bugs, it performs **file ownership analysis** before creating tasks:
 1. Lists which files each bug fix will likely touch
-2. Chains any two bugs that share a file (second depends on first) — prevents merge conflicts from parallel agents
+2. Chains any two bugs that share a file (second depends on first) -- prevents merge conflicts from parallel agents
 3. Applies system-level grouping as a secondary check (same-system bugs chained even if different files)
 
 This mirrors the dependency analysis in `project_plan.yaml`.
@@ -579,16 +574,16 @@ Roles: `button` (any BaseButton subclass), `label`, `input`, `progressbar`, `sli
 `click_element(image_path, element_description)` uses a **grounding-first** approach:
 1. Queries `a11y_tree` from StateServer
 2. Finds element by case-insensitive partial label match (checks both `label` and `qa_label`)
-3. Presses it via `press_button` using the element's scene path — **no VLM coordinate prediction**
+3. Presses it via `press_button` using the element's scene path -- **no VLM coordinate prediction**
 4. Falls back to color detection, then VLM coordinates only if StateServer is unavailable or element not found
 
 ### `vision_query` timeout
 
-`vision_query(image_path, question, model_tier="fast", timeout=30)` — the `timeout` parameter (default 30s) caps the VLM call. Returns `{"ok": false, "error": "vision_query timed out after 30s"}` on timeout.
+`vision_query(image_path, question, model_tier="fast", timeout=30)` -- the `timeout` parameter (default 30s) caps the VLM call. Returns `{"ok": false, "error": "vision_query timed out after 30s"}` on timeout.
 
 ### StateServer click injection
 
-`StateServer` injects mouse clicks via `Input.parse_input_event` — **not** via `DisplayServer.window_move_to_foreground()` or `Window.grab_focus()`. Those calls require macOS window focus and silently no-op when the screen is locked.
+`StateServer` injects mouse clicks via `Input.parse_input_event` -- **not** via `DisplayServer.window_move_to_foreground()` or `Window.grab_focus()`. Those calls require macOS window focus and silently no-op when the screen is locked.
 
 **Never add focus calls to the click path.** Action/keyboard events work regardless of screen lock.
 
@@ -596,13 +591,13 @@ Roles: `button` (any BaseButton subclass), `label`, `input`, `progressbar`, `sli
 
 **Minimum (required for any structured state):**
 - Register `StateServer` autoload in `project.godot`: `StateServer="res://autoload/state_server.gd"`
-- Copy `state_server.gd` from `templates/godot/autoload/` — never write from scratch
+- Copy `state_server.gd` from `templates/godot/autoload/` -- never write from scratch
 
 **Recommended (for meaningful state reads):**
 - Implement `get_game_state() -> Dictionary` on the root scene node. Return the fields the QA agent needs to verify game logic: scores, lives, level, active scene, player state, etc.
 
 **Optional (enables label-based button clicking without coordinates):**
-- Tag interactive nodes: `$PlayButton.set_meta("qa_label", "play")` — then `press_button{"id":"play"}` works regardless of internal node name. Use short lowercase labels.
+- Tag interactive nodes: `$PlayButton.set_meta("qa_label", "play")` -- then `press_button{"id":"play"}` works regardless of internal node name. Use short lowercase labels.
 
 **For `harness_qa` mode (deterministic checkpoint testing):**
 - Also register `TestHarness` autoload: `TestHarness="res://autoload/test_harness.gd"`
@@ -611,16 +606,16 @@ Roles: `button` (any BaseButton subclass), `label`, `input`, `progressbar`, `sli
 
 ## Godot Project Templates
 
-Canonical Godot support files live in `templates/godot/`. Every new Godot project created by `project_create` should copy from here — never write these from scratch.
+Canonical Godot support files live in `templates/godot/`. Every new Godot project created by `project_create` should copy from here -- never write these from scratch.
 
 ```
 templates/godot/
   autoload/
-    state_server.gd     — TCP state/screenshot/input server for QA agents (port 11009)
-    test_harness.gd     — Automated test harness for harness_qa agents
-  addons/gut/           — GUT test framework (copy into new projects)
-  check_scripts.gd      — Headless script validator (run with --headless --quit)
-  test/unit/            — Example GUT test structure
+    state_server.gd     -- TCP state/screenshot/input server for QA agents (port 11009)
+    test_harness.gd     -- Automated test harness for harness_qa agents
+  addons/gut/           -- GUT test framework (copy into new projects)
+  check_scripts.gd      -- Headless script validator (run with --headless --quit)
+  test/unit/            -- Example GUT test structure
 ```
 
 ### Keeping templates in sync
@@ -646,11 +641,11 @@ grep -rl "window_move_to_foreground\|grab_focus" /path/to/workspace --include="*
 3. Copying relevant assets into the project and wiring them up
 4. Verifying improvements with screenshots before committing
 
-Has full write access (unlike QA) — commits and pushes changes. Uses vision tools from the QA pipeline. Focused on placeholder replacement, icon integration, UI polish, and asset wiring. Configure local asset paths outside this repo, for example in `config.json` or task-specific instructions.
+Has full write access (unlike QA) -- commits and pushes changes. Uses vision tools from the QA pipeline. Focused on placeholder replacement, icon integration, UI polish, and asset wiring. Configure local asset paths outside this repo, for example in `config.json` or task-specific instructions.
 
 Configure your asset library paths in `config.json` or task-specific instructions. See `prompts/art_pass.yaml` for the expected structure.
 
-## RAG (Retrieval-Augmented Generation) — Optional Experimental
+## RAG (Retrieval-Augmented Generation) -- Optional Experimental
 
 RAG gives agents code-aware documentation context from an operator-supplied
 local vector index. It is opt-in and disabled by default. See
@@ -695,11 +690,11 @@ When a project's task queue empties and it is listed in `auto_replan_projects` (
 
 MiniMax rate limits are RPM-based (~50 req/min). Measures in place:
 
-- **Jitter** (`agent_runtime.py`): `time.sleep(random.uniform(0.5, 3.0))` before every LLM call — spreads requests across the minute window
+- **Jitter** (`agent_runtime.py`): `time.sleep(random.uniform(0.5, 3.0))` before every LLM call -- spreads requests across the minute window
 - **Retry backoff**: 7 attempts with `[10, 30, 60, 120, 240]` second delays
 - **Context compaction**: when estimated conversation tokens exceed `COMPACT_TOKEN_THRESHOLD = 120_000` (~80k buffer before MiniMax's 200k window), the middle of the conversation is summarised via a separate LLM call, keeping only system prompt + 4-message tail. Prevents token bloat on long-running agents. Token estimate is `sum(len(content)) // 2` (2 chars/token approximation).
 - **Prompt caching**: MiniMax caches automatically at 512+ token threshold (90% cost discount on cache hits). No code changes needed. Cache hits logged as `[LLM] cache read=N write=N`.
-- **Thinking budget**: set to `0` by default — MiniMax M2.7 reasons internally regardless; budget only controls whether thinking *blocks* appear in the response. Enabling it (5000+) massively increases output tokens and worsens rate limits.
+- **Thinking budget**: set to `0` by default -- MiniMax M2.7 reasons internally regardless; budget only controls whether thinking *blocks* appear in the response. Enabling it (5000+) massively increases output tokens and worsens rate limits.
 - **Fallback providers**: `fallback_providers` config allows automatic failover if the primary provider rate-limits or errors
 
 ## Project Registry Persistence
@@ -729,15 +724,15 @@ This ensures all managed projects always appear in the dashboard after a restart
 
 ## Project Creation Wizard
 
-`POST /api/wizard/plan` — given a project name, type, and description, returns a plan object containing:
+`POST /api/wizard/plan` -- given a project name, type, and description, returns a plan object containing:
 - A proposed git repo structure
 - A task DAG (list of tasks with `depends_on` indices)
 - Bootstrap scaffold steps
 
-`POST /api/wizard/create` — executes a plan:
+`POST /api/wizard/create` -- executes a plan:
 1. Creates the git repo and pushes to Gitea
 2. Installs canonical Godot bootstrap scaffolding from templates
 3. Seeds the task DAG via `/api/tasks/batch`
 4. Registers the project with the swarm
 
-DAG structure is preserved (not flattened to a genesis anchor) — the full dependency graph is created as-is.
+DAG structure is preserved (not flattened to a genesis anchor) -- the full dependency graph is created as-is.

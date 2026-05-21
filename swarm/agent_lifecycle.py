@@ -1234,10 +1234,9 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     # Decay priority with recovery chain depth so nested recoveries don't crowd out feature work.
     # Each recovery level drops priority by 5, floor at 70.
     _recovery_depth = int(failed_meta.get("recovery_depth") or 0)
-    # Decay priority with recovery chain depth so nested recoveries don't crowd out feature work.
-    # First recovery (depth=0): subtract 0 → preserve original priority.
-    # Second recovery (depth=1): subtract 5, floor at 70.
-    orig_priority = max(70, orig_priority - 5 * _recovery_depth)
+    # Recovery tasks inherit the original task's priority so the project stays
+    # ordered correctly in the scheduler queue.
+    orig_priority = max(50, orig_priority - 5 * _recovery_depth)
 
     live_branch_recoveries = [
         t for t in all_tasks
@@ -1406,6 +1405,11 @@ def _replacement_task_dependencies(
     project = failed_task.get("project", "")
     failed_id = failed_task.get("id", "")
     failed_meta = failed_task.get("metadata") or {}
+    # is_recovery_task: True means this is a recovery/continuation of a recovery.
+    # Such tasks must chain to genesis even when they have no own deps, because
+    # they are new work that shouldn't float unconnected in the dep graph.
+    is_recovery = bool(failed_meta.get("is_recovery_task"))
+    is_review = bool(failed_meta.get("is_review_task"))
 
     def _normalized_deps(task: Optional[dict]) -> list[str]:
         deps = []
@@ -1437,7 +1441,11 @@ def _replacement_task_dependencies(
     # original list wasn't), the continuation is unblocked -- return empty.
     # Only fall through to candidate_ids/genesis when the failed task genuinely
     # had no dependencies to begin with (original list was already empty).
-    if _normalized_deps(failed_task):
+    # NOTE: is_review tasks that are NOT is_recovery (i.e. spawned by _spawn_review_task
+    # for the original failed task) have is_review=True but should not block here --
+    # they represent continuation of original work that had no deps.
+    # is_recovery tasks (continuations of recoveries) always chain to genesis.
+    if _normalized_deps(failed_task) and not is_recovery:
         return []
 
     candidate_ids = [
@@ -1455,7 +1463,7 @@ def _replacement_task_dependencies(
         if candidate_deps:
             return candidate_deps
 
-    if not project:
+    if not project and not is_recovery and not is_review:
         return []
 
     genesis_id = f"{project}-genesis"

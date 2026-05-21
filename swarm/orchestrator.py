@@ -517,7 +517,9 @@ def _get_next_task() -> Optional[Dict]:
     if _is_expansion_blocked(ready[0], project_rows):
         non_blocked = [t for t in ready if not _is_expansion_blocked(t, project_rows)]
         if non_blocked:
-            return non_blocked[0]
+            ready[:] = non_blocked
+            return ready[0]
+        return None  # All tasks are expansion-blocked -- no safe alternative
 
     return ready[0]
 
@@ -592,9 +594,7 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
             return (2, 2)
         return (1, 1)
 
-    def _is_expansion_blocked(t: Dict) -> bool:
-        # Delegate to module-level function (made accessible so both
-        # _sort_by_strategy and _get_next_task can reference it).
+    def _expansion_blocked(t: Dict) -> bool:
         return _is_expansion_blocked(t, project_rows)
 
     if TASK_SELECTION_STRATEGY == "refactor_first":
@@ -615,7 +615,7 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
     # If ALL ready tasks are expansion-blocked the closure policy would create a
     # deadlock (bug tasks depend on blocked feature tasks → nothing can run).
     # In that case allow expansion tasks through so the chain can make progress.
-    non_blocked = [task for task in tasks if not _is_expansion_blocked(task)]
+    non_blocked = [task for task in tasks if not _expansion_blocked(task)]
     if non_blocked:
         tasks[:] = non_blocked
     # else: leave tasks as-is to avoid deadlock

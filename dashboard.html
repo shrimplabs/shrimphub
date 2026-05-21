@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Swarm Controller Dashboard</title>
-    <link rel="stylesheet" href="/dashboard.css">
+    <link rel="stylesheet" href="/dashboard.css?v=20260521c">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
     <script>
@@ -109,6 +109,11 @@
         <div id="rlHistoryTooltip" style="font-size:10px;color:#8b949e;margin-top:4px;height:14px"></div>
     </div>
 
+    <div id="project-description-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(56,139,253,0.06);border-left:3px solid #58a6ff;border-radius:0 6px 6px 0">
+        <div style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:3px" id="project-desc-name"></div>
+        <div style="font-size:12px;color:#8b949e;font-style:italic" id="project-desc-blurb"></div>
+    </div>
+
     <h2 style="cursor:pointer" onclick="toggleDeps()">Task Dependencies <span id="depsToggle" style="font-size:11px;color:#58a6ff">▲ hide</span></h2>
     <div id="depsSection">
         <div id="planBadge" class="deps-plan-badge" style="display:none"></div>
@@ -174,6 +179,10 @@
     <div class="grid" id="pendingTasksGrid"></div>
     
     <h2 style="cursor:pointer" onclick="toggleProjects()">Project Status & Recent Commits <span id="projectsToggle" style="font-size:11px;color:#58a6ff">▲ hide</span></h2>
+    <div id="project-focus-banner" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(56,139,253,0.08);border:1px solid rgba(56,139,253,0.2);border-radius:6px">
+        <div style="font-size:13px;font-weight:600;color:#58a6ff;margin-bottom:4px" id="project-focus-name"></div>
+        <div style="font-size:12px;color:#8b949e;font-style:italic" id="project-focus-blurb"></div>
+    </div>
     <div id="projectsSection">
         <div class="project-toolbar">
             <label>Sort</label>
@@ -716,6 +725,6 @@
 
     <script src="dashboard_deps_integrity.js?v=20260409d"></script>
     <script src="dashboard_closure.js?v=20260501b"></script>
-    <script src="dashboard.js?v=20260501b"></script>
+    <script src="dashboard.js?v=20260521c"></script>
 </body>
 </html>

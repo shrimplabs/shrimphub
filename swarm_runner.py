@@ -963,6 +963,15 @@ def generate_task_script(task: dict) -> str:
 
     # ---- Generate thin wrapper that imports agent_runtime ----
     swarm_controller_dir = str(Path(__file__).parent)
+    # Compute the venv site-packages path relative to swarm_runner.py so agents
+    # can always find installed packages even if the server was launched with a
+    # system/Homebrew Python instead of the venv interpreter.
+    _venv_site = str(Path(__file__).parent / ".venv" / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages")
+    # Also collect any site-packages from the server's own sys.path (covers the case
+    # where the server IS running in a venv or has additional packages installed).
+    _extra_paths = list(dict.fromkeys(
+        [_venv_site] + [p for p in sys.path if "site-packages" in p or "dist-packages" in p]
+    ))
     wrapper = f'#!/usr/bin/env python3\n"""\nAgent wrapper — {project} ({task_type})\nTask ID: {task_id}\n"""\n'
     wrapper += f"""import sys
 import os
@@ -970,6 +979,11 @@ from pathlib import Path
 
 # Add swarm-controller to path so agent_runtime can be imported
 sys.path.insert(0, {repr(swarm_controller_dir)})
+# Inject site-packages so dependencies (pyyaml, httpx, etc.) are always available
+# regardless of which Python interpreter runs this script.
+for _p in {repr(_extra_paths)}:
+    if _p not in sys.path:
+        sys.path.insert(1, _p)
 
 import swarm.agent_runtime as rt
 

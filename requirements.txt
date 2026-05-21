@@ -2,3 +2,9 @@ flask>=3.0
 requests>=2.31
 pyyaml>=6.0
 ddgs>=9.0
+httpx[brotli,http2,socks]>=0.28.1
+html2text>=2024.0
+
+# Optional: RAG backend (heavy deps, install separately if needed)
+# chromadb>=0.4
+# sentence-transformers>=2.0

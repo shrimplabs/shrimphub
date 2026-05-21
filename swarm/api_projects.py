@@ -675,7 +675,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                 for line in design_path.read_text(encoding="utf-8").splitlines():
                     line = line.strip()
                     if line and not line.startswith("#") and not line.startswith("-"):
-                        concept = line[:200]
+                        concept = line
                         break
         except Exception:
             pass
