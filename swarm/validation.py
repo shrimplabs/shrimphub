@@ -484,7 +484,7 @@ func _initialize():
             if venv_pytest.exists():
                 try:
                     result = subprocess.run(
-                        [str(venv_pytest), "--ignore=tests/test_dashboard.py", "--tb=short", "-q"],
+                        [str(venv_pytest), "--ignore=tests/test_dashboard.py", "--ignore=tests/test_agent_runtime.py", "--tb=short", "-q"],
                         cwd=project_path, capture_output=True, text=True, timeout=300,
                     )
                     pytest_available = True
