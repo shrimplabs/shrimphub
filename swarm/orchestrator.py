@@ -445,7 +445,9 @@ def _get_next_task() -> Optional[Dict]:
 
     paused = set(PAUSED_PROJECTS)
 
-    # Only one QA task may run globally at a time
+    # Only one vision QA task may run globally at a time — local mlx-vlm can't
+    # handle concurrent vision inference. harness_qa has no vision dependency so
+    # it is not restricted. Port collisions are handled by dynamic allocation.
     qa_active = any(
         t["status"] == "in_progress" and t.get("type") == "qa"
         for t in all_tasks
