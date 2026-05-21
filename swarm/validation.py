@@ -92,7 +92,7 @@ def _post_task_validation_in_worktree(
     Run validation against the given path (worktree or main project).
 
     Returns (validation_failed: bool, error_output: str).
-    Does NOT spawn a bug task — that is the caller's responsibility.
+    Does NOT spawn a bug task -- that is the caller's responsibility.
 
     If worktree_path is None, falls back to WORKSPACE / project (main project dir).
     """
@@ -124,7 +124,7 @@ def _post_task_validation_in_worktree(
         return False
 
     def _detect_type():
-        # .swarm_validate always wins — project declares its own validator
+        # .swarm_validate always wins -- project declares its own validator
         if (project_path / ".swarm_validate").exists():
             return "custom"
         if (project_path / "project.godot").exists():
@@ -152,7 +152,7 @@ def _post_task_validation_in_worktree(
         # Go
         if (project_path / "go.mod").exists():
             return "go"
-        # C# (standalone — not Unity)
+        # C# (standalone -- not Unity)
         if any(project_path.glob("*.csproj")) or any(project_path.glob("*.sln")):
             return "csharp"
         # C / C++
@@ -356,7 +356,8 @@ func _scan(path: String, errors: Array) -> void:
                     validation_failed = True
                     error_output = f"Scene load errors:\n{combined}"
                 else:
-                    bad = [ln for ln in combined.splitlines() if "SCENE ERROR:" in ln]
+                    bad = [ln for ln in combined.splitlines()
+                           if "SCENE ERROR:" in ln or "SCRIPT ERROR:" in ln]
                     if bad:
                         validation_failed = True
                         error_output = "Scene load errors:\n" + "\n".join(bad)
@@ -422,7 +423,7 @@ func _initialize():
                     except Exception:
                         pass
             else:
-                print(f"[PostValidation] No main scene set in project.godot for {project} — skipping")
+                print(f"[PostValidation] No main scene set in project.godot for {project} -- skipping")
 
         # Step 5: GUT unit tests
         if not validation_failed and task_type not in ("manager", "project_create", "qa", "hybrid_qa", "art_pass"):
@@ -466,7 +467,7 @@ func _initialize():
                 except Exception as e:
                     print(f"[PostValidation] GUT run error for {project}: {e}")
             elif gut_addon.exists() and tests_dir is None:
-                print(f"[PostValidation] GUT installed but no test/ or tests/ dir for {project} — skipping")
+                print(f"[PostValidation] GUT installed but no test/ or tests/ dir for {project} -- skipping")
 
     elif project_type == "python":
         venv_pytest = project_venv_executable(project_path, "pytest")
@@ -485,7 +486,7 @@ func _initialize():
                     )
                     pytest_available = True
                     if result.returncode == 5:
-                        # Exit code 5 = "no tests collected" — not a failure, project just has no tests
+                        # Exit code 5 = "no tests collected" -- not a failure, project just has no tests
                         print(f"[PostValidation] pytest: no tests found for {project}")
                     elif result.returncode != 0:
                         validation_failed = True
@@ -502,7 +503,7 @@ func _initialize():
                     "Expected a project-local pytest runner under .venv "
                     "(for example .venv/bin/pytest or .venv/Scripts/pytest.exe)."
                 )
-                print(f"[PostValidation] pytest unavailable for {project} {task_id} — tests exist but no local runner")
+                print(f"[PostValidation] pytest unavailable for {project} {task_id} -- tests exist but no local runner")
 
         if not pytest_available and not validation_failed:
             cmd = str(venv_python) if venv_python.exists() else sys.executable
@@ -529,8 +530,8 @@ func _initialize():
                     error_output = str(e)
                     break
             if not validation_passed and not validation_failed:
-                # All patterns failed with "no such file" — no .py files found, skip cleanly
-                print(f"[PostValidation] No Python files found for {project} — skipping py_compile")
+                # All patterns failed with "no such file" -- no .py files found, skip cleanly
+                print(f"[PostValidation] No Python files found for {project} -- skipping py_compile")
 
     elif project_type == "custom":
         # .swarm_validate: one line, shell command, exit code = result
@@ -548,7 +549,7 @@ func _initialize():
                 else:
                     print(f"[PostValidation] .swarm_validate passed for {project} {task_id}")
             else:
-                print(f"[PostValidation] .swarm_validate is empty for {project} — skipping")
+                print(f"[PostValidation] .swarm_validate is empty for {project} -- skipping")
         except Exception as e:
             print(f"[PostValidation] .swarm_validate error for {project}: {e}")
 
@@ -572,11 +573,11 @@ func _initialize():
                 else:
                     print(f"[PostValidation] swiftc -parse passed for {project} {task_id} ({len(swift_files)} files)")
             except FileNotFoundError:
-                print(f"[PostValidation] swiftc not found for {project} — skipping Swift validation")
+                print(f"[PostValidation] swiftc not found for {project} -- skipping Swift validation")
             except Exception as e:
                 print(f"[PostValidation] Swift validation error for {project}: {e}")
         else:
-            print(f"[PostValidation] No .swift files found for {project} — skipping")
+            print(f"[PostValidation] No .swift files found for {project} -- skipping")
 
     elif project_type == "unity":
         # Preferred: dotnet build on the generated .csproj (Unity generates these in project root)
@@ -596,13 +597,13 @@ func _initialize():
                 else:
                     print(f"[PostValidation] dotnet build passed for {project} {task_id}")
             except FileNotFoundError:
-                print(f"[PostValidation] dotnet not found for {project} — falling back to mcs --parse")
+                print(f"[PostValidation] dotnet not found for {project} -- falling back to mcs --parse")
                 csproj_files = []  # fall through to mcs below
             except Exception as e:
                 print(f"[PostValidation] Unity dotnet build error for {project}: {e}")
 
         if not csproj_files and not validation_failed:
-            # No .csproj yet (project not opened in editor) — use mcs --parse for syntax check.
+            # No .csproj yet (project not opened in editor) -- use mcs --parse for syntax check.
             # Prefer Unity's bundled mcs over system mono; find highest installed editor version.
             unity_mcs = None
             _unity_hub_candidates = [
@@ -657,11 +658,11 @@ func _initialize():
                         src = "Unity bundled mcs" if unity_mcs else "system mcs"
                         print(f"[PostValidation] mcs --parse passed for {project} {task_id} ({len(cs_files)} files, {src})")
                 except FileNotFoundError:
-                    print(f"[PostValidation] mcs not found for {project} — skipping Unity validation")
+                    print(f"[PostValidation] mcs not found for {project} -- skipping Unity validation")
                 except Exception as e:
                     print(f"[PostValidation] Unity mcs --parse error for {project}: {e}")
             else:
-                print(f"[PostValidation] No .cs files found for {project} — skipping Unity validation")
+                print(f"[PostValidation] No .cs files found for {project} -- skipping Unity validation")
 
     elif project_type == "node":
         # Use tsc --noEmit if tsconfig.json exists, else node --check on entry point
@@ -682,11 +683,11 @@ func _initialize():
                 else:
                     print(f"[PostValidation] tsc --noEmit passed for {project} {task_id}")
             except FileNotFoundError:
-                print(f"[PostValidation] tsc not found for {project} — skipping TypeScript validation")
+                print(f"[PostValidation] tsc not found for {project} -- skipping TypeScript validation")
             except Exception as e:
                 print(f"[PostValidation] Node/TS validation error for {project}: {e}")
         else:
-            # Plain JS — check main entry if declared in package.json
+            # Plain JS -- check main entry if declared in package.json
             try:
                 import json as _json
                 pkg = _json.loads((project_path / "package.json").read_text())
@@ -703,7 +704,7 @@ func _initialize():
                     else:
                         print(f"[PostValidation] node --check passed for {project} {task_id}: {main}")
                 else:
-                    print(f"[PostValidation] No tsconfig or main entry for {project} — skipping Node validation")
+                    print(f"[PostValidation] No tsconfig or main entry for {project} -- skipping Node validation")
             except Exception as e:
                 print(f"[PostValidation] Node validation error for {project}: {e}")
 
@@ -720,7 +721,7 @@ func _initialize():
             else:
                 print(f"[PostValidation] cargo check passed for {project} {task_id}")
         except FileNotFoundError:
-            print(f"[PostValidation] cargo not found for {project} — skipping Rust validation")
+            print(f"[PostValidation] cargo not found for {project} -- skipping Rust validation")
         except Exception as e:
             print(f"[PostValidation] Rust validation error for {project}: {e}")
 
@@ -737,7 +738,7 @@ func _initialize():
             else:
                 print(f"[PostValidation] go build passed for {project} {task_id}")
         except FileNotFoundError:
-            print(f"[PostValidation] go not found for {project} — skipping Go validation")
+            print(f"[PostValidation] go not found for {project} -- skipping Go validation")
         except Exception as e:
             print(f"[PostValidation] Go validation error for {project}: {e}")
 
@@ -759,11 +760,11 @@ func _initialize():
                 else:
                     print(f"[PostValidation] dotnet build passed for {project} {task_id}")
             except FileNotFoundError:
-                print(f"[PostValidation] dotnet not found for {project} — skipping C# validation")
+                print(f"[PostValidation] dotnet not found for {project} -- skipping C# validation")
             except Exception as e:
                 print(f"[PostValidation] C# validation error for {project}: {e}")
         else:
-            print(f"[PostValidation] No .sln or .csproj found for {project} — skipping C# validation")
+            print(f"[PostValidation] No .sln or .csproj found for {project} -- skipping C# validation")
 
     elif project_type == "cpp":
         cmake = project_path / "CMakeLists.txt"
@@ -771,13 +772,13 @@ func _initialize():
         try:
             if cmake.exists():
                 if build_dir.exists():
-                    # Already configured — just build
+                    # Already configured -- just build
                     result = subprocess.run(
                         ["cmake", "--build", str(build_dir), "--", "-j4"],
                         cwd=project_path, capture_output=True, text=True, timeout=300,
                     )
                 else:
-                    # Configure only — catches most syntax and link errors without a full build
+                    # Configure only -- catches most syntax and link errors without a full build
                     result = subprocess.run(
                         ["cmake", "-S", ".", "-B", "build"],
                         cwd=project_path, capture_output=True, text=True, timeout=120,
@@ -789,7 +790,7 @@ func _initialize():
                 else:
                     print(f"[PostValidation] cmake passed for {project} {task_id}")
             elif (project_path / "Makefile").exists() or (project_path / "makefile").exists():
-                # Dry run — checks syntax without actually compiling
+                # Dry run -- checks syntax without actually compiling
                 result = subprocess.run(
                     ["make", "-n"],
                     cwd=project_path, capture_output=True, text=True, timeout=30,
@@ -801,7 +802,7 @@ func _initialize():
                 else:
                     print(f"[PostValidation] make -n passed for {project} {task_id}")
             elif any(project_path.glob("*.vcxproj")):
-                # MSBuild (Windows) — dotnet build handles .vcxproj on modern toolchains
+                # MSBuild (Windows) -- dotnet build handles .vcxproj on modern toolchains
                 vcxproj = next(project_path.glob("*.vcxproj"))
                 result = subprocess.run(
                     ["dotnet", "build", str(vcxproj), "--nologo", "-v", "quiet"],
@@ -814,13 +815,13 @@ func _initialize():
                 else:
                     print(f"[PostValidation] msbuild passed for {project} {task_id}")
         except FileNotFoundError as e:
-            print(f"[PostValidation] C++ build tool not found for {project} ({e}) — skipping")
+            print(f"[PostValidation] C++ build tool not found for {project} ({e}) -- skipping")
         except Exception as e:
             print(f"[PostValidation] C++ validation error for {project}: {e}")
 
     else:
-        # unknown — skip cleanly, never false-positive
-        print(f"[PostValidation] Unknown project type for {project} — skipping validation")
+        # unknown -- skip cleanly, never false-positive
+        print(f"[PostValidation] Unknown project type for {project} -- skipping validation")
 
     if validation_failed and error_output:
         print(f"[PostValidation] Failed for {project} (path={project_path.name})")
@@ -841,9 +842,9 @@ def _post_task_validation(project: str, task_id: str, timeout: int = 60, origina
     )
     if validation_failed and error_output:
         if is_controller_config_blocker(error_output):
-            print(f"[PostValidation] Failed for {project} — controller configuration blocker; not spawning project bug")
+            print(f"[PostValidation] Failed for {project} -- controller configuration blocker; not spawning project bug")
             return
-        print(f"[PostValidation] Failed for {project} — spawning bug task")
+        print(f"[PostValidation] Failed for {project} -- spawning bug task")
         _spawn_validation_bug_task(
             project,
             task_id,
@@ -1092,7 +1093,7 @@ def _spawn_validation_bug_task(
     existing = db.task_get(bug_task_id)
     original_task = original_task or db.task_get(original_task_id) or {}
 
-    # --- Fix: deduplicate — skip if a pending/in-progress bug task already covers the same error.
+    # --- Fix: deduplicate -- skip if a pending/in-progress bug task already covers the same error.
     # Normalise error_output to a comparable key (first non-empty line is the most stable indicator).
     error_key = (error_output or "").strip().splitlines()
     error_normalised = "".join(line.strip() for line in error_key if line.strip())[:300]
@@ -1111,7 +1112,7 @@ def _spawn_validation_bug_task(
     chain_depth = bug_task_id.count("bug-")
     deep_chain = chain_depth >= 4
     if deep_chain:
-        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} is {chain_depth} levels deep — marking for human review, not spawning further")
+        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} is {chain_depth} levels deep -- marking for human review, not spawning further")
         # Mark the original task as needing human review instead of spawning another bug task
         try:
             db.task_update(original_task_id, {
@@ -1174,10 +1175,10 @@ def _spawn_validation_bug_task(
 
         godot_cmd = shell_quote_command_arg(resolve_godot_binary())
         description = (
-            f"[WORKTREE MODE — read this carefully before doing anything]\n\n"
+            f"[WORKTREE MODE -- read this carefully before doing anything]\n\n"
             f"You are taking over a bug-fix chain. Previous agents have already made "
             f"commits in an isolated worktree. Your job is to fix the remaining errors "
-            f"listed below and nothing else. Do NOT sync with main — the errors listed "
+            f"listed below and nothing else. Do NOT sync with main -- the errors listed "
             f"are specific to the code already in this worktree and syncing would "
             f"introduce unrelated changes that are not your responsibility.\n\n"
             f"--- ORIGINAL GOAL ---\n"
@@ -1222,7 +1223,7 @@ def _spawn_validation_bug_task(
     if original_task_id in active_ids and original_task_id not in completed_ids:
         bug_task_deps = [original_task_id]
     else:
-        # Original task is gone — chain to project head so the bug task
+        # Original task is gone -- chain to project head so the bug task
         # is never a free-floating node in the dependency graph.
         from swarm.task_chains import chain_to_project_head
         bug_task_deps = chain_to_project_head(db, project, task_id=bug_task_id, ensure_head=True)

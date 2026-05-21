@@ -37,6 +37,7 @@ _plan_cleanup = None
 _task_chains = None
 _task_mutations = None
 _project_registry = None
+_regressions = None
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ class _WorktreeFinishResult:
 
 def _lazy_imports():
     """Lazy import helper to avoid circular deps."""
-    global db, worktree, _validation, _learnings, _plan_cleanup, _task_chains, _task_mutations
+    global db, worktree, _validation, _learnings, _plan_cleanup, _task_chains, _task_mutations, _regressions
     if db is None:
         from swarm import db as _db
         db = _db
@@ -76,6 +77,12 @@ def _lazy_imports():
     if _task_mutations is None:
         from swarm import task_mutations as _tm
         _task_mutations = _tm
+    if _regressions is None:
+        try:
+            from swarm.closure import regressions as _reg
+            _regressions = _reg
+        except Exception:
+            pass  # closure module not present in all deployments
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +653,21 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                     description=task.get("description", "").split("\n")[0][:100],
                     diff_stat=diff_stat,
                 )
+
+            # After any successful task completion, re-sync open_regression_count
+            # from the actual regressions table. This unblocks expansion when a bug
+            # fix resolves an issue that had only ever seen timeout-based validation
+            # (so resolve_regressions_for_passing_run never fired).
+            if project and _regressions is not None:
+                try:
+                    _proj_row = db.project_get(project)
+                    if _proj_row and (_proj_row.get("open_regression_count") or 0) > 0:
+                        _regressions.refresh_project_recurrence_state(project)
+                        _refreshed_row = db.project_get(project)
+                        _new_count = (_refreshed_row or {}).get("open_regression_count", 0)
+                        print(f"[Swarm] Refreshed regression state for {project}: open_regression_count={_new_count}")
+                except Exception as _reg_err:
+                    print(f"[Swarm] WARNING: regression state refresh failed for {project}: {_reg_err}")
         else:
             # If validation failed in-worktree, spawn bug task with worktree metadata
             # before calling _handle_task_failure (which handles retry/recovery logic)

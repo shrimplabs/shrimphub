@@ -1,5 +1,5 @@
 """
-swarm.tools.core — file I/O, git, shell, web, and task tools.
+swarm.tools.core -- file I/O, git, shell, web, and task tools.
 
 Config vars in this module are set by agent_runtime._sync_core_globals()
 at the start of each agent run, mirroring the values set by the wrapper
@@ -23,7 +23,7 @@ from swarm.platform import kill_process_tree, popen_session_kwargs, shell_quote_
 from swarm.task_chains import chain_to_project_head
 
 # ---------------------------------------------------------------------------
-# Config vars — set via _sync_core_globals() in agent_runtime before use
+# Config vars -- set via _sync_core_globals() in agent_runtime before use
 # ---------------------------------------------------------------------------
 
 WORKSPACE: Path = Path(".")
@@ -58,14 +58,14 @@ def log(msg: str):
 # Applied to all text written via write_file / patch_file so LLM-generated
 # em-dashes and smart quotes never produce non-UTF-8 bytes in GDScript files.
 _FANCY_PUNCT_TABLE = str.maketrans({
-    "—": "--",   # em-dash (also cp1252 0x97)
-    "–": "-",    # en-dash (also cp1252 0x96)
-    "“": '"',    # left double quote (also cp1252 0x93)
-    "”": '"',    # right double quote (also cp1252 0x94)
-    "‘": "'",    # left single quote (also cp1252 0x91)
-    "’": "'",    # right single quote (also cp1252 0x92)
-    "…": "...",  # ellipsis (also cp1252 0x85)
-    "·": "*",    # middle dot (also cp1252 0xb7)
+    "\u2014": "--",  # em-dash → two hyphens
+    "\u2013": "-",   # en-dash → hyphen
+    "\u201c": '"',   # left double quote → ASCII quote
+    "\u201d": '"',   # right double quote → ASCII quote
+    "\u2018": "'",   # left single quote → ASCII apostrophe
+    "\u2019": "'",   # right single quote → ASCII apostrophe
+    "\u2026": "...", # ellipsis → three dots
+    "\u00b7": "*",   # middle dot → asterisk
 })
 
 
@@ -243,7 +243,7 @@ def _command_attempts_embedded_protected_write(cmd: str) -> tuple[str, str] | No
 
 
 _CATASTROPHIC_PATTERNS: list[tuple[str, str]] = [
-    # Recursive / force deletes — rm -r, rm -rf, rm -fr, find … -delete
+    # Recursive / force deletes -- rm -r, rm -rf, rm -fr, find ... -delete
     (r"\brm\s+(?:[^;|&\n]*\s)?-[a-z]*r[a-z]*f?[a-z]*\b", "recursive rm (-r/-rf/-fr)"),
     (r"\brm\s+(?:[^;|&\n]*\s)?-[a-z]*f[a-z]*r[a-z]*\b", "recursive rm (-fr/-rf)"),
     (r"\bfind\b[^;|&\n]*\s--delete\b", "find --delete (recursive file removal)"),
@@ -256,7 +256,7 @@ _CATASTROPHIC_PATTERNS: list[tuple[str, str]] = [
     (r"\bgit\s+clean\s+(?:[^;|&\n]*\s)?-[a-z]*f[a-z]*\b", "git clean -f (destroys untracked files)"),
     (r"\bgit\s+filter-branch\b", "git filter-branch (rewrites history)"),
     (r"\bgit\s+filter-repo\b", "git filter-repo (rewrites history)"),
-    # Process killing by name — too broad / irreversible
+    # Process killing by name -- too broad / irreversible
     (r"\bpkill\b", "pkill (mass process kill by name)"),
     (r"\bkillall\b", "killall (mass process kill by name)"),
     # Disk-level writes
@@ -572,7 +572,7 @@ def patch_file(relative_path: str, old: str, new: str) -> dict:
     if READONLY:
         return {"ok": False, "error": "Read-only task: patch_file is disabled"}
     if TASK_TYPE in ("python_plan", "plan"):
-        return {"ok": False, "error": "plan tasks are read-only planners — use create_task() to delegate implementation"}
+        return {"ok": False, "error": "plan tasks are read-only planners -- use create_task() to delegate implementation"}
     if str(relative_path).startswith("res://"):
         return {"ok": False, "error": f"'res://' is a Godot virtual path, not a filesystem path. Use the real path instead: {str(relative_path).replace('res://', '<project_dir>/')}"}
 
@@ -623,7 +623,7 @@ def write_file(path_arg: str, content: str) -> dict:
     if READONLY:
         return {"ok": False, "error": "Read-only task: write_file is disabled"}
     if TASK_TYPE in ("python_plan", "plan"):
-        return {"ok": False, "error": "plan tasks are read-only planners — use create_task() to delegate implementation"}
+        return {"ok": False, "error": "plan tasks are read-only planners -- use create_task() to delegate implementation"}
     if "res://" in str(path_arg):
         return {"ok": False, "error": f"'res://' is a Godot virtual path, not a filesystem path. Use the real path instead, e.g. the project directory + the relative path after 'res://': {str(path_arg).replace('res://', '<project_dir>/')}"}
     path = _resolve_project_path(path_arg)
@@ -708,7 +708,7 @@ def git_commit(message: str, files: list = None) -> dict:
     if READONLY:
         return {"ok": False, "error": "Read-only task: git_commit is disabled"}
     if TASK_TYPE in ("python_plan", "plan"):
-        return {"ok": False, "error": "plan tasks are read-only planners — use create_task() instead of writing code"}
+        return {"ok": False, "error": "plan tasks are read-only planners -- use create_task() instead of writing code"}
     _protected = ["addons/", ".godot/", ".import/"]
     if TASK_TYPE not in ("project_plan", "python_plan", "plan", "project_create", "audit", "triage"):
         code, staged, _ = run("git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard")
@@ -924,14 +924,35 @@ def web_search(query: str, max_results: int = 3) -> dict:
         except Exception:
             pass
 
-    # Fall back to DuckDuckGo via ddgs package (no key required)
+    # Fall back to DuckDuckGo HTML scraper (no key required)
     try:
-        from ddgs import DDGS
-        hits = list(DDGS().text(query, max_results=max_results))
-        results = [
-            {"title": h.get("title", ""), "url": h.get("href", ""), "snippet": h.get("body", "")}
-            for h in hits
-        ]
+        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}&kl=us-en"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        results = []
+        import re as _re
+        for result_div in _re.finditer(r'<div class="result__body">(.+?)</div>', html, _re.DOTALL):
+            div_html = result_div.group(1)
+            a_match = _re.search(r'<a class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', div_html)
+            snippet_match = _re.search(r'<a class="result__snippet"[^>]*>([^<]+)</a>', div_html)
+            if a_match:
+                results.append({
+                    "url": a_match.group(1),
+                    "title": _re.sub(r'<[^>]+>', '', a_match.group(2)).strip(),
+                    "snippet": (snippet_match.group(1).strip() if snippet_match else ""),
+                })
+            if len(results) >= max_results:
+                break
+        if not results:
+            for a_tag in _re.finditer(r'<a class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', html):
+                results.append({
+                    "url": a_tag.group(1),
+                    "title": _re.sub(r'<[^>]+>', '', a_tag.group(2)).strip(),
+                    "snippet": "",
+                })
+                if len(results) >= max_results:
+                    break
         if results:
             return {"ok": True, "results": results}
     except Exception:
@@ -1409,15 +1430,15 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
     """Create multiple tasks with automatic file-aware dependency chaining.
 
     Analyses which files each task will touch and automatically adds dependencies
-    between any two tasks that share a file — preventing merge conflicts from
+    between any two tasks that share a file -- preventing merge conflicts from
     parallel agents working on the same file.
 
     Each task dict must have:
       - "type": "feature" | "bug" | "refactor" | "polish"
       - "description": str
-      - "files": list[str] — files this task will CREATE or MODIFY
+      - "files": list[str] -- files this task will CREATE or MODIFY
       - "priority": int (optional, default 50)
-      - "dependencies": list[str] (optional) — explicit extra task IDs
+      - "dependencies": list[str] (optional) -- explicit extra task IDs
 
     Returns {"ok": True, "tasks": [...], "count": N} on success.
     """
@@ -1548,19 +1569,19 @@ def create_tasks(tasks: list, project: str = None, chain_to_head: bool = False) 
 
     Use this instead of calling create_task() repeatedly when you need to create
     3+ tasks with dependencies between them. All IDs are generated upfront so
-    depends_on index references always resolve — no chicken-and-egg problem.
+    depends_on index references always resolve -- no chicken-and-egg problem.
 
     Each task dict supports:
       - "type": "feature" | "bug" | "refactor" | "polish" | "qa" | "plan"
       - "description": str
       - "priority": int (optional, default 50)
-      - "depends_on": list[int] — indices into THIS tasks list (resolved to IDs before creation)
-      - "dependencies": list[str] — explicit task IDs outside this batch (merged with depends_on)
+      - "depends_on": list[int] -- indices into THIS tasks list (resolved to IDs before creation)
+      - "dependencies": list[str] -- explicit task IDs outside this batch (merged with depends_on)
 
     chain_to_head: if True, the first rootless task in the batch automatically depends on
                    the project HEAD (last completed task), keeping history connected.
 
-    Example — bug fixes in parallel, feature waits for both:
+    Example -- bug fixes in parallel, feature waits for both:
       create_tasks([
         {"type": "bug",     "description": "Fix crash in login",   "priority": 80},
         {"type": "bug",     "description": "Fix session timeout",  "priority": 80},
@@ -1700,11 +1721,11 @@ def annotate_downstream_tasks(findings: str, task_ids: list = None) -> dict:
         if downstream_ids:
             non_pending = [t for t in all_tasks if t["id"] in downstream_ids and t["status"] != "pending"]
             statuses = {t["status"] for t in non_pending}
-            return {"ok": True, "annotated": 0, "note": f"downstream tasks exist but none are pending (statuses: {sorted(statuses)}) — they may already be in_progress or completed"}
+            return {"ok": True, "annotated": 0, "note": f"downstream tasks exist but none are pending (statuses: {sorted(statuses)}) -- they may already be in_progress or completed"}
         elif task_ids:
-            return {"ok": True, "annotated": 0, "note": "the task_ids you specified are not transitively downstream of your task — only tasks that depend on yours (directly or indirectly) can be annotated"}
+            return {"ok": True, "annotated": 0, "note": "the task_ids you specified are not transitively downstream of your task -- only tasks that depend on yours (directly or indirectly) can be annotated"}
         else:
-            return {"ok": True, "annotated": 0, "note": "no tasks are transitively downstream of your task — other pending tasks in the project are parallel branches, not dependents"}
+            return {"ok": True, "annotated": 0, "note": "no tasks are transitively downstream of your task -- other pending tasks in the project are parallel branches, not dependents"}
 
     annotation_block = (
         f"\n\n---\n"
@@ -1760,9 +1781,9 @@ def split_task(task_id: str, replacement_tasks: list) -> dict:
     if not original:
         return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
     if task_id not in downstream_ids:
-        return {"ok": False, "error": f"Task {task_id} is not downstream of the current task {TASK_ID} — cannot split. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() instead to pass context forward."}
+        return {"ok": False, "error": f"Task {task_id} is not downstream of the current task {TASK_ID} -- cannot split. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() instead to pass context forward."}
     if original["status"] != "pending":
-        return {"ok": False, "error": f"Task {task_id} is {original['status']} — can only split pending tasks"}
+        return {"ok": False, "error": f"Task {task_id} is {original['status']} -- can only split pending tasks"}
 
     original_deps = original.get("dependencies") or []
     original_type = original.get("type", "feature")
@@ -1837,7 +1858,7 @@ def split_task(task_id: str, replacement_tasks: list) -> dict:
 def prune_task(task_id: str, reason: str) -> dict:
     """Mark a pending downstream task as completed (redundant/already done).
 
-    Use this when your work has made a downstream task unnecessary — for example
+    Use this when your work has made a downstream task unnecessary -- for example
     you implemented something that was going to be a separate task, or you
     discovered the task described work that doesn't need to happen.
 
@@ -1859,9 +1880,9 @@ def prune_task(task_id: str, reason: str) -> dict:
     if not target:
         return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
     if task_id not in downstream_ids:
-        return {"ok": False, "error": f"Task {task_id} is not downstream of {TASK_ID} — cannot prune. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() to pass context to tasks you cannot prune."}
+        return {"ok": False, "error": f"Task {task_id} is not downstream of {TASK_ID} -- cannot prune. Only pending tasks that transitively depend on your task are eligible. Try annotate_downstream_tasks() to pass context to tasks you cannot prune."}
     if target["status"] != "pending":
-        return {"ok": False, "error": f"Task {task_id} is {target['status']} — can only prune pending tasks"}
+        return {"ok": False, "error": f"Task {task_id} is {target['status']} -- can only prune pending tasks"}
 
     existing_meta = target.get("metadata") or {}
     try:
@@ -1883,7 +1904,7 @@ def insert_dependency(from_task_id: str, to_task_id: str) -> dict:
     """Add a dependency edge: from_task_id will now depend on to_task_id.
 
     Use this when you discover that two existing downstream tasks have an
-    ordering constraint the planner didn't know about — i.e. from_task_id
+    ordering constraint the planner didn't know about -- i.e. from_task_id
     cannot safely run until to_task_id completes.
 
     from_task_id: the task that needs to wait
@@ -1908,13 +1929,13 @@ def insert_dependency(from_task_id: str, to_task_id: str) -> dict:
     if not to_task:
         return {"ok": False, "error": f"Task {to_task_id} not found"}
     if from_task_id not in downstream_ids:
-        return {"ok": False, "error": f"{from_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
+        return {"ok": False, "error": f"{from_task_id} is not downstream of {TASK_ID} -- insert_dependency only works between tasks that transitively depend on yours"}
     if to_task_id not in downstream_ids:
-        return {"ok": False, "error": f"{to_task_id} is not downstream of {TASK_ID} — insert_dependency only works between tasks that transitively depend on yours"}
+        return {"ok": False, "error": f"{to_task_id} is not downstream of {TASK_ID} -- insert_dependency only works between tasks that transitively depend on yours"}
     if from_task["status"] != "pending":
-        return {"ok": False, "error": f"{from_task_id} is {from_task['status']} — can only insert deps on pending tasks"}
+        return {"ok": False, "error": f"{from_task_id} is {from_task['status']} -- can only insert deps on pending tasks"}
     if to_task["status"] == "in_progress":
-        return {"ok": False, "error": f"{to_task_id} is in_progress — inserting this dep would block work already underway"}
+        return {"ok": False, "error": f"{to_task_id} is in_progress -- inserting this dep would block work already underway"}
 
     # Cycle check: would adding from→to create a cycle?
     # A cycle exists if to_task_id is already reachable from from_task_id
@@ -1965,7 +1986,7 @@ def set_task_complexity(task_id: str, complexity: str, reason: str = "") -> dict
     if not task:
         return {"ok": False, "error": f"Task {task_id} not found in project {proj}"}
     if task["status"] != "pending":
-        return {"ok": False, "error": f"Task {task_id} is {task['status']} — can only annotate pending tasks"}
+        return {"ok": False, "error": f"Task {task_id} is {task['status']} -- can only annotate pending tasks"}
 
     metadata = dict(task.get("metadata") or {})
     metadata["complexity"] = complexity

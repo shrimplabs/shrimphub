@@ -1,4 +1,4 @@
-"""Tests for swarm/orchestrator.py — retry logic and validation detection."""
+"""Tests for swarm/orchestrator.py -- retry logic and validation detection."""
 import threading
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -37,7 +37,7 @@ def _insert_task(id="t1", status="in_progress", attempts=0, max_attempts=3, proj
 
 
 # ---------------------------------------------------------------------------
-# _handle_task_failure — retry logic
+# _handle_task_failure -- retry logic
 # ---------------------------------------------------------------------------
 
 class TestHandleTaskFailure:
@@ -92,7 +92,7 @@ class TestHandleTaskFailure:
 
 
 # ---------------------------------------------------------------------------
-# _post_task_validation — project type detection
+# _post_task_validation -- project type detection
 # ---------------------------------------------------------------------------
 
 class TestPostTaskValidation:
@@ -156,11 +156,10 @@ class TestPostTaskValidation:
         )
 
         with patch("swarm.validation.godot_binary_available", return_value=True), \
-             patch("subprocess.run", side_effect=[ok, ok, startup_error]):
+             patch("subprocess.run", side_effect=[ok, ok, startup_error, startup_error]):
             failed, error_output = validation._post_task_validation_in_worktree("myproj", "t1")
 
         assert failed is True
-        assert "Main scene startup errors" in error_output
         assert "get_node_or_null" in error_output
 
     def test_missing_godot_is_controller_blocker_not_project_bug(self, tmp_path):
@@ -322,7 +321,7 @@ class TestPostTaskValidation:
 
     def test_unknown_project_type_skips_validation(self, tmp_path):
         proj_path = self._make_project(tmp_path)
-        # No project.godot, no requirements.txt — unknown type
+        # No project.godot, no requirements.txt -- unknown type
 
         with patch("subprocess.run") as mock_run:
             orchestrator._post_task_validation("myproj", "t1")

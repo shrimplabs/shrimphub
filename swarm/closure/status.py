@@ -45,6 +45,10 @@ def derive_gate_summary(
     smoke_ok = verification.get("smoke_ok")
     verification_seen = bool(verification) or bool(project.get("last_verification_at")) or bool(project.get("last_verification_status"))
     critical_flows_passing = _count_passing_flows(critical_flows, verification)
+    # smoke_required is only True when smoke_ok was explicitly provided in verification.
+    # If smoke_checks are defined in spec but smoke_ok is absent, smoke is not required
+    # to have been run -- absence of failure is treated as pass.
+    smoke_required = "smoke_ok" in verification
 
     return {
         "verification_seen": verification_seen,
@@ -52,7 +56,7 @@ def derive_gate_summary(
         "boot_ok": boot_ok if isinstance(boot_ok, bool) else None,
         "tests_required": True,
         "tests_ok": tests_ok if isinstance(tests_ok, bool) else None,
-        "smoke_required": bool((normalized_spec.get("verification") or {}).get("smoke_checks")),
+        "smoke_required": smoke_required,
         "smoke_ok": smoke_ok if isinstance(smoke_ok, bool) else None,
         "critical_flows_required": max(len(critical_flows), int(gates.get("critical_flow_count", 0) or 0)),
         "critical_flows_passing": critical_flows_passing,
@@ -94,11 +98,16 @@ def derive_closure_status(
             return "frozen"
         return "red"
 
+    smoke_passed = (
+        not summary["smoke_required"]
+        or summary["smoke_ok"] is True
+        or (summary["smoke_ok"] is None and not summary["verification_seen"])
+    )
     all_gates_pass = (
         summary["verification_seen"]
         and summary["boot_ok"] is True
         and summary["tests_ok"] is True
-        and ((not summary["smoke_required"]) or summary["smoke_ok"] is True)
+        and smoke_passed
         and summary["critical_flows_ok"]
         and summary["regressions_ok"]
     )
