@@ -56,9 +56,12 @@ class StallDetector:
     def check(self) -> bool:
         """Return True if stall is currently detected (deque is full and all equal).
 
-        Does NOT mutate state. Use this when you need to check without appending.
+        Clears the deque on detection so the warning is only injected once per stall.
         """
-        return len(self._deque) == 3 and len(set(self._deque)) == 1
+        if len(self._deque) == 3 and len(set(self._deque)) == 1:
+            self._deque.clear()
+            return True
+        return False
 
     def append(self, entry: tuple) -> None:
         """Append a (tool_name, args_json) tuple to the history deque."""
