@@ -3,9 +3,12 @@
 import re
 from pathlib import Path
 
-# Forward reference: TASK_TYPE and _project_root are set by swarm.tools.core
-# before this module is imported, so these imports resolve safely at runtime.
-from swarm.tools._shared import TASK_TYPE, _project_root
+from swarm.tools import _shared
+from swarm.tools._shared import _project_root
+
+
+def _get_task_type() -> str:
+    return _shared.TASK_TYPE
 
 def _resolve_project_path(path_arg: str) -> Path:
     p = Path(path_arg)
@@ -149,7 +152,7 @@ def _check_catastrophic_command(cmd: str) -> str | None:
 
 
 def _command_attempts_protected_write(cmd: str) -> tuple[str, str] | None:
-    if TASK_TYPE == "project_create":
+    if _get_task_type() == "project_create":
         return None
 
     target = _command_targets_protected_path(cmd)
