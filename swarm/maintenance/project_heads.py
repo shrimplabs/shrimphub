@@ -35,7 +35,10 @@ def get_project_head(db: Any, project_name: str) -> Optional[str]:
         return None
     task = db.task_get(head)
     if task is None:
-        task = db.task_get_completed_record(head)
+        # Head is not in active tasks — either deleted or archived to history.
+        # Do NOT fall back to completed_record here: an archived task is consumed
+        # and should not keep being injected as a dep into new tasks.
+        return None
     if is_valid_project_head(task, project_name):
         return head
     return None
