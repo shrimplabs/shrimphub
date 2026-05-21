@@ -707,8 +707,9 @@ def _sync_qa_tools_globals():
 
 
 def _sync_core_globals():
-    """Sync config from agent_runtime.py to swarm.tools.core module."""
+    """Sync config from agent_runtime.py to swarm.tools.core module and _shared config store."""
     import swarm.tools.core as _core
+    from swarm.tools import _shared
     _core.WORKSPACE = WORKSPACE
     _core.DATA_DIR = DATA_DIR
     _core.PROJECT = PROJECT
@@ -726,6 +727,10 @@ def _sync_core_globals():
     _core.MANAGED_PROJECTS = MANAGED_PROJECTS
     _core.READONLY = READONLY
     _core.mcp_client = mcp_client
+    _shared.TASK_TYPE = TASK_TYPE
+    _shared.WORKSPACE = WORKSPACE
+    _shared.PROJECT = PROJECT
+    _shared.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
 
 
 def _sync_knowledge_globals():
