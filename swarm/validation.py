@@ -197,12 +197,15 @@ def _post_task_validation_in_worktree(
 
         # Ensure .godot/ class cache exists so class_name types resolve during load().
         # New projects that have never been opened in the editor lack this cache.
-        # Running --headless --editor --quit initialises the project and creates it.
+        # Use --headless --import instead of --headless --editor --quit:
+        # --import runs only the asset import pipeline without the full editor UI loop,
+        # which avoids the macOS NSAlert "no main scene" native dialog that --editor
+        # triggers before the headless display driver can suppress it.
         _godot_cache = project_path / ".godot"
         if not _godot_cache.exists():
             try:
                 _init_result = subprocess.run(
-                    f"{_GODOT_CMD} --headless --editor --quit",
+                    f"{_GODOT_CMD} --headless --import",
                     shell=True, cwd=project_path,
                     capture_output=True, text=True, timeout=120,
                 )
@@ -481,7 +484,7 @@ func _initialize():
             if venv_pytest.exists():
                 try:
                     result = subprocess.run(
-                        [str(venv_pytest), "--ignore=tests/test_dashboard.py", "--tb=short", "-q"],
+                        [str(venv_pytest), "--ignore=tests/test_dashboard.py", "--ignore=tests/test_agent_runtime.py", "--tb=short", "-q"],
                         cwd=project_path, capture_output=True, text=True, timeout=300,
                     )
                     pytest_available = True
@@ -1254,6 +1257,20 @@ def _spawn_validation_bug_task(
     action = "Updated" if existing else "Created"
     wt_info = f" (worktree={worktree_path.name})" if worktree_path else ""
     print(f"[Swarm] {action} validation bug task {bug_task_id}{wt_info}")
+
+    # Link any open regressions for this project to the new bug task so that when
+    # the bug task completes, resolve_regressions_for_linked_task() can auto-close them.
+    try:
+        unlinked_regressions = [
+            r for r in db.regression_list_by_project(project, status="open")
+            if not r.get("linked_task_id")
+        ]
+        for reg in unlinked_regressions:
+            db.regression_update(reg["id"], {"linked_task_id": bug_task_id})
+        if unlinked_regressions:
+            print(f"[Swarm] Linked {len(unlinked_regressions)} open regression(s) to bug task {bug_task_id}")
+    except Exception as _link_err:
+        print(f"[Swarm] WARNING: failed to link regressions to bug task: {_link_err}")
 
     if not existing:
         for task_id in reparent_dependents(

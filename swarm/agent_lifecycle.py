@@ -662,10 +662,21 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                 try:
                     _proj_row = db.project_get(project)
                     if _proj_row and (_proj_row.get("open_regression_count") or 0) > 0:
+                        # If this was a bug/repair task, close any regression it was linked to.
+                        _task_type_for_reg = (_task_snapshot_pre_complete or {}).get("type", "")
+                        if _task_type_for_reg in {"bug", "triage"} or (
+                            (_task_snapshot_pre_complete or {}).get("metadata", {}).get("is_recovery_task")
+                            or (_task_snapshot_pre_complete or {}).get("metadata", {}).get("is_closure_repair_task")
+                        ):
+                            _resolved = _regressions.resolve_regressions_for_linked_task(task_id, project)
+                            if _resolved:
+                                print(f"[Swarm] Auto-resolved {len(_resolved)} regression(s) for {project} after task {task_id[:8]} completed")
+                        # Always refresh the counters in case something else cleared regressions
                         _regressions.refresh_project_recurrence_state(project)
                         _refreshed_row = db.project_get(project)
                         _new_count = (_refreshed_row or {}).get("open_regression_count", 0)
-                        print(f"[Swarm] Refreshed regression state for {project}: open_regression_count={_new_count}")
+                        _new_status = (_refreshed_row or {}).get("closure_status", "")
+                        print(f"[Swarm] Refreshed regression state for {project}: open_regression_count={_new_count} closure_status={_new_status}")
                 except Exception as _reg_err:
                     print(f"[Swarm] WARNING: regression state refresh failed for {project}: {_reg_err}")
         else:

@@ -370,12 +370,19 @@ def _repair_description(
             category = item.get("category") or "check"
             check_id = item.get("id") or item.get("outcome", {}).get("check_type") or "unknown"
             outcome = item.get("outcome") if isinstance(item.get("outcome"), Mapping) else {}
+            cmd = str(outcome.get("command") or "")
             lines.append(
                 f"- {category}/{check_id}: status={outcome.get('status')} error={str(outcome.get('error') or '')[:200]}"
             )
-            stderr = str(outcome.get('stderr') or '')[:400]
+            if cmd:
+                lines.append(f"  command: {cmd[:300]}")
+            stdout = str(outcome.get('stdout') or '').strip()
+            if stdout:
+                # Include tail of stdout — this is where test failures, stack traces, etc. appear
+                lines.append(f"  stdout (tail):\n    " + "\n    ".join(stdout[-1500:].splitlines()))
+            stderr = str(outcome.get('stderr') or '').strip()
             if stderr:
-                lines.append(f"  stderr: {stderr}")
+                lines.append(f"  stderr: {stderr[:400]}")
 
     if prior_history:
         lines.append("")

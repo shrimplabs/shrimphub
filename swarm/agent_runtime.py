@@ -17,6 +17,7 @@ Example wrapper:
 
 import json
 import atexit
+import collections as _collections
 import os
 import re
 import sqlite3
@@ -28,6 +29,7 @@ import time
 from pathlib import Path
 from swarm import constants, db
 from swarm.provider_utils import LLM_PROVIDERS
+from swarm.agent_loop_helpers import StallDetector, compact_conversation  # noqa: E402
 from swarm.llm_utils import call_llm, parse_tool_calls, MCPClient  # noqa: E402
 from swarm import qa_tools  # noqa: E402
 from swarm.branch_intent import format_branch_intent, branch_intent_metadata  # noqa: E402
@@ -705,8 +707,9 @@ def _sync_qa_tools_globals():
 
 
 def _sync_core_globals():
-    """Sync config from agent_runtime.py to swarm.tools.core module."""
+    """Sync config from agent_runtime.py to swarm.tools.core module and _shared config store."""
     import swarm.tools.core as _core
+    from swarm.tools import _shared
     _core.WORKSPACE = WORKSPACE
     _core.DATA_DIR = DATA_DIR
     _core.PROJECT = PROJECT
@@ -724,6 +727,10 @@ def _sync_core_globals():
     _core.MANAGED_PROJECTS = MANAGED_PROJECTS
     _core.READONLY = READONLY
     _core.mcp_client = mcp_client
+    _shared.TASK_TYPE = TASK_TYPE
+    _shared.WORKSPACE = WORKSPACE
+    _shared.PROJECT = PROJECT
+    _shared.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
 
 
 def _sync_knowledge_globals():
@@ -1514,10 +1521,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     total_input_tokens = 0
     total_output_tokens = 0
 
-    # Stall detection: track last 3 single tool calls as (tool_name, args_json) tuples
-    import collections as _collections
-    _stall_deque = _collections.deque(maxlen=3)
-
+    stall_detector = StallDetector()
     # EXPERIMENT: meta-investigation — track recurring error strings across loops
     _error_counts: _collections.Counter = _collections.Counter()
     _error_loop_history: dict[str, list[str]] = {}  # error_key → list of loop summaries
@@ -1527,18 +1531,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         log(f"Calling LLM... (loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS})")
         compact_token_threshold = _get_compaction_threshold()
 
-        # Stall detection: inject warning if same tool called 3 times in a row
-        if (len(_stall_deque) == 3
-                and len(set(_stall_deque)) == 1
-                and not _wrap_up_injected):
+        if stall_detector.check() and not _wrap_up_injected:
             log("WARNING: stall detected — same tool called 3 times with identical args")
-            conversation.append({"role": "user", "content": (
-                "You have called the same tool with identical arguments 3 times in a row "
-                "and received the same result. This approach is not working. Stop and try "
-                "a fundamentally different approach to solve the problem."
-            )})
-            _stall_deque.clear()
-
+            conversation.append({"role": "user", "content": StallDetector.injected_message()})
         # EXPERIMENT: meta-investigation — fire when same error seen 3+ times
         if META_INVESTIGATION_ENABLED and not _wrap_up_injected:
             for err_key, count in _error_counts.items():
@@ -1745,10 +1740,10 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                                 summary = f"loop {tool_loop_count + 1}: {tc.get('args', {}).get('command', '')[:60]} → {line[:80]}"
                                 _error_loop_history.setdefault(err_key, []).append(summary)
 
-        # Stall detection: only track when a single tool call was made
+        # Stall detection: record single tool call for stall tracking
         if len(tool_calls) == 1:
             tc = tool_calls[0]
-            _stall_deque.append((tc.get("tool", ""), json.dumps(tc.get("args", {}), sort_keys=True)))
+            stall_detector.append((tc.get("tool", ""), json.dumps(tc.get("args", {}), sort_keys=True)))
 
         conversation.append({"role": "user", "content": "\n".join(tool_results)})
 
@@ -1784,52 +1779,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             break
 
         # Context compaction: when conversation grows large, summarise the middle
-        COMPACT_KEEP_TAIL = 4
-        _conv_token_estimate = sum(
-            len(m["content"]) if isinstance(m["content"], str) else len(str(m["content"]))
-            for m in conversation
-        ) // 2
-        if _conv_token_estimate > compact_token_threshold:
-            to_summarise = conversation[1:-COMPACT_KEEP_TAIL]
-            raw_tail = conversation[-COMPACT_KEEP_TAIL:]
-            trimmed_tail = []
-            for msg in raw_tail:
-                content = msg["content"] if isinstance(msg["content"], str) else str(msg["content"])
-                if msg["role"] == "user" and len(content) > 2000:
-                    content = content[:2000] + "\n[... trimmed for compaction ...]"
-                trimmed_tail.append({**msg, "content": content})
-            history_text = "\n\n".join(
-                f"[{m['role'].upper()}]: {m['content'] if isinstance(m['content'], str) else str(m['content'])}"
-                for m in to_summarise
-            )
-            summary_prompt = (
-                "You are summarising an AI agent's work session to compress its context.\n"
-                "Produce a concise but complete summary covering:\n"
-                "- What the task is and the current goal\n"
-                "- What files have been read and their key contents\n"
-                "- What changes have already been made (files written/edited)\n"
-                "- What problems or bugs were found\n"
-                "- What still needs to be done\n"
-                "Be specific — include file names, function names, variable names, and error messages. "
-                "The agent will use this summary as its only memory of prior work."
-            )
-            try:
-                summary_text, _ = call_llm(summary_prompt, [{"role": "user", "content": history_text}])
-                conversation = (
-                    conversation[:1]
-                    + [{"role": "user", "content": f"[CONTEXT SUMMARY — previous work compressed]\n{summary_text}"},
-                       {"role": "assistant", "content": "Understood. I'll continue from where I left off based on the summary."}]
-                    + trimmed_tail
-                )
-                log(
-                    f"[Compaction] Compressed {len(to_summarise)} messages into summary "
-                    f"({len(summary_text)} chars); conv was ~{_conv_token_estimate} tokens "
-                    f"(threshold {compact_token_threshold})"
-                )
-            except Exception as e:
-                log(f"[Compaction] Failed: {e} — continuing with full history")
-
-        tool_loop_count += 1
+        conversation = compact_conversation(
+            conversation, system_prompt, compact_token_threshold, log
+        )
 
     if tool_loop_count >= MAX_TOOL_LOOPS and not context_limit_hit:
         loop_limit_hit = True

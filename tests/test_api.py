@@ -859,6 +859,16 @@ depends-on: US-001
             {"id": "repair-game-t05-5", "project": project_name, "type": "feature", "priority": 50, "description": "Progress", "dependencies": ["repair-game-t01-1"]},
             {"id": "repair-game-t06-6", "project": project_name, "type": "feature", "priority": 50, "description": "Result Screen", "dependencies": ["repair-game-t01-1"]},
         ])
+        from swarm import api_wizard as _api_wizard
+        monkeypatch.setattr(_api_wizard, "_chat_call_llm", fake_llm)
+        monkeypatch.setattr(_api_wizard, "_parse_prd_tasks_preview", lambda prd_content, project_name: [
+            {"id": "repair-game-t01-1", "project": project_name, "type": "feature", "priority": 50, "description": "Foundation", "dependencies": []},
+            {"id": "repair-game-t02-2", "project": project_name, "type": "feature", "priority": 50, "description": "System A", "dependencies": ["repair-game-t01-1"]},
+            {"id": "repair-game-t03-3", "project": project_name, "type": "feature", "priority": 50, "description": "System B", "dependencies": ["repair-game-t01-1"]},
+            {"id": "repair-game-t04-4", "project": project_name, "type": "feature", "priority": 50, "description": "UI", "dependencies": ["repair-game-t01-1"]},
+            {"id": "repair-game-t05-5", "project": project_name, "type": "feature", "priority": 50, "description": "Progress", "dependencies": ["repair-game-t01-1"]},
+            {"id": "repair-game-t06-6", "project": project_name, "type": "feature", "priority": 50, "description": "Result Screen", "dependencies": ["repair-game-t01-1"]},
+        ])
 
         r = client.post("/api/project-chat", json={
             "message": "generate it",
@@ -916,7 +926,9 @@ depends-on: US-004, US-005
 **Description:** System E.
 """.strip()
 
+        from swarm import api_wizard as _api_wizard
         monkeypatch.setattr(api_chat, "_chat_call_llm", lambda *args, **kwargs: repaired_prd)
+        monkeypatch.setattr(_api_wizard, "_chat_call_llm", lambda *args, **kwargs: repaired_prd)
 
         repaired, rounds, errors = api_chat._repair_task_graph_with_llm(
             "repair-fallback",
@@ -1114,7 +1126,9 @@ depends-on: US-001
                 {"id": "repair-proj-t2", "dependencies": ["repair-proj-t1"]},
             ])
 
+        from swarm import api_wizard as _api_wizard
         monkeypatch.setattr(api_chat, "_chat_call_llm", fake_llm)
+        monkeypatch.setattr(_api_wizard, "_chat_call_llm", fake_llm)
 
         repaired, rounds, errors = api_chat._repair_task_graph_with_llm(
             "repair-proj",
@@ -2501,8 +2515,9 @@ class TestTaskChaining:
             {"id": "repair-proj-t6", "dependencies": ["repair-proj-t3", "repair-proj-t5"]},
         ])
 
-        monkeypatch.setattr(api_chat, "_scaffold_project_repo", fake_scaffold)
-        monkeypatch.setattr(api_chat, "_chat_call_llm", lambda *args, **kwargs: repair_payload)
+        from swarm import api_wizard
+        monkeypatch.setattr(api_wizard, "_scaffold_project_repo", fake_scaffold)
+        monkeypatch.setattr(api_wizard, "_chat_call_llm", lambda *args, **kwargs: repair_payload)
 
         r = client.post("/api/create-project-tasks", json={
             "project_name": "repair-proj",
