@@ -1046,6 +1046,7 @@ def qa_key_press(key: str) -> dict:
 def qa_wait(seconds: float) -> dict:
     """Wait for a given number of seconds."""
     import time as _time
+    seconds = float(seconds)  # coerce str -> float in case LLM passes "3" instead of 3
     _time.sleep(seconds)
     return {"ok": True, "waited": seconds}
 
