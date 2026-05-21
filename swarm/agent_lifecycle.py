@@ -413,7 +413,7 @@ def _classify_agent_success(agent_id: str, exit_code: int, full_output: str) -> 
     has_standalone_complete = bool(re.search(r"(?m)^\s*TASK_COMPLETE\s*$", full_output or ""))
     has_runtime_complete = "[Agent] Task complete!" in (full_output or "")
     if has_standalone_complete or has_runtime_complete:
-        print(f"[Swarm] Agent {agent_id[:8]} exited {exit_code} but success marker found — treating as success")
+        print(f"[Swarm] Agent {agent_id[:8]} exited {exit_code} but success marker found -- treating as success")
         return True
     return False
 
@@ -441,7 +441,7 @@ def _finish_worktree_phase(agent_id: str, success: bool, project: Optional[str],
         if _task_for_val_early and _task_type_early not in _skip_types:
             _val_failed, _val_err = _validation._post_task_validation_in_worktree(project, task_id, worktree_path)
             if _val_failed:
-                print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} — skipping merge, preserving worktree")
+                print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} -- skipping merge, preserving worktree")
                 return _WorktreeFinishResult(
                     success=False,
                     validation_failed=True,
@@ -528,7 +528,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     _lazy_imports()
 
     # Release any file locks held by this agent so other agents aren't blocked.
-    # This is a safety net — the agent should unlock files itself, but if it was
+    # This is a safety net -- the agent should unlock files itself, but if it was
     # killed, timed out, or crashed the locks would otherwise linger until restart.
     if project and _project_registry is not None:
         try:
@@ -570,7 +570,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
         if success:
             # Reparent dependents if a continuation task was spawned.
-            # The agent logs "Continuation task created: <id>" — parse it and swap
+            # The agent logs "Continuation task created: <id>" -- parse it and swap
             # the original task ID out of all downstream dependencies so the chain
             # doesn't unblock prematurely before the continuation finishes.
             _cont_id_match = re.search(r"Continuation task created: ([^\s(]+)", full_output)
@@ -594,7 +594,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
             )
             db.task_record_completed(task_id, project or "")
             # Cancel any stale recovery tasks that were spawned for this task
-            # while it was retrying — now that it succeeded they're redundant.
+            # while it was retrying -- now that it succeeded they're redundant.
             _all = db.task_get_all()
             for _rt in _all:
                 _meta = _rt.get("metadata") or {}
@@ -653,7 +653,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                 # Cross-check main before spawning a worktree bug task.
                 # If main is already clean the worktree error is stale (another agent
                 # already fixed it in main). Spawning a bug task in the diverged
-                # worktree would create an infinite chain chasing a ghost — skip it.
+                # worktree would create an infinite chain chasing a ghost -- skip it.
                 _main_failed, _main_err = _validation._post_task_validation_in_worktree(
                     project, task_id, worktree_path=None
                 )
@@ -663,11 +663,11 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                     return
                 if not _main_failed:
                     print(f"[Swarm] Worktree validation failed for {task_id} but main is clean "
-                          f"— skipping bug task (stale worktree error)")
+                          f"-- skipping bug task (stale worktree error)")
                     db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
                     db.task_record_completed(task_id, project or "")
                 else:
-                    # Main also has errors — this is a real regression, spawn the bug task.
+                    # Main also has errors -- this is a real regression, spawn the bug task.
                     _current_task = db.task_get(task_id)
                     _task_meta = (_current_task.get("metadata") or {}) if _current_task else {}
                     _existing_notes = _task_meta.get("fix_notes", [])
@@ -683,7 +683,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                         fix_notes=_fix_notes,
                         original_task=_current_task,
                     )
-                    # The bug task now owns the remaining work — mark the original as
+                    # The bug task now owns the remaining work -- mark the original as
                     # completed so it doesn't retry and race against the bug task.
                     db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
                     db.task_record_completed(task_id, project or "")
@@ -704,7 +704,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     print(f"[Swarm] Agent {agent_id[:8]} finished (exit {exit_code})"
           + (f" diff: {diff_stat.splitlines()[-1]}" if diff_stat else ""))
 
-    # Extract learnings async (fire and forget — doesn't block reaping)
+    # Extract learnings async (fire and forget -- doesn't block reaping)
     _task_for_learnings = db.task_get(task_id) if task_id else None
     _task_type_for_learnings = _task_for_learnings.get("type", "") if _task_for_learnings else ""
     if log_path and project and _task_type_for_learnings:
@@ -761,7 +761,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                         print(f"[Swarm] Post-validation blocked by controller configuration for {project}; not spawning validation bug")
                         _handle_task_failure(task_id, project, _main_err, _task_snapshot=_task_snapshot_early)
                     else:
-                        print(f"[Swarm] Post-validation FAILED for {project} {task_id} — spawning validation bug before follow-on work")
+                        print(f"[Swarm] Post-validation FAILED for {project} {task_id} -- spawning validation bug before follow-on work")
                         _validation._spawn_validation_bug_task(
                             project,
                             task_id,
@@ -776,7 +776,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
         # Auto-integration: after a feature/polish on a Godot project, spawn a lightweight
         # task to wire the new system into the existing game (signals, autoloads, scene tree).
-        # Chained as a dependency of nothing — runs immediately in parallel with other work.
+        # Chained as a dependency of nothing -- runs immediately in parallel with other work.
         # Gated on is_integration_task metadata to prevent infinite chains.
         _integration_skip = {"qa", "audit", "manager", "project_create", "project_plan", "art_pass"}
         if (not validation_failed_after_completion
@@ -990,7 +990,7 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             max_attempts=max_attempts,
         )
         # Spawn a recovery task to attempt the work again with failure context.
-        # Don't spawn recovery tasks for recovery tasks — avoids infinite chains
+        # Don't spawn recovery tasks for recovery tasks -- avoids infinite chains
         if project and (task.get("metadata") or {}).get("is_recovery_task"):
             _spawn_terminal_recovery_continuation(task, attempts, agent_output)
         elif project:
@@ -1093,12 +1093,12 @@ def _spawn_terminal_recovery_continuation(failed_task: dict, attempts: int, last
             "created": datetime.now().isoformat(),
         })
 
-    # Do not advance head to a pending continuation/recovery task — new auto-chained tasks
-    # would inherit a blocked dep on it and stall indefinitely. The dep graph already
-    # connects dependents via reparenting above; the head stays on the last completed task.
+    # Advance head to the new continuation task so new auto-chained tasks inherit a
+    # valid dep. The dep graph already connects dependents via reparenting above.
     proj = db.project_get(project)
     if proj and proj.get("head_task_id") == failed_id:
-        print(f"[Swarm] Skipping head advance for {project}: new continuation {continuation_id} is pending (head stays at {failed_id})")
+        db.project_update(project, {"head_task_id": continuation_id})
+        print(f"[Swarm] Advanced head to continuation {continuation_id} for {project}")
 
     for dep_task in dependents:
         new_deps = _task_mutations.replace_task_dependencies(
@@ -1210,7 +1210,7 @@ def _validate_project_plan_subtasks(project: str, planner_task_id: str) -> list[
 def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     """Create a recovery task that diagnoses failures and completes the original work.
 
-    The recovery task MUST actually do the work — not just document it — because
+    The recovery task MUST actually do the work -- not just document it -- because
     other tasks may depend on the output. If the recovery task also fails, a
     replacement task is created and all dependents are reparented to it.
     """
@@ -1234,7 +1234,10 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     # Decay priority with recovery chain depth so nested recoveries don't crowd out feature work.
     # Each recovery level drops priority by 5, floor at 70.
     _recovery_depth = int(failed_meta.get("recovery_depth") or 0)
-    orig_priority = max(70, orig_priority - 5 * (_recovery_depth + 1))
+    # Decay priority with recovery chain depth so nested recoveries don't crowd out feature work.
+    # First recovery (depth=0): subtract 0 → preserve original priority.
+    # Second recovery (depth=1): subtract 5, floor at 70.
+    orig_priority = max(70, orig_priority - 5 * _recovery_depth)
 
     live_branch_recoveries = [
         t for t in all_tasks
@@ -1263,9 +1266,10 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         canonical_id = canonical_recovery["id"]
         proj = db.project_get(project) if project else None
         if proj and proj.get("head_task_id") == failed_id:
-            # Do not advance head to a pending recovery — new tasks would inherit a
-            # blocked dep on it. Dep graph is correct via reparenting below.
-            print(f"[Swarm] Skipping head advance for {project}: reused recovery {canonical_id} is pending (head stays at {failed_id})")
+            # Advance head to the live recovery task so new auto-chained tasks inherit
+            # a valid dep and don't stall on the old failed task.
+            db.project_update(project, {"head_task_id": canonical_id})
+            print(f"[Swarm] Advanced head to reused recovery {canonical_id} for {project}")
         for dep_task in dependents:
             new_deps = _task_mutations.replace_task_dependencies(
                 db,
@@ -1285,14 +1289,14 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
 
     failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
 
-    # Cap original description — deep chains can recursively embed previous recovery
+    # Cap original description -- deep chains can recursively embed previous recovery
     # descriptions, causing exponential prompt growth.
     orig_desc_capped = orig_desc[:2000] + ("\n[... description truncated ...]" if len(orig_desc) > 2000 else "")
 
     recovery_desc = (
         f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
         f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-        f"FAILURE HISTORY (excerpt — full log in metadata.error_log):\n{failure_excerpt}\n\n"
+        f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
         f"YOUR JOB:\n"
         f"1. Read the failure history above and understand what went wrong.\n"
         f"2. Inspect the codebase to understand the current state.\n"
@@ -1342,12 +1346,13 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     db.task_upsert(recovery_task)
     print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id}")
 
-    # Do not advance head to a pending recovery task — new auto-chained tasks would
-    # inherit a blocked dep on it and stall indefinitely. Dependents are already
-    # reparented to recovery_id below; the head stays on the last completed task.
+    # Advance head to the new recovery task so new auto-chained tasks inherit a
+    # valid dep and don't stall on the old failed task. Dependents are reparented
+    # to recovery_id below; the head advances cleanly.
     proj = db.project_get(project) if project else None
     if proj and proj.get("head_task_id") == failed_id:
-        print(f"[Swarm] Skipping head advance for {project}: recovery {recovery_id} is pending (head stays at {failed_id})")
+        db.project_update(project, {"head_task_id": recovery_id})
+        print(f"[Swarm] Advanced head to recovery {recovery_id} for {project}")
 
     # Reparent dependents: replace failed_id with recovery_id in their dependencies
     for dep_task in dependents:
@@ -1418,7 +1423,7 @@ def _replacement_task_dependencies(
     completed_ids = db.task_get_completed_ids()
 
     def _filter_completed(deps: list[str]) -> list[str]:
-        """Drop deps that are already completed/archived — they can't block anything."""
+        """Drop deps that are already completed/archived -- they can't block anything."""
         active_ids = {t["id"] for t in db.task_get_all()}
         return [
             d for d in deps
@@ -1428,7 +1433,10 @@ def _replacement_task_dependencies(
     direct_deps = _filter_completed(_normalized_deps(failed_task))
     if direct_deps:
         return direct_deps
-    # If all direct deps were already completed, the continuation is unblocked
+    # If all direct deps were already completed (i.e. filtered list is empty but
+    # original list wasn't), the continuation is unblocked -- return empty.
+    # Only fall through to candidate_ids/genesis when the failed task genuinely
+    # had no dependencies to begin with (original list was already empty).
     if _normalized_deps(failed_task):
         return []
 
@@ -1604,7 +1612,7 @@ def check_agent_status() -> List[threading.Thread]:
         finish_threads.append(t)
 
     for agent_id, exit_code, data in finished:
-        # Remove from active handles immediately — the process has exited, so the
+        # Remove from active handles immediately -- the process has exited, so the
         # concurrency slot is free.  _finish_agent() (which runs Godot validation
         # and can block for up to ~5 minutes) is offloaded to a daemon thread so
         # the monitor loop is never stalled waiting for subprocess completion.

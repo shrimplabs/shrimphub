@@ -44,7 +44,7 @@ from swarm.constants import (
 from swarm.integrity import can_task_accept_agent
 
 # ---------------------------------------------------------------------------
-# Module-level config — set by the caller (e.g. create_app or swarm_runner)
+# Module-level config -- set by the caller (e.g. create_app or swarm_runner)
 # ---------------------------------------------------------------------------
 
 WORKSPACE: Path = Path(".")
@@ -63,7 +63,7 @@ WEBHOOK_URL: str = ""
 MINIMAX_API_KEY: str = ""
 MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 
-# Max agents to spawn per fill_slots call — prevents burst spawning after a cooldown.
+# Max agents to spawn per fill_slots call -- prevents burst spawning after a cooldown.
 # Set low (e.g. 2-3) so slots fill gradually across monitor cycles rather than all at once.
 SPAWN_PER_CYCLE: int = 3
 
@@ -71,7 +71,7 @@ SPAWN_PER_CYCLE: int = 3
 # on observed 429 pressure, up to the configured ceiling (max_active_agents in config).
 # MAX_ACTIVE_AGENTS becomes the live count; AUTO_SCALE_CEILING is the user's cap.
 AUTO_SCALE: bool = False
-AUTO_SCALE_CEILING: int = 60  # hard cap — never exceed this regardless of 429 pressure
+AUTO_SCALE_CEILING: int = 60  # hard cap -- never exceed this regardless of 429 pressure
 _auto_scale_floor: int = 1    # never drop below this
 
 # Auto-scale state (managed by monitor thread)
@@ -109,14 +109,14 @@ def _fire_task_webhook(event: str, **kwargs):
         ttype   = kwargs.get("task_type", "")
         if event == "task_completed":
             diff   = kwargs.get("diff_stat", "")
-            title  = f"✅ Task completed — {project}"
+            title  = f"✅ Task completed -- {project}"
             body_s = f"{ttype}: {desc}" + (f"\n`{diff.splitlines()[-1]}`" if diff else "")
             color  = 0x3fb950
             ntfy_tag = "white_check_mark"
         else:  # task_failed
             attempts = kwargs.get("attempts", 0)
             max_att  = kwargs.get("max_attempts", 3)
-            title  = f"❌ Task failed — {project}"
+            title  = f"❌ Task failed -- {project}"
             body_s = f"{ttype}: {desc} (attempt {attempts}/{max_att})"
             color  = 0xf85149
             ntfy_tag = "x"
@@ -244,7 +244,7 @@ def auto_scale_step(recent_429_count: int) -> None:
             _auto_scale_current -= 1
             _auto_scale_last_change = now
             MAX_ACTIVE_AGENTS = _auto_scale_current
-            print(f"[AutoScale] {recent_429_count} 429s — reducing to {_auto_scale_current} agents")
+            print(f"[AutoScale] {recent_429_count} 429s -- reducing to {_auto_scale_current} agents")
     else:
         _auto_scale_clean_cycles += 1
         # Increment: only after 3 clean cycles AND at least 120s since last change
@@ -255,7 +255,7 @@ def auto_scale_step(recent_429_count: int) -> None:
             _auto_scale_last_change = now
             MAX_ACTIVE_AGENTS = _auto_scale_current
             _auto_scale_clean_cycles = 0
-            print(f"[AutoScale] Clean — increasing to {_auto_scale_current} agents (ceiling={ceiling})")
+            print(f"[AutoScale] Clean -- increasing to {_auto_scale_current} agents (ceiling={ceiling})")
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
     A lock prevents concurrent fill_slots calls from picking the same task.
     """
     if not _check_llm_connectivity():
-        print("[Swarm] LLM endpoint unreachable — skipping fill_slots (will retry next cycle)")
+        print("[Swarm] LLM endpoint unreachable -- skipping fill_slots (will retry next cycle)")
         return [], []
 
     with _fill_slots_lock:
@@ -325,7 +325,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                     continue
 
                 if proj not in _projects_sprint_qa_done:
-                    # Queue empty, QA hasn't run yet — spawn QA first
+                    # Queue empty, QA hasn't run yet -- spawn QA first
                     has_harness = (proj_path / "autoload" / "test_harness.gd").exists()
                     qa_type = "harness_qa" if has_harness else "qa"
                     qa_id = f"qa-sprint-{proj}-{int(time.time())}"
@@ -347,9 +347,9 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                         "attempts": 0,
                         "max_attempts": 2,
                     })
-                    print(f"[Swarm] Sprint complete for {proj} — spawned QA before next sprint plan")
+                    print(f"[Swarm] Sprint complete for {proj} -- spawned QA before next sprint plan")
                 else:
-                    # QA done and any bugs fixed — spawn the next sprint planner
+                    # QA done and any bugs fixed -- spawn the next sprint planner
                     _projects_sprint_qa_done.discard(proj)
                     plan_id = f"project-plan-{proj}-{int(time.time())}"
                     plan_deps = chain_to_project_head(db, proj, task_id=plan_id, ensure_head=True)
@@ -369,7 +369,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                         "attempts": 0,
                         "max_attempts": 2,
                     })
-                    print(f"[Swarm] Sprint QA passed for {proj} — spawned next sprint planner")
+                    print(f"[Swarm] Sprint QA passed for {proj} -- spawned next sprint planner")
 
         # Cap per-cycle spawning to avoid burst after cooldown expiry.
         cycle_limit = min(limit, SPAWN_PER_CYCLE)
@@ -440,12 +440,12 @@ def _get_next_task() -> Optional[Dict]:
     # Include permanently-recorded completed IDs so pruned tasks don't block deps
     completed_ids = db.task_get_completed_ids()
     completed_ids |= {t["id"] for t in all_tasks if t["status"] == "completed"}
-    # Active task IDs — deps not in this set are gone (failed+pruned) and should not block
+    # Active task IDs -- deps not in this set are gone (failed+pruned) and should not block
     active_ids = {t["id"] for t in all_tasks}
 
     paused = set(PAUSED_PROJECTS)
 
-    # Only one vision QA task may run globally at a time — local mlx-vlm can't
+    # Only one vision QA task may run globally at a time -- local mlx-vlm can't
     # handle concurrent vision inference. harness_qa has no vision dependency so
     # it is not restricted. Port collisions are handled by dynamic allocation.
     qa_active = any(
@@ -453,7 +453,7 @@ def _get_next_task() -> Optional[Dict]:
         for t in all_tasks
     )
 
-    # Collect worktree paths currently in use by active agents — tasks that inherit
+    # Collect worktree paths currently in use by active agents -- tasks that inherit
     # the same worktree must wait until the current occupant finishes.
     active_worktrees = {
         d["worktree_path"]
@@ -498,7 +498,7 @@ def _get_next_task() -> Optional[Dict]:
         if task_wt and task_wt in active_worktrees:
             continue
         deps = t.get("dependencies", [])
-        # A dep is met if completed, OR if it no longer exists (failed+pruned — chain self-heals)
+        # A dep is met if completed, OR if it no longer exists (failed+pruned -- chain self-heals)
         if all(d in completed_ids or d not in active_ids for d in deps):
             ready.append(t)
 
@@ -508,11 +508,45 @@ def _get_next_task() -> Optional[Dict]:
     _sort_by_strategy(ready, project_rows=project_rows)
     if not ready:
         return None
+
+    # Block expansion tasks when project is frozen/stalled with open regressions.
+    # The sort puts repair tasks first and expansion tasks last within each project.
+    # If the top task is an expansion-blocked task but non-blocked alternatives exist,
+    # pick the first non-blocked task. If ALL ready tasks are blocked, allow the
+    # top task through to avoid deadlock (the closure policy "no deadlock" rule).
+    if _is_expansion_blocked(ready[0], project_rows):
+        non_blocked = [t for t in ready if not _is_expansion_blocked(t, project_rows)]
+        if non_blocked:
+            return non_blocked[0]
+
     return ready[0]
 
 
 # Task type priority used by refactor_first strategy
 _TYPE_PRIORITY = {"refactor": 0, "bug": 1, "feature": 2, "polish": 3}
+
+
+def _is_expansion_blocked(t: Dict, project_rows: Dict[str, Dict[str, Any]]) -> bool:
+    """Return True if task is a feature/polish/refactor expansion blocked by frozen/stalled closure.
+
+    Frozen/stalled projects with open regressions block expansion tasks unless:
+    - The task is itself a recovery or repair task
+    - There are zero open regressions (nothing concrete to repair)
+    """
+    project_row = project_rows.get(t.get("project") or "")
+    if not project_row:
+        return False
+    closure_status = (project_row.get("closure_status") or "").strip().lower()
+    if closure_status not in {"frozen", "stalled"}:
+        return False
+    open_regressions = int(project_row.get("open_regression_count") or 0)
+    if open_regressions == 0:
+        return False
+    metadata = t.get("metadata") or {}
+    if metadata.get("is_recovery_task") or metadata.get("is_closure_repair_task"):
+        return False
+    task_type = (t.get("type") or "").strip().lower()
+    return task_type in {"feature", "polish", "refactor"}
 
 
 def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
@@ -559,24 +593,9 @@ def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dic
         return (1, 1)
 
     def _is_expansion_blocked(t: Dict) -> bool:
-        project_row = project_rows.get(t.get("project") or "")
-        if not project_row:
-            return False
-        closure_status = (project_row.get("closure_status") or "").strip().lower()
-        if closure_status not in {"frozen", "stalled"}:
-            return False
-        # Only block expansion when there are actual open regressions to fix.
-        # A frozen status with zero regressions (e.g. new project with an
-        # auto-generated closure spec that hasn't been validated yet) should
-        # not halt all feature work — there's nothing concrete to repair.
-        open_regressions = int(project_row.get("open_regression_count") or 0)
-        if open_regressions == 0:
-            return False
-        metadata = t.get("metadata") or {}
-        if metadata.get("is_recovery_task") or metadata.get("is_closure_repair_task"):
-            return False
-        task_type = (t.get("type") or "").strip().lower()
-        return task_type in {"feature", "polish", "refactor"}
+        # Delegate to module-level function (made accessible so both
+        # _sort_by_strategy and _get_next_task can reference it).
+        return _is_expansion_blocked(t, project_rows)
 
     if TASK_SELECTION_STRATEGY == "refactor_first":
         tasks.sort(key=lambda t: (
@@ -641,7 +660,7 @@ def _maybe_spawn_gut_setup(project_name: str, project_path: Path):
             f"1. Create the addons directory:\n"
             f"   run_command(\"mkdir -p {project_path}/addons\")\n"
             f"2. {install_instruction}"
-            f"3. Enable the GUT plugin in project.godot — add these lines if not present:\n"
+            f"3. Enable the GUT plugin in project.godot -- add these lines if not present:\n"
             f"   [editor_plugins]\n"
             f"   enabled=PackedStringArray(\"res://addons/gut/plugin.cfg\")\n"
             f"   Write the updated project.godot using write_file.\n"
