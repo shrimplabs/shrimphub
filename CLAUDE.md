@@ -448,6 +448,11 @@ As of the open-source release these tests fail and are tracked as bugs — do no
 - `test_api.py::TestDependencies::test_ready_tasks_honor_task_history_completed_dependencies`
 - `test_closure_status.py::test_closure_status_green_when_required_gates_pass`
 - `test_closure_verification.py::test_resolve_godot_command_rewrites_legacy_gut`
+- `test_fill_slots.py::TestFillSlots::test_fill_slots_triggers_idle_verification_when_only_frozen_expansion_remains`
+- `test_fill_slots.py::TestRunAfter::test_stalled_project_blocks_expansion_when_no_repair_path_exists`
+- `test_improvements.py::TestSelfImprovementReviewTask::test_review_task_has_appropriate_priority`
+- `test_lifecycle.py::TestRecoveryPrompt::test_recovery_task_becomes_project_head_when_failed_task_was_head`
+- `test_lifecycle.py::TestRecoveryPrompt::test_terminal_recovery_continuation_reparents_dependents_and_head`
 - `test_orchestrator.py::TestPostTaskValidation::test_main_scene_startup_script_error_fails_validation`
 - `test_script_generation.py::TestProjectTypeDetection::test_godot_path_is_embedded_in_generated_prompts`
 

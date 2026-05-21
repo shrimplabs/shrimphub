@@ -1419,6 +1419,8 @@ class TestMainLoop:
             # Tool call whose args contain the string "TASK_COMPLETE"
             '[TOOL_CALL]{"tool": "run_command", "args": {"command": "grep -n \\"TASK_COMPLETE\\" main.py"}}[/TOOL_CALL]',
             "TASK_COMPLETE",
+            # Reflection loop fires after TASK_COMPLETE — let it complete cleanly
+            "REFLECTION_COMPLETE",
         ])
         calls = []
 
@@ -1429,10 +1431,18 @@ class TestMainLoop:
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
 
-        # Must have run TWO loops: one for the tool call, one for TASK_COMPLETE
-        assert len(calls) == 2, (
-            f"Expected 2 LLM calls but got {len(calls)}; "
+        # Must have run at least TWO main-loop calls: one for the tool call, one
+        # for TASK_COMPLETE. A third call is the post-completion reflection loop.
+        # The key invariant: TASK_COMPLETE inside tool *args* must NOT exit early
+        # (which would produce only 1 call).
+        assert len(calls) >= 2, (
+            f"Expected at least 2 LLM calls but got {len(calls)}; "
             "TASK_COMPLETE in tool args likely triggered premature exit"
+        )
+        # Verify the first response was treated as a tool call, not an early exit
+        first_response_msgs = calls[0]
+        assert any("TASK_COMPLETE" not in str(m) for m in first_response_msgs), (
+            "First LLM call should not have exited early on TASK_COMPLETE in tool args"
         )
 
     def test_pyproject_toml_triggers_python_path(self, tmp_path):
