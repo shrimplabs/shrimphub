@@ -1220,6 +1220,7 @@ def main() -> int:
     # Ensure any Godot process launched by this agent is killed when we exit,
     # regardless of which return path is taken (TASK_COMPLETE, loop limit, crash).
     atexit.register(qa_tools.kill_game)
+    atexit.register(qa_tools.harness_kill_game)
 
 
     # Guard: if a worktree path was specified but doesn't exist, fail immediately.
