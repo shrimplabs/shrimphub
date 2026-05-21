@@ -1,5 +1,5 @@
 """
-swarm.tools — agent tool function modules.
+swarm.tools -- agent tool function modules.
 
 Re-exports all public tool functions for backwards compatibility.
 Config vars are set via _sync_core_globals() / _sync_knowledge_globals()
@@ -11,8 +11,6 @@ from swarm.tools.core import (  # noqa: F401
     broadcast_write,
     log,
     _project_root,
-    _safe_cwd,
-    run,
     read_file,
     list_files,
     search_code,
@@ -35,6 +33,8 @@ from swarm.tools.core import (  # noqa: F401
     list_tasks,
     list_subtasks,
 )
+
+from swarm.tools.shell import _safe_cwd, run  # noqa: F401
 
 from swarm.tools.knowledge import (  # noqa: F401
     scratchpad_write,

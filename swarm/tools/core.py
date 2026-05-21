@@ -9,7 +9,6 @@ script on swarm.agent_runtime before calling main().
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime
 import urllib.request as _ur
@@ -19,9 +18,9 @@ from pathlib import Path
 import random
 
 from swarm import db as swarm_db
-from swarm.platform import kill_process_tree, popen_session_kwargs, shell_quote_command_arg
 from swarm.task_chains import chain_to_project_head
 from swarm.tools import _shared
+from swarm.tools.shell import run, run_command, git_commit, git_push  # noqa: F401
 from swarm.tools._shared import _project_root
 from swarm.tools.path_guard import _is_vendor_path, _protected_path_reason, _protected_path_error, _command_targets_protected_path, _embedded_protected_path_matches, _command_attempts_embedded_protected_write, _check_catastrophic_command, _command_attempts_protected_write, _looks_like_dependency_path, _CATASTROPHIC_PATTERNS, _resolve_project_path
 from swarm.tools.files import read_file, list_files, search_code, get_file_stats, get_file_outline, read_file_range, patch_file, write_file, append_file
@@ -104,164 +103,6 @@ def _patch_task_via_api(task_id: str, updates: dict) -> dict:
 
 
 
-def _safe_cwd(cwd=None):
-    """Return a valid working directory, falling back to WORKSPACE for virtual projects."""
-    if cwd:
-        return cwd
-    root = _project_root()
-    if os.path.isdir(root):
-        return root
-    ws = str(WORKSPACE) if WORKSPACE else os.path.expanduser("~")
-    return ws if os.path.isdir(ws) else os.getcwd()
-
-
-def _read_text_with_fallback(path: str | Path) -> tuple[str, str]:
-    """Read text files that may have been authored with Windows ANSI tools.
-
-    Always returns LF-only text regardless of what line endings are on disk,
-    so patch_file matches reliably on Windows without agents needing to
-    account for CRLF vs LF differences.
-    """
-    raw = Path(path).read_bytes()
-    for encoding in ("utf-8", "utf-8-sig", "cp1252"):
-        try:
-            text = raw.decode(encoding)
-            return text.replace('\r\n', '\n').replace('\r', '\n'), encoding
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace").replace('\r\n', '\n').replace('\r', '\n'), "utf-8-replace"
-
-
-def _read_lines_with_fallback(path: str | Path) -> tuple[list[str], str]:
-    text, encoding = _read_text_with_fallback(path)
-    return text.splitlines(keepends=True), encoding
-
-
-
-
-def run(cmd: str, cwd=None, timeout: int = 60):
-    """Run a shell command; returns (returncode, stdout, stderr)."""
-    proc = subprocess.Popen(
-        cmd,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=_safe_cwd(cwd),
-        **popen_session_kwargs(),
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return proc.returncode, stdout, stderr
-    except subprocess.TimeoutExpired:
-        kill_process_tree(proc)
-        proc.communicate()
-        return -1, "", f"Command timed out after {timeout}s"
-
-
-def _looks_like_godot_command(cmd: str) -> bool:
-    lowered = (cmd or "").lower()
-    return "godot" in lowered
-
-
-def _godot_runtime_error(stdout: str, stderr: str) -> str | None:
-    combined = "\n".join(part for part in ((stdout or "").strip(), (stderr or "").strip()) if part).strip()
-    if not combined:
-        return None
-
-    failure_patterns = (
-        "SCRIPT ERROR:",
-        "SCENE ERROR:",
-        "ERROR: Parse Error:",
-        "Parse Error:",
-        "Could not find type ",
-        "Failed to load script",
-        "Failed to compile",
-    )
-    for line in combined.splitlines():
-        stripped = line.strip()
-        if any(pattern in stripped for pattern in failure_patterns):
-            return stripped
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Shell / git tools
-# ---------------------------------------------------------------------------
-
-def run_command(cmd: str, timeout: int = 120) -> dict:
-    catastrophic = _check_catastrophic_command(cmd)
-    if catastrophic:
-        return {
-            "ok": False,
-            "error": (
-                f"Command blocked: {catastrophic}. "
-                "This operation is not permitted in agent tasks because it is "
-                "irreversible or has unbounded destructive scope. "
-                "Use targeted file operations (patch_file, write_file, run_command with a specific path) instead."
-            ),
-        }
-    protected_write = _command_attempts_protected_write(cmd)
-    if protected_write:
-        reason, path_hint = protected_write
-        return _protected_path_error(path_hint, reason)
-    timeout = min(int(timeout), 300)
-    code, out, err = run(cmd, timeout=timeout)
-    if code != 0 and "timed out" in err.lower():
-        return {"ok": False, "stdout": out, "stderr": f"Command timed out after {timeout}s. For long-running commands like Godot headless tests, pass a higher timeout e.g. run_command(cmd, timeout=300)"}
-    godot_error = _godot_runtime_error(out, err) if _looks_like_godot_command(cmd) else None
-    if godot_error:
-        err = "\n".join(part for part in ((err or "").strip(), f"Godot runtime error detected: {godot_error}") if part)
-        return {"ok": False, "stdout": out, "stderr": err}
-    return {"ok": code == 0, "stdout": out, "stderr": err}
-
-
-def git_commit(message: str, files: list = None) -> dict:
-    if READONLY:
-        return {"ok": False, "error": "Read-only task: git_commit is disabled"}
-    if TASK_TYPE in ("python_plan", "plan"):
-        return {"ok": False, "error": "plan tasks are read-only planners -- use create_task() instead of writing code"}
-    _protected = ["addons/", ".godot/", ".import/"]
-    if TASK_TYPE not in ("project_plan", "python_plan", "plan", "project_create", "audit", "triage"):
-        code, staged, _ = run("git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard")
-        _violations = [
-            f for f in staged.splitlines()
-            if any(f.startswith(p) for p in _protected) or f.endswith(".uid")
-        ]
-        if _violations:
-            return {
-                "ok": False,
-                "error": (
-                    f"Commit blocked: modifying {_protected + ['*.uid']} is not allowed for {TASK_TYPE} tasks. "
-                    f"Offending files: {_violations}. "
-                    "Do not modify vendor or generated engine artifacts."
-                ),
-            }
-    if files:
-        import shlex
-        for f in files:
-            code, out, err = run(f"git add -- {shell_quote_command_arg(f)}")
-            if code != 0:
-                return {"ok": False, "error": f"git add {f} failed: {err}"}
-    else:
-        code, out, err = run("git add -A")
-    if code != 0:
-        return {"ok": False, "error": f"git add failed: {err}"}
-    code, out, err = run(f'git commit -m "{message}"')
-    if code != 0:
-        return {"ok": False, "error": f"git commit failed: {err}"}
-    return {"ok": True, "message": "Committed", "output": out}
-
-
-def git_push() -> dict:
-    if READONLY:
-        return {"ok": False, "error": "Read-only task: git_push is disabled"}
-    code, out, err = run("git push 2>&1")
-    if code != 0:
-        return {"ok": False, "error": f"git push failed: {err}"}
-    return {"ok": True, "message": "Pushed", "output": out}
 
 
 # ---------------------------------------------------------------------------
