@@ -1255,6 +1255,20 @@ def _spawn_validation_bug_task(
     wt_info = f" (worktree={worktree_path.name})" if worktree_path else ""
     print(f"[Swarm] {action} validation bug task {bug_task_id}{wt_info}")
 
+    # Link any open regressions for this project to the new bug task so that when
+    # the bug task completes, resolve_regressions_for_linked_task() can auto-close them.
+    try:
+        unlinked_regressions = [
+            r for r in db.regression_list_by_project(project, status="open")
+            if not r.get("linked_task_id")
+        ]
+        for reg in unlinked_regressions:
+            db.regression_update(reg["id"], {"linked_task_id": bug_task_id})
+        if unlinked_regressions:
+            print(f"[Swarm] Linked {len(unlinked_regressions)} open regression(s) to bug task {bug_task_id}")
+    except Exception as _link_err:
+        print(f"[Swarm] WARNING: failed to link regressions to bug task: {_link_err}")
+
     if not existing:
         for task_id in reparent_dependents(
             db,

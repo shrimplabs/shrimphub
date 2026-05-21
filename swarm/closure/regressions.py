@@ -179,11 +179,41 @@ def summarize_project_recurrence(project: str, *, stall_threshold: int = 3) -> d
 
 def refresh_project_recurrence_state(project: str, *, stall_threshold: int = 3) -> dict[str, Any]:
     summary = summarize_project_recurrence(project, stall_threshold=stall_threshold)
-    db.project_update(project, {
+    updates: dict[str, Any] = {
         "open_regression_count": summary["open_regression_count"],
         "stall_count": summary["stall_count"],
-    })
+    }
+    # When all regressions are gone, clear stalled/frozen status back to green.
+    # This allows expansion tasks to resume without waiting for a passing verification run.
+    if summary["open_regression_count"] == 0:
+        proj_row = db.project_get(project)
+        if proj_row and (proj_row.get("closure_status") or "") in {"stalled", "frozen"}:
+            updates["closure_status"] = "green"
+    db.project_update(project, updates)
     return summary
+
+
+def resolve_regressions_for_linked_task(task_id: str, project: str) -> list[str]:
+    """Resolve any open regressions whose linked_task_id matches this completed task.
+
+    Called when a bug/repair task completes successfully. Closes regressions that
+    were waiting on this specific task, then refreshes the project's recurrence state.
+    This unblocks expansion tasks without requiring a full passing verification run.
+    Returns the list of regression IDs that were closed.
+    """
+    now = datetime.now().isoformat()
+    resolved: list[str] = []
+    for regression in db.regression_list_by_project(project, status="open"):
+        if regression.get("linked_task_id") == task_id:
+            db.regression_update(regression["id"], {
+                "status": "resolved",
+                "resolved_at": now,
+                "resolved_by_run_id": f"task:{task_id}",
+            })
+            resolved.append(regression["id"])
+    if resolved:
+        refresh_project_recurrence_state(project)
+    return resolved
 
 
 def _normalize_fingerprint(value: str) -> str:
