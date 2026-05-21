@@ -49,6 +49,7 @@ from swarm.api_wizard import (
     _render_graph_repair_context,
     _render_project_design_doc,
     _render_project_preview_from_tasks,
+    _write_project_design_doc,
     _scaffold_project_repo,
     _task_graph_shape_summary,
     _task_title,

@@ -6,9 +6,16 @@ Routes: POST /api/wizard/plan, POST /api/wizard/create
 import json
 import os
 from pathlib import Path
+import re as _re
+import shutil
+import subprocess
+import time
+import requests
 
 from flask import jsonify, request
 
+from swarm import project_graph_policy as _graph_policy
+from swarm.godot_bootstrap import install_gut_into_project
 from swarm.task_chains import anchor_project_batch_roots, chain_to_project_head, ensure_project_head
 
 
