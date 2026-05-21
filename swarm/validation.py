@@ -197,12 +197,15 @@ def _post_task_validation_in_worktree(
 
         # Ensure .godot/ class cache exists so class_name types resolve during load().
         # New projects that have never been opened in the editor lack this cache.
-        # Running --headless --editor --quit initialises the project and creates it.
+        # Use --headless --import instead of --headless --editor --quit:
+        # --import runs only the asset import pipeline without the full editor UI loop,
+        # which avoids the macOS NSAlert "no main scene" native dialog that --editor
+        # triggers before the headless display driver can suppress it.
         _godot_cache = project_path / ".godot"
         if not _godot_cache.exists():
             try:
                 _init_result = subprocess.run(
-                    f"{_GODOT_CMD} --headless --editor --quit",
+                    f"{_GODOT_CMD} --headless --import",
                     shell=True, cwd=project_path,
                     capture_output=True, text=True, timeout=120,
                 )
