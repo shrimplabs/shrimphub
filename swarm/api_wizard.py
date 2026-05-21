@@ -83,7 +83,14 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
             "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
         )
         hint_line = f"\nCreative nudge from the human: {hint}" if hint else ""
-        prompt = f"""Invent a completely original concept for {type_desc}.{hint_line}
+
+        # Inject existing project names so the LLM avoids name/theme collisions
+        existing_names = sorted(project_registry.get_all().keys())
+        existing_line = ""
+        if existing_names:
+            existing_line = f"\nExisting projects (do NOT reuse these names or similar themes/words): {', '.join(existing_names)}"
+
+        prompt = f"""Invent a completely original concept for {type_desc}.{hint_line}{existing_line}
 
 You have total creative freedom. No scope limits — if you want to design an MMO, a physics sandbox,
 a generative art tool, or something that has never been built before, go for it.
@@ -101,6 +108,7 @@ Return a JSON object with this exact structure:
 Rules:
 - project_name must be lowercase, hyphens only, no spaces, 2-4 words
 - Be genuinely creative — avoid the most obvious ideas (simple snake, basic platformer, todo app)
+- The project_name and theme must be distinct from all existing projects listed above
 - description should be specific enough that an AI agent can start building immediately
 - Output ONLY the JSON object, nothing else"""
 
