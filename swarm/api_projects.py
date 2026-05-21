@@ -666,7 +666,20 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         })
     @app.route("/api/projects/<project_name>/notes", methods=["GET"])
     def get_project_notes(project_name):
-        return jsonify({"project": project_name, "notes": db.project_get_notes(project_name)})
+        notes = db.project_get_notes(project_name)
+        # Read first descriptive line of GAME_DESIGN.md as concept blurb
+        concept = ""
+        try:
+            design_path = workspace / project_name / "GAME_DESIGN.md"
+            if design_path.exists():
+                for line in design_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and not line.startswith("-"):
+                        concept = line[:200]
+                        break
+        except Exception:
+            pass
+        return jsonify({"project": project_name, "notes": notes, "concept": concept})
     @app.route("/api/projects/<project_name>/notes", methods=["POST"])
     def set_project_notes(project_name):
         data = request.json or {}

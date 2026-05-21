@@ -1040,12 +1040,18 @@ async function loadProjectNotes(name, elementId) {
             const data = await res.json();
             const el = document.getElementById(elementId);
             if (el) el.value = data.notes || '';
-            // Extract first descriptive sentence for the blurb
+            // Populate blurb: prefer first line of notes, fall back to GAME_DESIGN.md concept
             const blurbEl = document.getElementById(`blurb-${name.replace(/[^a-z0-9]/gi, '_')}`);
-            if (blurbEl && data.notes) {
-                const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('##'));
-                const blurb = lines[0] || '';
-                blurbEl.textContent = blurb.length > 120 ? blurb.slice(0, 117) + '…' : blurb;
+            if (blurbEl) {
+                let blurb = '';
+                if (data.notes) {
+                    const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+                    blurb = lines[0] || '';
+                }
+                if (!blurb && data.concept) {
+                    blurb = data.concept;
+                }
+                blurbEl.textContent = blurb.length > 150 ? blurb.slice(0, 147) + '…' : blurb;
             }
         }
     } catch(e) {}
