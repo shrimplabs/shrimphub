@@ -1,6 +1,6 @@
 ## StateServer \u2014 lightweight TCP state endpoint for QA agents.
 ##
-## Listens on STATE_PORT (default 11009). Supports commands:
+## Listens on port 11009 by default, or --state-port N if passed via cmdline user args. Supports commands:
 ##   {"command":"state"}                                    \u2192 JSON snapshot of live game state
 ##   {"command":"screenshot_b64"}                          \u2192 {"image_base64":"<png base64>"}
 ##   {"command":"input","type":"click","x":N,"y":N}        \u2192 inject mouse click at game coords
@@ -36,12 +36,13 @@
 extends Node
 class_name StateServer
 
-const STATE_PORT := 11009
+const DEFAULT_PORT := 11009
 
 ## Maximum JSON payload size in bytes before truncation (64 KB default).
 ## This keeps packets within the TCP stream buffer limit (65536 bytes).
 const MAX_JSON_SIZE := 65536
 
+var _port: int = DEFAULT_PORT
 var _server: TCPServer = null
 var _peers: Array[StreamPeerTCP] = []
 
@@ -56,12 +57,19 @@ signal tile_cleared(tile_type: int, points: int)
 func _ready() -> void:
 	# Always process even if the scene tree is paused (e.g. during godot-rl training steps)
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Read port from command-line user args: -- --state-port 11012
+	# Falls back to DEFAULT_PORT if not specified (backward-compatible).
+	var user_args := OS.get_cmdline_user_args()
+	for i in range(user_args.size() - 1):
+		if user_args[i] == "--state-port":
+			_port = int(user_args[i + 1])
+			break
 	_server = TCPServer.new()
-	var err = _server.listen(STATE_PORT)
+	var err = _server.listen(_port)
 	if err == OK:
-		print("StateServer: listening on port %d" % STATE_PORT)
+		print("StateServer: listening on port %d" % _port)
 	else:
-		push_warning("StateServer: could not bind port %d (err=%d) \u2014 QA state reads unavailable" % [STATE_PORT, err])
+		push_warning("StateServer: could not bind port %d (err=%d) \u2014 QA state reads unavailable" % [_port, err])
 		_server = null
 
 

@@ -37,9 +37,10 @@
 
 extends Node
 
-const PORT := 11010
+const DEFAULT_PORT := 11010
 
 var ENABLED: bool = false
+var _port: int = DEFAULT_PORT
 
 var _server: TCPServer = null
 var _in_checkpoint: bool = false  # true while checkpoint() owns the next connection
@@ -50,13 +51,20 @@ func _ready() -> void:
 	if not ENABLED:
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Read port from command-line user args: -- --harness-port 11013
+	# Falls back to DEFAULT_PORT if not specified (backward-compatible).
+	var user_args := OS.get_cmdline_user_args()
+	for i in range(user_args.size() - 1):
+		if user_args[i] == "--harness-port":
+			_port = int(user_args[i + 1])
+			break
 	_server = TCPServer.new()
-	var err = _server.listen(PORT)
+	var err = _server.listen(_port)
 	if err != OK:
-		push_error("[TestHarness] Failed to listen on port %d: %d" % [PORT, err])
+		push_error("[TestHarness] Failed to listen on port %d: %d" % [_port, err])
 		_server = null
 		return
-	print("[TestHarness] Listening on port %d" % PORT)
+	print("[TestHarness] Listening on port %d" % _port)
 
 
 func _exit_tree() -> void:

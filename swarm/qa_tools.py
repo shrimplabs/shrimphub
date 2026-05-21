@@ -110,6 +110,8 @@ def run(cmd: str, cwd=None, timeout: int = 60):
 # ---------------------------------------------------------------------------
 
 _qa_game_process = None
+_state_port: int = 11009   # dynamically assigned per launch_game() call
+_harness_port: int = 11010  # always _state_port + 1
 _qa_window = {
     "x": 50, "y": 50,
     "w": 900, "h": 650,  # window size in logical screen points
@@ -306,13 +308,40 @@ def _resolve_image_coords_from_model(raw_x: int, raw_y: int, img_w: int, img_h: 
 
 
 # ---------------------------------------------------------------------------
+# Port allocation
+# ---------------------------------------------------------------------------
+
+def _find_free_port_pair(base: int = 11009, max_range: int = 40) -> tuple:
+    """Find two consecutive free ports (state_port, harness_port = state_port+1).
+
+    Scans even offsets so pairs never overlap with other pair allocations.
+    Returns (state_port, harness_port).
+    """
+    import socket as _socket
+    for offset in range(0, max_range, 2):
+        sp = base + offset
+        hp = sp + 1
+        try:
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s1:
+                s1.bind(("127.0.0.1", sp))
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s2:
+                s2.bind(("127.0.0.1", hp))
+            return (sp, hp)
+        except OSError:
+            continue
+    raise RuntimeError(f"No free port pair found in range {base}-{base + max_range}")
+
+
+# ---------------------------------------------------------------------------
 # StateServer helper
 # ---------------------------------------------------------------------------
 
-def _state_server_send(command: dict, port: int = 11009, timeout: float = 5.0) -> dict:
+def _state_server_send(command: dict, port: int = None, timeout: float = 5.0) -> dict:
     """Send a JSON command to the StateServer and return the parsed response."""
     import socket as _socket
     import json as _json
+    if port is None:
+        port = _state_port
     recv_timeout = 10.0 if command.get("command", "") in ("screenshot_b64", "screenshot_base64") else timeout
     try:
         with _socket.create_connection(("127.0.0.1", port), timeout=timeout) as sock:
@@ -339,12 +368,34 @@ def _state_server_send(command: dict, port: int = 11009, timeout: float = 5.0) -
 
 def launch_game(project_path: str) -> dict:
     """Launch Godot for the given project. Returns pid + best-effort window bounds."""
-    global _qa_game_process, _qa_window
+    global _qa_game_process, _qa_window, _state_port, _harness_port
     import time as _time
 
-    if is_macos():
-        subprocess.run(["pkill", "-9", "-f", "godot"], capture_output=True)
-        _time.sleep(1)
+    # Allocate a free port pair for this agent's StateServer and TestHarness.
+    # Each concurrent QA agent gets its own ports so they don't collide.
+    _state_port, _harness_port = _find_free_port_pair()
+    log(f"launch_game: allocated ports state={_state_port} harness={_harness_port}")
+
+    # Kill any stale Godot process already holding our assigned ports.
+    # Only kill if the process is actually Godot — don't touch unrelated services.
+    for _port in (_state_port, _harness_port):
+        try:
+            _lsof = subprocess.run(
+                ["lsof", "-ti", f":{_port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for _pid_str in _lsof.stdout.strip().splitlines():
+                _pid = int(_pid_str.strip())
+                _comm = subprocess.run(
+                    ["ps", "-p", str(_pid), "-o", "comm="],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip().lower()
+                if "godot" in _comm:
+                    subprocess.run(["kill", "-9", str(_pid)], capture_output=True)
+                    log(f"launch_game: killed stale Godot PID {_pid} holding port {_port}")
+        except Exception:
+            pass
+    _time.sleep(1)
 
     godot_bin = resolve_godot_binary()
     if not godot_binary_available(godot_bin):
@@ -352,12 +403,14 @@ def launch_game(project_path: str) -> dict:
 
     try:
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--path", project_path],
+            [godot_bin, "--path", project_path, "--",
+             "--state-port", str(_state_port),
+             "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         pid = _qa_game_process.pid
-        log(f"Launched Godot PID {pid} for {project_path}")
+        log(f"Launched Godot PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
         _time.sleep(6)
 
         if _qa_game_process.poll() is not None:
@@ -429,8 +482,11 @@ def launch_game_headless(project_path: str) -> dict:
     no focus stealing.  The process is tracked in _qa_game_process so that
     get_game_state() works normally via the shared StateServer port.
     """
-    global _qa_game_process
+    global _qa_game_process, _state_port, _harness_port
     import time as _time
+
+    _state_port, _harness_port = _find_free_port_pair()
+    log(f"launch_game_headless: allocated ports state={_state_port} harness={_harness_port}")
 
     godot_bin = resolve_godot_binary()
     if not godot_binary_available(godot_bin):
@@ -438,7 +494,9 @@ def launch_game_headless(project_path: str) -> dict:
 
     try:
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--headless", "--path", project_path],
+            [godot_bin, "--headless", "--path", project_path, "--",
+             "--state-port", str(_state_port),
+             "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -992,7 +1050,7 @@ def qa_wait(seconds: float) -> dict:
     return {"ok": True, "waited": seconds}
 
 
-def qa_press_button(text: str, port: int = 11009) -> dict:
+def qa_press_button(text: str, port: int = None) -> dict:
     """Press a UI Button in the running Godot game by its visible text label."""
     # StateServer expects `id`; include `text` for compatibility with older clients.
     return _state_server_send({"command": "press_button", "id": text, "text": text}, port=port)
@@ -1002,7 +1060,7 @@ def qa_press_button(text: str, port: int = 11009) -> dict:
 # QA game state polling
 # ---------------------------------------------------------------------------
 
-def get_game_state(port: int = 11009) -> dict:
+def get_game_state(port: int = None) -> dict:
     """Read live game state from the running Godot instance via StateServer."""
     return _state_server_send({"command": "state"}, port=port)
 
@@ -1214,7 +1272,7 @@ def requeue_self(bug_task_ids: list) -> dict:
 
 def harness_launch_game(project_path: str, extra_args: list = None) -> dict:
     """Launch a Godot game in headless test-harness mode."""
-    global _harness_game_process
+    global _harness_game_process, _state_port, _harness_port
     import os
 
     if _harness_game_process is not None and _harness_game_process.poll() is None:
@@ -1225,8 +1283,14 @@ def harness_launch_game(project_path: str, extra_args: list = None) -> dict:
     if not os.path.exists(project_godot):
         return {"ok": False, "error": f"No project.godot found at {project_path!r} — pass the absolute path to the Godot project"}
 
+    _state_port, _harness_port = _find_free_port_pair()
+    log(f"harness_launch_game: allocated ports state={_state_port} harness={_harness_port}")
+
     godot = resolve_godot_binary()
-    cmd = [godot, "--headless", "--path", project_path, "--", "--test-harness"]
+    cmd = [godot, "--headless", "--path", project_path, "--",
+           "--test-harness",
+           "--state-port", str(_state_port),
+           "--harness-port", str(_harness_port)]
     if extra_args:
         cmd.extend(extra_args)
 
@@ -1260,7 +1324,7 @@ def harness_step(action: dict, timeout: int = 30) -> dict:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(min(5.0, deadline - _time.time()))
-            s.connect(("localhost", 11010))
+            s.connect(("localhost", _harness_port))
             break
         except (ConnectionRefusedError, OSError):
             s.close()
@@ -1268,7 +1332,7 @@ def harness_step(action: dict, timeout: int = 30) -> dict:
             _time.sleep(0.2)
 
     if s is None:
-        return {"error": f"harness_step: could not connect to game on port 11010 within {timeout}s"}
+        return {"error": f"harness_step: could not connect to game on port {_harness_port} within {timeout}s"}
 
     try:
         # Send action first — works for both phases:
@@ -1310,7 +1374,7 @@ def harness_take_screenshot(filename: str) -> dict:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(10.0)
-        s.connect(("localhost", 11010))
+        s.connect(("localhost", _harness_port))
         # Nav-phase protocol: we send first, harness reads then responds
         s.sendall((_json.dumps({"type": "screenshot"}) + "\n").encode())
         data = b""
@@ -1361,11 +1425,8 @@ def harness_kill_game() -> dict:
     return {"ok": True, "note": "No harness game running"}
 
 
-_STATE_SERVER_PORT = 11009
-
-
 def harness_poll_state(timeout: int = 5) -> dict:
-    """Poll game state from StateServer (port 11009).
+    """Poll game state from StateServer.
 
     Works on any Godot game with the StateServer autoload registered — no
     TestHarness.checkpoint() calls needed in the game code.  Returns the full
@@ -1374,7 +1435,7 @@ def harness_poll_state(timeout: int = 5) -> dict:
     import socket
     import json as _json
     try:
-        with socket.create_connection(("127.0.0.1", _STATE_SERVER_PORT), timeout=timeout) as s:
+        with socket.create_connection(("127.0.0.1", _state_port), timeout=timeout) as s:
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             s.sendall((_json.dumps({"command": "state"}) + "\n").encode())
             data = b""
@@ -1392,7 +1453,7 @@ def harness_poll_state(timeout: int = 5) -> dict:
 
 
 def harness_inject(command: dict, timeout: int = 5) -> dict:
-    """Send an input command to StateServer (port 11009).
+    """Send an input command to StateServer.
 
     Use this to inject input into a game that uses StateServer polling rather
     than TestHarness checkpoints.  Accepts any StateServer command:
@@ -1404,7 +1465,7 @@ def harness_inject(command: dict, timeout: int = 5) -> dict:
     import socket
     import json as _json
     try:
-        with socket.create_connection(("127.0.0.1", _STATE_SERVER_PORT), timeout=timeout) as s:
+        with socket.create_connection(("127.0.0.1", _state_port), timeout=timeout) as s:
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             s.sendall((_json.dumps(command) + "\n").encode())
             data = b""

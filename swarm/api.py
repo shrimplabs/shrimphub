@@ -519,6 +519,10 @@ def create_app(
                     continue
                 import traceback
                 traceback.print_exc()
+                # Sleep briefly and continue — never let an unhandled exception
+                # (e.g. disk-full OSError during spawn) kill the monitor thread.
+                time.sleep(5)
+                continue
 
     if config.get("disable_monitor", False):
         monitor_thread = SimpleNamespace(is_alive=lambda: False)

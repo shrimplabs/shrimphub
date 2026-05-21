@@ -1696,7 +1696,15 @@ def annotate_downstream_tasks(findings: str, task_ids: list = None) -> dict:
     ]
 
     if not targets:
-        return {"ok": True, "annotated": 0, "note": "no eligible downstream tasks found"}
+        # Give a specific reason so agents don't retry blindly
+        if downstream_ids:
+            non_pending = [t for t in all_tasks if t["id"] in downstream_ids and t["status"] != "pending"]
+            statuses = {t["status"] for t in non_pending}
+            return {"ok": True, "annotated": 0, "note": f"downstream tasks exist but none are pending (statuses: {sorted(statuses)}) — they may already be in_progress or completed"}
+        elif task_ids:
+            return {"ok": True, "annotated": 0, "note": "the task_ids you specified are not transitively downstream of your task — only tasks that depend on yours (directly or indirectly) can be annotated"}
+        else:
+            return {"ok": True, "annotated": 0, "note": "no tasks are transitively downstream of your task — other pending tasks in the project are parallel branches, not dependents"}
 
     annotation_block = (
         f"\n\n---\n"
