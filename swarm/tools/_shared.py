@@ -44,7 +44,8 @@ def _safe_cwd(cwd=None) -> str:
     ws = str(WORKSPACE) if WORKSPACE else None
     if ws and Path(ws).is_dir():
         return ws
-    return "."
+    import os
+    return os.getcwd()
 
 
 def _sync_core_globals(TASK_TYPE_VAL, WORKSPACE_VAL, PROJECT_VAL="", PROJECT_PATH_OVERRIDE_VAL=""):

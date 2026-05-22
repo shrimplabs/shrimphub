@@ -612,10 +612,9 @@ class TestCatastrophicCommandBlock:
         assert result["ok"] is False
 
     def test_allows_rm_single_file(self):
-        import swarm.tools.core as core
         # Single-file rm (no -r flag) must still be allowed
         import unittest.mock as mock
-        with mock.patch("swarm.tools.core.run", return_value=(0, "", "")):
+        with mock.patch("swarm.tools.shell.run", return_value=(0, "", "")):
             result = self._run("rm /tmp/swarm_temp.py")
         assert result["ok"] is True
 
@@ -659,13 +658,13 @@ class TestCatastrophicCommandBlock:
 
     def test_allows_git_push_without_force(self):
         import unittest.mock as mock
-        with mock.patch("swarm.tools.core.run", return_value=(0, "", "")):
+        with mock.patch("swarm.tools.shell.run", return_value=(0, "", "")):
             result = self._run("git push origin feature-branch")
         assert result["ok"] is True
 
     def test_allows_git_reset_soft(self):
         import unittest.mock as mock
-        with mock.patch("swarm.tools.core.run", return_value=(0, "", "")):
+        with mock.patch("swarm.tools.shell.run", return_value=(0, "", "")):
             result = self._run("git reset --soft HEAD~1")
         assert result["ok"] is True
 
