@@ -59,9 +59,13 @@ from swarm.tools.core import (  # noqa: F401
     run_command, git_commit, git_push,
     mcp_call_tool, mcp_list_tools,
     rag_query, web_search, fetch_url,
-    create_task, create_tasks_file_aware, list_tasks, list_subtasks,
+    broadcast_read, broadcast_write, delegate_helper,
+)
+
+from swarm.tools.tasks import (  # noqa: F401
+    create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
+    list_tasks, list_subtasks,
     annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
-    broadcast_read, broadcast_write, delegate_helper, delegate_task_batch,
 )
 from swarm.tools.knowledge import (  # noqa: F401
     scratchpad_write, scratchpad_read,
@@ -731,6 +735,13 @@ def _sync_core_globals():
     _shared.WORKSPACE = WORKSPACE
     _shared.PROJECT = PROJECT
     _shared.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
+    # Sync task tool config
+    import swarm.tools.tasks as _tasks
+    _tasks.PROJECT = PROJECT
+    _tasks.TASK_TYPE = TASK_TYPE
+    _tasks.TASK_ID = TASK_ID
+    _tasks.TASK_PRIORITY = TASK_PRIORITY
+    _tasks.API_PORT = API_PORT
 
 
 def _sync_knowledge_globals():

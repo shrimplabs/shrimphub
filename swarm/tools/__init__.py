@@ -7,8 +7,6 @@ in agent_runtime.py (same pattern as _sync_qa_tools_globals).
 """
 
 from swarm.tools.core import (  # noqa: F401
-    broadcast_read,
-    broadcast_write,
     log,
     _project_root,
     read_file,
@@ -28,10 +26,23 @@ from swarm.tools.core import (  # noqa: F401
     rag_query,
     web_search,
     fetch_url,
+    broadcast_read,
+    broadcast_write,
+    delegate_helper,
+)
+
+from swarm.tools.tasks import (  # noqa: F401
     create_task,
     create_tasks_file_aware,
+    create_tasks,
+    delegate_task_batch,
     list_tasks,
     list_subtasks,
+    annotate_downstream_tasks,
+    split_task,
+    prune_task,
+    insert_dependency,
+    set_task_complexity,
 )
 
 from swarm.tools.shell import _safe_cwd, run  # noqa: F401
