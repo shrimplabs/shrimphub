@@ -763,7 +763,7 @@ function createTaskCard(task, isActive, isParent, activeBadge, isChild) {
                 ${activeBadge}
                 <span class="status ${task.status}">${task.status.replace('_', ' ')}</span>${deepChainBadge}${humanReviewBadge}${delegationBadge}${helperBadge}
             </div>
-            <div class="task-desc">${escapeHtml(task.description)}</div>
+            <div class="task-desc" title="${escapeHtml(task.description)}">${escapeHtml(task.description.split('\n')[0].slice(0, 120))}${task.description.length > 120 || task.description.includes('\n') ? '…' : ''}</div>
             <div class="stat">Type: <span>${escapeHtml(task.type)}</span> | Priority: <span>${task.priority}${attempts}</span></div>
             ${isActive ? `
                 <div class="progress-bar">
