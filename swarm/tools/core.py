@@ -16,6 +16,10 @@ from pathlib import Path
 from swarm.tools.shell import run, run_command, git_commit, git_push, _safe_cwd  # noqa: F401
 from swarm.tools._shared import _project_root, log, _sanitize_text  # noqa: F401
 from swarm.tools.path_guard import _resolve_project_path
+from swarm.tools.files import (  # noqa: F401
+    read_file, list_files, search_code, get_file_stats, get_file_outline,  # noqa: F401
+    read_file_range, patch_file, write_file, append_file,
+)
 
 
 # ---------------------------------------------------------------------------
