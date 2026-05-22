@@ -210,7 +210,7 @@ class TestExecuteTool:
 
     def test_dispatches_write_file(self, tmp_path):
         rt.RUN_BROADCAST_WRITE_COUNT = 0
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             result = rt.execute_tool({
                 "tool": "write_file",
                 "args": {"path": "out.txt", "content": "test content"},
@@ -241,13 +241,13 @@ class TestExecuteTool:
         assert result.get("ok") is False
 
     def test_dispatches_delegate_helper(self):
-        with patch("swarm.agent_runtime.delegate_helper", return_value={"ok": True, "answer": "done"}) as helper:
+        with patch("swarm.tool_dispatch.delegate_helper", return_value={"ok": True, "answer": "done"}) as helper:
             result = rt.execute_tool({"tool": "delegate_helper", "args": {"question": "What uses this?"}})
         assert result == {"ok": True, "answer": "done"}
         helper.assert_called_once()
 
     def test_dispatches_delegate_task_batch(self):
-        with patch("swarm.agent_runtime.delegate_task_batch", return_value={"ok": True, "task_ids": ["x"]}) as delegated:
+        with patch("swarm.tool_dispatch.delegate_task_batch", return_value={"ok": True, "task_ids": ["x"]}) as delegated:
             result = rt.execute_tool({"tool": "delegate_task_batch", "args": {"children": [{"description": "part a"}]}})
         assert result == {"ok": True, "task_ids": ["x"]}
         delegated.assert_called_once()
@@ -513,7 +513,7 @@ class TestTaskAuthorityGuards:
 
     def test_qa_only_allows_qa_report_write(self):
         rt.TASK_TYPE = "qa"
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             blocked = rt.execute_tool({"tool": "write_file", "args": {"path": "notes.md", "content": "x"}})
             allowed = rt.execute_tool({"tool": "write_file", "args": {"path": "QA_REPORT.md", "content": "ok"}})
         assert blocked["ok"] is False
@@ -522,7 +522,7 @@ class TestTaskAuthorityGuards:
 
     def test_triage_only_allows_triage_report_write(self):
         rt.TASK_TYPE = "triage"
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             blocked = rt.execute_tool({"tool": "write_file", "args": {"path": "foo.md", "content": "x"}})
             allowed = rt.execute_tool({"tool": "write_file", "args": {"path": "TRIAGE_REPORT.md", "content": "ok"}})
         assert blocked["ok"] is False
@@ -537,7 +537,7 @@ class TestTaskAuthorityGuards:
 
     def test_research_finding_path_is_constrained(self):
         rt.TASK_TYPE = "research"
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             blocked = rt.execute_tool({"tool": "write_file", "args": {"path": "notes.md", "content": "x"}})
             allowed = rt.execute_tool({"tool": "write_file", "args": {"path": "research/findings.md", "content": "ok"}})
         assert blocked["ok"] is False
@@ -565,7 +565,7 @@ class TestTaskAuthorityGuards:
 
     def test_feature_can_delegate_helper(self):
         rt.TASK_TYPE = "feature"
-        with patch("swarm.agent_runtime.delegate_helper", return_value={"ok": True, "answer": "fine"}):
+        with patch("swarm.tool_dispatch.delegate_helper", return_value={"ok": True, "answer": "fine"}):
             result = rt.execute_tool({"tool": "delegate_helper", "args": {"question": "inspect"}})
         assert result["ok"] is True
 
@@ -577,7 +577,7 @@ class TestTaskAuthorityGuards:
 
     def test_feature_can_delegate_task_batch(self):
         rt.TASK_TYPE = "feature"
-        with patch("swarm.agent_runtime.delegate_task_batch", return_value={"ok": True, "task_ids": ["child-1"]}):
+        with patch("swarm.tool_dispatch.delegate_task_batch", return_value={"ok": True, "task_ids": ["child-1"]}):
             result = rt.execute_tool({"tool": "delegate_task_batch", "args": {"children": [{"description": "part"}]}})
         assert result["ok"] is True
 
@@ -700,7 +700,7 @@ class TestCatastrophicCommandBlock:
     def test_first_edit_requires_broadcast_claim_when_sibling_active(self):
         rt.TASK_TYPE = "feature"
         rt.RUN_BROADCAST_WRITE_COUNT = 0
-        with patch("swarm.agent_runtime._has_active_sibling_tasks", return_value=True):
+        with patch("swarm.runtime_helpers._has_active_sibling_tasks", return_value=True):
             result = rt.execute_tool({"tool": "write_file", "args": {"path": "src/shared.py", "content": "x = 1\n"}})
         assert result["ok"] is False
         assert "before your first edit" in result["error"]
@@ -709,9 +709,9 @@ class TestCatastrophicCommandBlock:
     def test_broadcast_claim_unblocks_first_edit_when_sibling_active(self):
         rt.TASK_TYPE = "feature"
         rt.RUN_BROADCAST_WRITE_COUNT = 0
-        with patch("swarm.agent_runtime._has_active_sibling_tasks", return_value=True), \
-             patch("swarm.agent_runtime.broadcast_write", return_value={"ok": True}), \
-             patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+        with patch("swarm.runtime_helpers._has_active_sibling_tasks", return_value=True), \
+             patch("swarm.tool_dispatch.broadcast_write", return_value={"ok": True}), \
+             patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             claim = rt.execute_tool({"tool": "broadcast_write", "args": {"message": "Claiming src/shared.py"}})
             result = rt.execute_tool({"tool": "write_file", "args": {"path": "src/shared.py", "content": "x = 1\n"}})
         assert claim["ok"] is True
@@ -720,8 +720,8 @@ class TestCatastrophicCommandBlock:
     def test_write_denied_when_file_locked_by_sibling(self):
         rt.TASK_TYPE = "feature"
         rt.RUN_BROADCAST_WRITE_COUNT = 1
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": False, "task_id": "sibling-task"}), \
-             patch("swarm.agent_runtime._spawn_lock_conflict_handoff", return_value={"ok": True, "followup_task_id": "feature-followup", "reparented_dependents": ["downstream-1"]}):
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": False, "task_id": "sibling-task"}), \
+             patch("swarm.runtime_helpers._spawn_lock_conflict_handoff", return_value={"ok": True, "followup_task_id": "feature-followup", "reparented_dependents": ["downstream-1"]}):
             result = rt.execute_tool({"tool": "write_file", "args": {"path": "src/shared.py", "content": "x = 1\n"}})
         assert result["ok"] is False
         assert "currently locked" in result["error"]
@@ -734,7 +734,7 @@ class TestCatastrophicCommandBlock:
         rt.TASK_TYPE = "feature"
         rt.RUN_BROADCAST_WRITE_COUNT = 1
         rt.CLAIMED_FILE_PATHS = set()
-        with patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True, "file_path": "src/shared.py"}) as locker:
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True, "file_path": "src/shared.py"}) as locker:
             result = rt.execute_tool({"tool": "write_file", "args": {"path": "src/shared.py", "content": "x = 1\n"}})
         assert result["ok"] is True
         locker.assert_called_once()
@@ -754,13 +754,13 @@ class TestCatastrophicCommandBlock:
             patch_calls.append((path, payload))
             return {"ok": True}
 
-        with patch("swarm.agent_runtime._api_post_json", return_value={"task": {"id": "feature-followup"}, "created": True}) as post_json, \
-             patch("swarm.agent_runtime._api_get_json", side_effect=[
+        with patch("swarm.runtime_helpers._api_post_json", return_value={"task": {"id": "feature-followup"}, "created": True}) as post_json, \
+             patch("swarm.runtime_helpers._api_get_json", side_effect=[
                  {"task": {"id": "task-001", "dependencies": ["root-dep", "other-dep"]}},
                  {"dependents": [{"id": "downstream-1"}]},
                  {"task": {"id": "downstream-1", "dependencies": ["task-001", "other-dep"]}},
              ]), \
-             patch("swarm.agent_runtime._api_patch_json", side_effect=_fake_patch):
+             patch("swarm.runtime_helpers._api_patch_json", side_effect=_fake_patch):
             result = rt._spawn_lock_conflict_handoff("src/shared.py", "owner-task")
 
         assert result["ok"] is True
@@ -788,12 +788,12 @@ class TestCatastrophicCommandBlock:
         rt.TASK_METADATA = {}
         rt.LOCK_CONFLICT_HANDOFF = None
 
-        with patch("swarm.agent_runtime._api_post_json", return_value={"task": {"id": "feature-followup"}, "created": True}) as post_json, \
-             patch("swarm.agent_runtime._api_get_json", side_effect=[
+        with patch("swarm.runtime_helpers._api_post_json", return_value={"task": {"id": "feature-followup"}, "created": True}) as post_json, \
+             patch("swarm.runtime_helpers._api_get_json", side_effect=[
                  {"task": {"id": "task-001", "dependencies": ["root-dep"]}},
                  {"dependents": []},
              ]), \
-             patch("swarm.agent_runtime._api_patch_json", return_value={"ok": True}):
+             patch("swarm.runtime_helpers._api_patch_json", return_value={"ok": True}):
             result = rt._spawn_lock_conflict_handoff("src/shared.py", "owner-task")
 
         assert result["ok"] is True
@@ -1119,14 +1119,14 @@ class TestCallLlm:
         ]
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", side_effect=responses):
-                with patch("swarm.agent_runtime.time.sleep"):
+                with patch("swarm.llm_utils.time.sleep"):
                     text, tokens = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
         assert text == "Success after retry"
 
     def test_network_exception_returns_error_after_retries(self):
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", side_effect=Exception("connection refused")):
-                with patch("swarm.agent_runtime.time.sleep"):
+                with patch("swarm.llm_utils.time.sleep"):
                     text, tokens = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
         assert "Error" in text or "error" in text.lower()
 
@@ -1343,7 +1343,7 @@ class TestMainLoop:
             "TASK_COMPLETE",
         ])
         with patch("swarm.agent_runtime.call_llm", side_effect=lambda *a: (next(responses), {"input": 0, "output": 0})), \
-             patch("swarm.agent_runtime._lock_project_file", return_value={"ok": True}):
+             patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             rt.main()
 
         assert (tmp_path / "workspace" / "test-proj" / "result.txt").read_text() == "written!"

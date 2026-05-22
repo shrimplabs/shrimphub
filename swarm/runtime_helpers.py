@@ -361,13 +361,49 @@ def _spawn_lock_conflict_handoff(locked_path: str, owner_task_id: str) -> dict:
     )
     was_created = handoff_resp.get("created", True)
     followup_task = handoff_resp.get("task") or {}
-    followup_task_id = followup_task.get("id") or handoff_resp.get("task_id", "")
+    followup_id = followup_task.get("id")
+    if not was_created:
+        from swarm.tools.core import log
+        log(f"[Swarm] Lock conflict: reusing existing continuation {followup_id} for owner {owner_task_id}")
+    if not followup_id:
+        return {"ok": False, "error": "failed to create follow-up task"}
 
-    result: dict = {
-        "ok": bool(followup_task_id),
-        "followup_task_id": followup_task_id,
-        "created": was_created,
+    try:
+        dependents = _api_get_json(f"/api/tasks/{_rt.TASK_ID}/dependents").get("dependents", [])
+    except Exception:
+        dependents = []
+    reparented: list[str] = []
+    for dep in dependents:
+        dep_id = dep.get("id")
+        if not dep_id:
+            continue
+        try:
+            dep_task = _api_get_json(f"/api/tasks/{dep_id}").get("task") or {}
+            deps = list(dep_task.get("dependencies") or [])
+            new_deps = [followup_id if d == _rt.TASK_ID else d for d in deps]
+            _api_patch_json(f"/api/tasks/{dep_id}", {"dependencies": new_deps})
+            reparented.append(dep_id)
+        except Exception as exc:
+            from swarm.tools.core import log
+            log(f"WARNING: failed to reparent dependent {dep_id} to {followup_id}: {exc}")
+
+    try:
+        current_meta = dict(_rt.TASK_METADATA or {})
+        current_meta.update({
+            "lock_conflict_handoff_to": followup_id,
+            "lock_conflict_blocked_file": locked_path,
+            "lock_conflict_blocked_by": owner_task_id,
+            "lock_conflict_reparented_dependents": reparented,
+        })
+        _api_patch_json(f"/api/tasks/{_rt.TASK_ID}", {"metadata": current_meta})
+    except Exception as exc:
+        from swarm.tools.core import log
+        log(f"WARNING: failed to persist lock conflict metadata on {_rt.TASK_ID}: {exc}")
+
+    _rt.LOCK_CONFLICT_HANDOFF = {
+        "followup_task_id": followup_id,
+        "blocked_file_path": locked_path,
+        "blocked_by_task_id": owner_task_id,
+        "reparented_dependents": reparented,
     }
-    if followup_task_id:
-        _rt.LOCK_CONFLICT_HANDOFF = result
-    return result
+    return {"ok": True, **_rt.LOCK_CONFLICT_HANDOFF}
