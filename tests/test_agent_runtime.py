@@ -404,7 +404,7 @@ class TestRunCommand:
 
     def test_godot_command_with_script_error_stdout_fails_even_on_zero_exit(self):
         import swarm.tools.core as core
-        with patch("swarm.tools.core.run", return_value=(0, "SCRIPT ERROR: Parse Error: Could not find type \"Maze\" in the current scope.\n", "")):
+        with patch("swarm.tools.shell.run", return_value=(0, "SCRIPT ERROR: Parse Error: Could not find type \"Maze\" in the current scope.\n", "")):
             result = core.run_command("godot --headless --path . --quit")
         assert result["ok"] is False
         assert "Godot runtime error detected" in result["stderr"]
@@ -412,7 +412,7 @@ class TestRunCommand:
 
     def test_godot_command_with_runtime_error_stderr_fails_even_on_zero_exit(self):
         import swarm.tools.core as core
-        with patch("swarm.tools.core.run", return_value=(0, "", "Failed to load script res://scripts/maze.gd\n")):
+        with patch("swarm.tools.shell.run", return_value=(0, "", "Failed to load script res://scripts/maze.gd\n")):
             result = core.run_command("godot --headless --path . --quit")
         assert result["ok"] is False
         assert "Godot runtime error detected" in result["stderr"]
