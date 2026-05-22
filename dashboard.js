@@ -1939,10 +1939,6 @@ async function loadRlHistory() {
 
         const currentHour = new Date().getHours();
 
-        // Current hour column background highlight
-        ctx.fillStyle = 'rgba(88, 166, 255, 0.08)';
-        ctx.fillRect(currentHour * barW, 0, barW, H);
-
         counts.forEach((count, h) => {
             const barH = count > 0 ? Math.max(2, (count / maxCount) * (H - 8)) : 0;
             const x = h * barW;
@@ -1954,10 +1950,22 @@ async function loadRlHistory() {
             ctx.fillRect(x + 1, y, barW - 2, barH);
         });
 
-        // Current hour border
-        ctx.strokeStyle = 'rgba(88, 166, 255, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(currentHour * barW + 0.5, 0.5, barW - 1, H - 1);
+        // Playhead — thin green line at the left edge of the current hour
+        const playheadX = currentHour * barW;
+        ctx.strokeStyle = '#3fb950';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(playheadX, 0);
+        ctx.lineTo(playheadX, H);
+        ctx.stroke();
+        // Small triangle at top
+        ctx.fillStyle = '#3fb950';
+        ctx.beginPath();
+        ctx.moveTo(playheadX - 4, 0);
+        ctx.lineTo(playheadX + 4, 0);
+        ctx.lineTo(playheadX, 6);
+        ctx.closePath();
+        ctx.fill();
 
         // Hour axis labels (0, 6, 12, 18, 23)
         ctx.fillStyle = '#484f58';
