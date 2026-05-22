@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from swarm.platform import kill_process_tree, popen_session_kwargs, shell_quote_command_arg
-from swarm.tools._shared import _project_root
+from swarm.tools._shared import _project_root, _safe_cwd
 from swarm.tools.path_guard import (
     _check_catastrophic_command,
     _command_attempts_protected_write,
@@ -18,22 +18,6 @@ from swarm.tools.path_guard import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _safe_cwd(cwd=None):
-    """Return a valid working directory, falling back to WORKSPACE for virtual projects."""
-    if cwd:
-        return cwd
-    import swarm.tools.core as _core
-    root = _project_root()
-    if root and Path(root).is_dir():
-        return str(root)
-    ws = str(_core.WORKSPACE) if _core.WORKSPACE else None
-    if ws and Path(ws).is_dir():
-        return ws
-    return "."
 
 
 def run(cmd: str, cwd=None, timeout: int = 60):

@@ -60,6 +60,7 @@ PAUSED_PROJECTS: list = []
 AUTO_REPLAN_PROJECTS: list = []  # projects that auto-get a project_plan when they run out of tasks
 TASK_SELECTION_STRATEGY: str = "priority"
 WEBHOOK_URL: str = ""
+LLM_PROVIDER: str = "minimax"
 MINIMAX_API_KEY: str = ""
 MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 
