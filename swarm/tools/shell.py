@@ -28,12 +28,12 @@ def _safe_cwd(cwd=None):
         return cwd
     import swarm.tools.core as _core
     root = _project_root()
-    if root and root.is_dir():
+    if root and Path(root).is_dir():
         return str(root)
     ws = str(_core.WORKSPACE) if _core.WORKSPACE else None
     if ws and Path(ws).is_dir():
         return ws
-    return _core._safe_cwd(None)
+    return "."
 
 
 def run(cmd: str, cwd=None, timeout: int = 60):
