@@ -333,6 +333,79 @@ class DependencyGraph:
         lines.append("}")
         return "\n".join(lines)
     
+    def get_subgraph(self, root_id: str, direction: str = "downstream", depth: int = 0) -> Set[str]:
+        """Return the set of task IDs reachable from root_id.
+
+        direction: "downstream" (dependents), "upstream" (dependencies), or "both"
+        depth: max hops (0 = unlimited)
+        """
+        if root_id not in self._nodes:
+            return set()
+        result: Set[str] = {root_id}
+        frontier = {root_id}
+        hops = 0
+        while frontier and (depth == 0 or hops < depth):
+            next_frontier: Set[str] = set()
+            for node_id in frontier:
+                node = self._nodes.get(node_id)
+                if not node:
+                    continue
+                if direction in ("downstream", "both"):
+                    next_frontier.update(d for d in node.dependents if d not in result)
+                if direction in ("upstream", "both"):
+                    next_frontier.update(d for d in node.dependencies if d not in result)
+            result.update(next_frontier)
+            frontier = next_frontier
+            hops += 1
+        return result
+
+    def get_critical_path(self, project: str = "") -> List[str]:
+        """Return the longest chain of pending/in_progress tasks by hop count.
+
+        Uses a longest-path algorithm on the DAG (works because it's acyclic).
+        Returns the ordered list of task IDs on the critical path.
+        Filters to the given project if specified.
+        """
+        # Build a filtered node set
+        nodes = {
+            nid: node for nid, node in self._nodes.items()
+            if node.status in ("pending", "in_progress")
+            and (not project or node.project == project)
+        }
+        if not nodes:
+            return []
+
+        # Longest path via memoised DFS
+        memo: Dict[str, List[str]] = {}
+
+        def longest_from(nid: str) -> List[str]:
+            if nid in memo:
+                return memo[nid]
+            node = nodes.get(nid)
+            if not node:
+                memo[nid] = [nid]
+                return [nid]
+            best: List[str] = []
+            for dep_id in node.dependents:
+                if dep_id in nodes:
+                    candidate = longest_from(dep_id)
+                    if len(candidate) > len(best):
+                        best = candidate
+            memo[nid] = [nid] + best
+            return memo[nid]
+
+        # Find roots (no unmet pending dependencies)
+        roots = [
+            nid for nid, node in nodes.items()
+            if not any(d in nodes for d in node.dependencies)
+        ]
+        critical: List[str] = []
+        for root in roots:
+            path = longest_from(root)
+            if len(path) > len(critical):
+                critical = path
+        return critical
+
     def get_stats(self) -> Dict[str, Any]:
         """Get graph statistics"""
         status_counts = defaultdict(int)

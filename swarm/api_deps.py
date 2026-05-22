@@ -849,6 +849,150 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
 
         return jsonify(out)
 
+    @app.route("/api/dependencies/bulk", methods=["POST"])
+    def bulk_dependency_mutations():
+        """Apply multiple add/remove dependency operations atomically.
+
+        Body: {"ops": [{"action": "add"|"remove", "task_id": "...", "dep_id": "..."}, ...]}
+        Returns: {"applied": N, "skipped": [...], "errors": [...]}
+        """
+        body = _req.get_json(force=True, silent=True) or {}
+        ops = body.get("ops") or []
+        if not ops:
+            return jsonify({"error": "ops list is required"}), 400
+
+        applied = 0
+        skipped = []
+        errors = []
+
+        for op in ops:
+            action = (op.get("action") or "").strip().lower()
+            task_id = (op.get("task_id") or "").strip()
+            dep_id = (op.get("dep_id") or "").strip()
+            if action not in ("add", "remove") or not task_id or not dep_id:
+                skipped.append({"op": op, "reason": "invalid op"})
+                continue
+            try:
+                task = db.task_get(task_id)
+                if not task:
+                    skipped.append({"op": op, "reason": f"task {task_id} not found"})
+                    continue
+                deps = list(task.get("dependencies") or [])
+                if action == "add":
+                    if dep_id in deps:
+                        skipped.append({"op": op, "reason": "already present"})
+                        continue
+                    # Cycle check before adding
+                    test_deps = deps + [dep_id]
+                    all_tasks = db.task_get_all()
+                    from swarm.dependencies import build_graph_from_tasks
+                    test_tasks = []
+                    for t in all_tasks:
+                        if t["id"] == task_id:
+                            test_tasks.append({**t, "dependencies": test_deps})
+                        else:
+                            test_tasks.append(t)
+                    g = build_graph_from_tasks(test_tasks)
+                    if g.has_cycle():
+                        errors.append({"op": op, "reason": "would create a cycle"})
+                        continue
+                    db.task_update(task_id, {"dependencies": test_deps})
+                else:  # remove
+                    if dep_id not in deps:
+                        skipped.append({"op": op, "reason": "not present"})
+                        continue
+                    db.task_update(task_id, {"dependencies": [d for d in deps if d != dep_id]})
+                applied += 1
+            except Exception as exc:
+                errors.append({"op": op, "reason": str(exc)})
+
+        return jsonify({"applied": applied, "skipped": skipped, "errors": errors})
+
+    @app.route("/api/dependencies/subgraph", methods=["GET"])
+    def get_subgraph():
+        """Return tasks reachable from a root task.
+
+        Query params:
+          root      — task ID (required)
+          direction — downstream (default) | upstream | both
+          depth     — max hops, 0 = unlimited (default)
+          include_completed — include completed/failed tasks (default false)
+        """
+        root_id = (_req.args.get("root") or "").strip()
+        if not root_id:
+            return jsonify({"error": "root param is required"}), 400
+        direction = (_req.args.get("direction") or "downstream").strip().lower()
+        if direction not in ("downstream", "upstream", "both"):
+            return jsonify({"error": "direction must be downstream, upstream, or both"}), 400
+        try:
+            depth = int(_req.args.get("depth") or 0)
+        except Exception:
+            depth = 0
+        include_completed = _arg_bool("include_completed", False)
+
+        all_tasks = db.task_get_all()
+        if not include_completed:
+            all_tasks = [t for t in all_tasks if t.get("status") not in ("completed", "failed")]
+
+        from swarm.dependencies import build_graph_from_tasks
+        graph = build_graph_from_tasks(all_tasks)
+        task_ids = graph.get_subgraph(root_id, direction=direction, depth=depth)
+
+        task_map = {t["id"]: t for t in all_tasks}
+        tasks_out = []
+        for tid in task_ids:
+            t = task_map.get(tid)
+            if t:
+                tasks_out.append({
+                    "id": t["id"],
+                    "project": t.get("project"),
+                    "type": t.get("type"),
+                    "status": t.get("status"),
+                    "description": (t.get("description") or "").split("\n")[0][:120],
+                    "dependencies": t.get("dependencies") or [],
+                })
+
+        return jsonify({
+            "root": root_id,
+            "direction": direction,
+            "depth": depth,
+            "count": len(tasks_out),
+            "tasks": tasks_out,
+        })
+
+    @app.route("/api/dependencies/critical-path", methods=["GET"])
+    def get_critical_path():
+        """Return the longest pending task chain (critical path).
+
+        Query params:
+          project — filter to a project (optional)
+        """
+        project = (_req.args.get("project") or "").strip()
+
+        all_tasks = db.task_get_all()
+        from swarm.dependencies import build_graph_from_tasks
+        graph = build_graph_from_tasks(all_tasks)
+        path_ids = graph.get_critical_path(project=project)
+
+        task_map = {t["id"]: t for t in all_tasks}
+        path_out = []
+        for tid in path_ids:
+            t = task_map.get(tid)
+            if t:
+                path_out.append({
+                    "id": t["id"],
+                    "project": t.get("project"),
+                    "type": t.get("type"),
+                    "status": t.get("status"),
+                    "description": (t.get("description") or "").split("\n")[0][:120],
+                })
+
+        return jsonify({
+            "project": project or None,
+            "length": len(path_out),
+            "path": path_out,
+        })
+
     @app.route("/api/task-history", methods=["GET"])
     def get_task_history():
         keyword = (_req.args.get("q") or "").strip().lower()
