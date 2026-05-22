@@ -88,8 +88,15 @@ swarm_mcp_server.py          MCP server exposing swarm API as tools (register in
 sync_templates.py            sync state_server.gd + test_harness.gd to all managed Godot projects
 swarm/api.py                 Flask app factory, registers all api_*.py route modules, monitor thread
 swarm/orchestrator.py        high-level scheduling & coordination (598 lines)
-swarm/agent_runtime.py       agent tool functions + LLM call loop (1721 lines)
-swarm/agent_lifecycle.py     agent process management & lifecycle hooks (1529 lines)
+swarm/agent_runtime.py       LLM tool loop + prompt selection + continuation logic (1210 lines)
+swarm/agent_lifecycle.py     agent spawning, status checking, prune_history (707 lines)
+swarm/agent_finish.py        agent completion pipeline: worktree phase, diff, validation, auto-tasks
+swarm/agent_recovery.py      task retry, recovery task spawning, plan validation
+swarm/agent_auto_tasks.py    auto-QA, auto-audit, auto-integration spawning
+swarm/runtime_config.py      agent config variables (WORKSPACE, PROJECT, etc.) and sync helpers
+swarm/runtime_helpers.py     file locking, path normalization, API helpers, project activity context
+swarm/tool_dispatch.py       tool validation (_TOOL_REQUIRED_ARGS) and dispatch table (execute_tool)
+swarm/meta_investigation.py  out-of-band LLM investigator for repeated errors
 swarm/db.py                  SQLite layer (WAL, thread-local connections, schema evolution)
 swarm/tasks.py               Task dataclass + SQLiteTaskSource
 swarm/projects.py            Project dataclass + SQLiteProjectRegistry
