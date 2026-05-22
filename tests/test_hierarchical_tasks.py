@@ -193,8 +193,7 @@ class TestListSubtasks:
 
         import swarm.tools.core as _core
         with patch.object(_core, "API_PORT", 8080):
-            with patch("swarm.tools.core._ur") as mock_ur:
-                mock_ur.urlopen.return_value = _mock_response(body={"tasks": tasks})
+            with patch("urllib.request.urlopen", return_value=_mock_response(body={"tasks": tasks})):
                 result = rt.list_subtasks(parent_task_id="parent-abc")
 
         assert result["ok"] is True
@@ -211,12 +210,11 @@ class TestListSubtasks:
         import swarm.tools.core as _core
 
         with patch.object(_core, "API_PORT", 8080):
-            with patch("swarm.tools.core._ur") as mock_ur:
-                mock_ur.urlopen.return_value = _mock_response(body={
-                    "tasks": [{"id": "orphan", "type": "feature",
-                               "status": "pending",
-                               "description": "Lone task", "metadata": {}}]
-                })
+            with patch("urllib.request.urlopen", return_value=_mock_response(body={
+                "tasks": [{"id": "orphan", "type": "feature",
+                           "status": "pending",
+                           "description": "Lone task", "metadata": {}}]
+            })):
                 result = rt.list_subtasks(parent_task_id="orphan")
 
         assert result["ok"] is True
@@ -228,8 +226,7 @@ class TestListSubtasks:
         import swarm.tools.core as _core
 
         with patch.object(_core, "API_PORT", 8080), patch.object(_core, "TASK_ID", "my-agent-task-42"), \
-             patch("swarm.tools.core._ur") as mock_ur:
-            mock_ur.urlopen.return_value = _mock_response(body={"tasks": []})
+             patch("urllib.request.urlopen", return_value=_mock_response(body={"tasks": []})):
             result = rt.list_subtasks()
 
         assert result["ok"] is True
