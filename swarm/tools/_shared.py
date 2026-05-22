@@ -15,10 +15,125 @@ log() and _sanitize_text() also live here so files.py can call them
 without triggering the core.py <-> files.py circular import.
 """
 
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Optional
+
 
 # ---------------------------------------------------------------------------
-# Config vars -- set via _sync_core_globals() in agent_runtime before use
+# ToolContext -- single config object passed into tool sync
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolContext:
+    """Typed config snapshot for tool modules.
+
+    Built from a RuntimeConfig (or equivalent) and pushed into each tool
+    module via sync_tool_context(). Tool modules keep their module-level
+    globals for backward compat; sync_tool_context sets them all at once
+    through this single entry point instead of scattered _sync_*_globals().
+    """
+    workspace: Path = field(default_factory=lambda: Path("."))
+    data_dir: str = "data"
+    project: str = ""
+    project_path_override: str = ""
+    worktree_branch: str = ""
+    task_id: str = "unknown"
+    task_type: str = "feature"
+    task_priority: int = 50
+    max_lines: int = 5000
+    ignore_dirs: set = field(default_factory=lambda: {"addons", ".git", ".godot"})
+    ignore_extensions: set = field(default_factory=set)
+    max_tool_loops: int = 200
+    api_port: int = 5001
+    mcp_servers: dict = field(default_factory=dict)
+    managed_projects: list = field(default_factory=list)
+    readonly: bool = False
+    qa_config: dict = field(default_factory=dict)
+    qa_cycle: int = 0
+    qa_max_cycles: int = 3
+    mcp_client: Any = None
+
+
+def sync_tool_context(ctx: ToolContext) -> None:
+    """Push ctx into all tool module globals.
+
+    This is the single entry point that replaces the four _sync_*_globals()
+    calls in agent_runtime.  Tool modules keep their module-level vars for
+    backward compat; only this function mutates them.
+    """
+    # Update _shared vars (used by path_guard, shell via _safe_cwd, etc.)
+    global TASK_TYPE, WORKSPACE, PROJECT, PROJECT_PATH_OVERRIDE
+    TASK_TYPE = ctx.task_type
+    WORKSPACE = ctx.workspace
+    PROJECT = ctx.project
+    PROJECT_PATH_OVERRIDE = ctx.project_path_override
+
+    # Push into each tool module at call-time via lazy imports.
+    # (Imports are deferred to avoid circular import issues at module load.)
+    try:
+        import swarm.tools.core as _core
+        _core.WORKSPACE = ctx.workspace
+        _core.DATA_DIR = ctx.data_dir
+        _core.PROJECT = ctx.project
+        _core.PROJECT_PATH_OVERRIDE = ctx.project_path_override
+        _core.WORKTREE_BRANCH = ctx.worktree_branch
+        _core.TASK_TYPE = ctx.task_type
+        _core.TASK_ID = ctx.task_id
+        _core.TASK_PRIORITY = ctx.task_priority
+        _core.MAX_LINES = ctx.max_lines
+        _core.IGNORE_DIRS = ctx.ignore_dirs
+        _core.IGNORE_EXTENSIONS = ctx.ignore_extensions
+        _core.MAX_TOOL_LOOPS = ctx.max_tool_loops
+        _core.API_PORT = ctx.api_port
+        _core.MCP_SERVERS = ctx.mcp_servers
+        _core.MANAGED_PROJECTS = ctx.managed_projects
+        _core.READONLY = ctx.readonly
+        _core.mcp_client = ctx.mcp_client
+    except ImportError:
+        pass
+
+    try:
+        import swarm.tools.tasks as _tasks
+        _tasks.PROJECT = ctx.project
+        _tasks.TASK_TYPE = ctx.task_type
+        _tasks.TASK_ID = ctx.task_id
+        _tasks.TASK_PRIORITY = ctx.task_priority
+        _tasks.API_PORT = ctx.api_port
+    except ImportError:
+        pass
+
+    try:
+        import swarm.tools.knowledge as _knowledge
+        _knowledge.WORKSPACE = ctx.workspace
+        _knowledge.DATA_DIR = ctx.data_dir
+        _knowledge.PROJECT = ctx.project
+        _knowledge.PROJECT_PATH_OVERRIDE = ctx.project_path_override
+        _knowledge.TASK_ID = ctx.task_id
+        _knowledge.API_PORT = ctx.api_port
+        _knowledge.READONLY = ctx.readonly
+        _knowledge.TASK_TYPE = ctx.task_type
+    except ImportError:
+        pass
+
+    try:
+        from swarm import qa_tools as _qa
+        _qa.WORKSPACE = ctx.workspace
+        _qa.DATA_DIR = ctx.data_dir
+        _qa.PROJECT = ctx.project
+        _qa.PROJECT_PATH_OVERRIDE = ctx.project_path_override
+        _qa.TASK_TYPE = ctx.task_type
+        _qa.API_PORT = ctx.api_port
+        _qa.QA_CONFIG = ctx.qa_config
+        _qa.QA_CYCLE = ctx.qa_cycle
+        _qa.QA_MAX_CYCLES = ctx.qa_max_cycles
+        _qa.mcp_client = ctx.mcp_client
+    except ImportError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Config vars -- set via sync_tool_context() in agent_runtime before use
 # ---------------------------------------------------------------------------
 
 TASK_TYPE: str = "feature"

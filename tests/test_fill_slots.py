@@ -11,6 +11,7 @@ import pytest
 
 from swarm import db
 import swarm.orchestrator as orc
+import swarm.agent_lifecycle as lifecycle
 
 
 # ---------------------------------------------------------------------------
@@ -36,8 +37,8 @@ def isolated_orc(tmp_path):
     orc.MANAGED_PROJECTS = []
     orc.PAUSED_PROJECTS = []
 
-    with orc._handle_lock:
-        orc._active_handles.clear()
+    with lifecycle._handle_lock:
+        lifecycle._active_handles.clear()
 
     yield
 
@@ -97,8 +98,8 @@ def _fake_spawn(task, generate_fn):
     # Simulate an in-process handle so get_active_count() works
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None  # still running
-    with orc._handle_lock:
-        orc._active_handles[agent_id] = {
+    with lifecycle._handle_lock:
+        lifecycle._active_handles[agent_id] = {
             "process": mock_proc,
             "project": task["project"],
             "task_id": task["id"],
@@ -328,8 +329,8 @@ class TestFillSlots:
         # Pre-populate handle so get_active_count() sees it
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
-        with orc._handle_lock:
-            orc._active_handles["fake-agent"] = {
+        with lifecycle._handle_lock:
+            lifecycle._active_handles["fake-agent"] = {
                 "process": mock_proc,
                 "project": "p",
                 "task_id": "running",

@@ -289,6 +289,7 @@ agent_lifecycle.configure(
     webhook_url=WEBHOOK_URL,
     auto_replan_projects=AUTO_REPLAN_PROJECTS,
     paused_projects=PAUSED_PROJECTS,
+    lock_project=LOCK_PROJECT,
     max_active_agents=MAX_ACTIVE_AGENTS,
     agent_timeout=AGENT_TIMEOUT,
     qa_auto_threshold=QA_AUTO_THRESHOLD,
@@ -754,23 +755,37 @@ _llm_summarise_fix_attempt = _validation._llm_summarise_fix_attempt
 
 
 # ---------------------------------------------------------------------------
-# Re-export agent lifecycle functions for backward compatibility
+# Re-export agent lifecycle functions
+#
+# Public orchestration API -- these are intentional re-exports that api.py,
+# the monitor thread, and swarm_runner use.  They are NOT scheduled for removal.
 # ---------------------------------------------------------------------------
 
-spawn_agent = agent_lifecycle.spawn_agent
-check_agent_status = agent_lifecycle.check_agent_status
+spawn_agent                  = agent_lifecycle.spawn_agent
+check_agent_status           = agent_lifecycle.check_agent_status
 reconcile_agent_runtime_state = agent_lifecycle.reconcile_agent_runtime_state
-cleanup_recovery_branches = agent_lifecycle.cleanup_recovery_branches
-get_active_count = agent_lifecycle.get_active_count
-prune_history = agent_lifecycle.prune_history
-check_dep_violations = agent_lifecycle.check_dep_violations
-_get_active_handles = agent_lifecycle.get_active_handles
+cleanup_recovery_branches    = agent_lifecycle.cleanup_recovery_branches
+get_active_count             = agent_lifecycle.get_active_count
+prune_history                = agent_lifecycle.prune_history
+check_dep_violations         = agent_lifecycle.check_dep_violations
+_get_active_handles          = agent_lifecycle.get_active_handles
 
-# Also expose internal functions that tests may call
-_finish_agent = agent_lifecycle._finish_agent
-_spawn_review_task = agent_lifecycle._spawn_review_task
-_handle_task_failure = agent_lifecycle._handle_task_failure
+# ---------------------------------------------------------------------------
+# Compatibility shims -- retire once callers are updated
+#
+# _finish_agent, _spawn_review_task, _handle_task_failure:
+#   Internal pipeline helpers.  Callers outside agent_lifecycle should import
+#   from swarm.agent_finish / swarm.agent_recovery directly.
+#   Retirement: remove after any remaining test/API references are updated.
+#
+# _active_handles, _handle_lock:
+#   Tests that need the handle registry should import from swarm.agent_lifecycle.
+#   All first-party tests have been updated (test_lifecycle, test_fill_slots,
+#   test_prune).  Remove these once no external caller reads them via orchestrator.
+# ---------------------------------------------------------------------------
 
-# Backward compatibility: expose _active_handles and _handle_lock for tests
-_active_handles = agent_lifecycle._active_handles
-_handle_lock = agent_lifecycle._handle_lock
+_finish_agent        = agent_lifecycle._finish_agent        # retire → swarm.agent_finish
+_spawn_review_task   = agent_lifecycle._spawn_review_task   # retire → swarm.agent_recovery
+_handle_task_failure = agent_lifecycle._handle_task_failure # retire → swarm.agent_recovery
+_active_handles      = agent_lifecycle._active_handles      # retire → swarm.agent_lifecycle
+_handle_lock         = agent_lifecycle._handle_lock         # retire → swarm.agent_lifecycle

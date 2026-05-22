@@ -279,10 +279,6 @@ async function loadData() {
     }
 }
 
-function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 function showToast(html, color) {
     color = color || '#3fb950';
     const el = document.createElement('div');
@@ -827,11 +823,6 @@ let _projectSortMode = PROJECT_SORT_MODES.has(localStorage.getItem('swarm.projec
 let _recentProjectsOnly = localStorage.getItem('swarm.recentProjectsOnly') === 'true';
 let _projectRecentWindowDays = parseInt(localStorage.getItem('swarm.projectRecentWindowDays') || '7', 10);
 if (![1, 7, 30].includes(_projectRecentWindowDays)) _projectRecentWindowDays = 7;
-
-function projectLargestFileSize(data) {
-    const sizes = Object.values((data && data.files) || {});
-    return sizes.length ? Math.max(...sizes) : 0;
-}
 
 function sortProjectEntries(entries, projectTaskCount, activityMap) {
     return entries.slice().sort((a, b) => {

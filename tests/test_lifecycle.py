@@ -58,30 +58,39 @@ def isolated_orc(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
     orc.DATA_DIR = data_dir
-    orc.WORKSPACE = tmp_path / "workspace"
-    orc.WORKSPACE.mkdir(parents=True, exist_ok=True)
+    orc.WORKSPACE = workspace
     orc.HISTORY_FILE = data_dir / "agent-history.jsonl"
     orc.MAX_ACTIVE_AGENTS = 5
     orc.LOCK_PROJECT = False
     orc.MANAGED_PROJECTS = []
     orc.PAUSED_PROJECTS = []
 
+    # Configure agent_lifecycle explicitly so spawn_agent / _finish_agent use the
+    # isolated tmp dirs rather than falling back to orchestrator globals.
+    lifecycle.configure(
+        workspace=workspace,
+        data_dir=data_dir,
+    )
+
     # Clear in-process handle registry
-    with orc._handle_lock:
-        orc._active_handles.clear()
+    with lifecycle._handle_lock:
+        lifecycle._active_handles.clear()
 
     yield tmp_path
 
     # Kill any stray subprocesses
-    with orc._handle_lock:
-        for data in list(orc._active_handles.values()):
+    with lifecycle._handle_lock:
+        for data in list(lifecycle._active_handles.values()):
             try:
                 data["process"].kill()
                 data["process"].wait(timeout=2)
             except Exception:
                 pass
-        orc._active_handles.clear()
+        lifecycle._active_handles.clear()
 
     conn = getattr(db._local, "conn", None)
     if conn:
@@ -116,8 +125,8 @@ def _wait_for_subprocess(agent_id, timeout=5.0) -> bool:
     """Poll until the agent's subprocess exits or timeout is reached."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        with orc._handle_lock:
-            handle = orc._active_handles.get(agent_id)
+        with lifecycle._handle_lock:
+            handle = lifecycle._active_handles.get(agent_id)
         if handle and handle["process"].poll() is not None:
             return True
         time.sleep(0.05)
@@ -170,8 +179,8 @@ class TestSpawnAgent:
     def test_script_file_written_to_data_dir(self, isolated_orc):
         task = _seed_task()
         agent_id = orc.spawn_agent(task, lambda t: _exit0_script())
-        with orc._handle_lock:
-            handle = orc._active_handles.get(agent_id)
+        with lifecycle._handle_lock:
+            handle = lifecycle._active_handles.get(agent_id)
         script_path = Path(handle["script_path"])
         assert script_path.exists()
         assert script_path.parent == orc.DATA_DIR
@@ -210,8 +219,8 @@ class TestSpawnAgent:
     def test_agent_added_to_active_handles(self, isolated_orc):
         task = _seed_task()
         agent_id = orc.spawn_agent(task, lambda t: _exit0_script())
-        with orc._handle_lock:
-            assert agent_id in orc._active_handles
+        with lifecycle._handle_lock:
+            assert agent_id in lifecycle._active_handles
 
     def test_returns_none_when_popen_fails(self, isolated_orc):
         task = _seed_task()
@@ -240,8 +249,8 @@ class TestLifecycleSuccess:
         with patch("swarm.agent_lifecycle.prune_history"):
             _check_agent_status_sync()
 
-        with orc._handle_lock:
-            assert agent_id not in orc._active_handles
+        with lifecycle._handle_lock:
+            assert agent_id not in lifecycle._active_handles
 
     def test_agent_marked_completed(self, isolated_orc):
         task = _seed_task()
@@ -269,8 +278,8 @@ class TestLifecycleSuccess:
     def test_script_file_deleted(self, isolated_orc):
         task = _seed_task()
         agent_id = orc.spawn_agent(task, lambda t: _exit0_script())
-        with orc._handle_lock:
-            script_path = Path(orc._active_handles[agent_id]["script_path"])
+        with lifecycle._handle_lock:
+            script_path = Path(lifecycle._active_handles[agent_id]["script_path"])
         assert _wait_for_subprocess(agent_id)
 
         with patch("swarm.agent_lifecycle.prune_history"):
@@ -280,6 +289,7 @@ class TestLifecycleSuccess:
 
     def test_lock_released_on_success(self, isolated_orc):
         orc.LOCK_PROJECT = True
+        lifecycle.LOCK_PROJECT = True
         task = _seed_task()
         agent_id = orc.spawn_agent(task, lambda t: _exit0_script())
         # fill_slots() normally sets the lock; simulate that here
@@ -331,6 +341,7 @@ class TestLifecycleFailure:
 
     def test_lock_released_on_failure(self, isolated_orc):
         orc.LOCK_PROJECT = True
+        lifecycle.LOCK_PROJECT = True
         task = _seed_task(max_attempts=1)
         agent_id = orc.spawn_agent(task, lambda t: _exit1_script())
         assert _wait_for_subprocess(agent_id)

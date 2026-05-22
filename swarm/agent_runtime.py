@@ -207,65 +207,48 @@ def _load_task_metadata() -> dict:
 # (same pattern as _sync_qa_tools_globals)
 # ---------------------------------------------------------------------------
 
-def _sync_qa_tools_globals():
-    """Sync config from agent_runtime.py to qa_tools.py module."""
-    qa_tools.WORKSPACE = WORKSPACE
-    qa_tools.DATA_DIR = DATA_DIR
-    qa_tools.PROJECT = PROJECT
-    qa_tools.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
-    qa_tools.TASK_TYPE = TASK_TYPE
-    qa_tools.API_PORT = API_PORT
-    qa_tools.QA_CONFIG = QA_CONFIG
-    qa_tools.QA_CYCLE = QA_CYCLE
-    qa_tools.QA_MAX_CYCLES = QA_MAX_CYCLES
-    qa_tools.mcp_client = mcp_client
+def _build_tool_context():
+    """Build a ToolContext snapshot from the current agent_runtime module globals."""
+    from swarm.tools._shared import ToolContext
+    return ToolContext(
+        workspace=WORKSPACE,
+        data_dir=DATA_DIR,
+        project=PROJECT,
+        project_path_override=PROJECT_PATH_OVERRIDE,
+        worktree_branch=WORKTREE_BRANCH,
+        task_id=TASK_ID,
+        task_type=TASK_TYPE,
+        task_priority=TASK_PRIORITY,
+        max_lines=MAX_LINES,
+        ignore_dirs=IGNORE_DIRS,
+        ignore_extensions=IGNORE_EXTENSIONS,
+        max_tool_loops=MAX_TOOL_LOOPS,
+        api_port=API_PORT,
+        mcp_servers=MCP_SERVERS,
+        managed_projects=MANAGED_PROJECTS,
+        readonly=READONLY,
+        qa_config=QA_CONFIG,
+        qa_cycle=QA_CYCLE,
+        qa_max_cycles=QA_MAX_CYCLES,
+        mcp_client=mcp_client,
+    )
 
 
-def _sync_core_globals():
-    """Sync config from agent_runtime.py to swarm.tools.core module and _shared config store."""
-    import swarm.tools.core as _core
-    from swarm.tools import _shared
-    _core.WORKSPACE = WORKSPACE
-    _core.DATA_DIR = DATA_DIR
-    _core.PROJECT = PROJECT
-    _core.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
-    _core.WORKTREE_BRANCH = WORKTREE_BRANCH
-    _core.TASK_TYPE = TASK_TYPE
-    _core.TASK_ID = TASK_ID
-    _core.TASK_PRIORITY = TASK_PRIORITY
-    _core.MAX_LINES = MAX_LINES
-    _core.IGNORE_DIRS = IGNORE_DIRS
-    _core.IGNORE_EXTENSIONS = IGNORE_EXTENSIONS
-    _core.MAX_TOOL_LOOPS = MAX_TOOL_LOOPS
-    _core.API_PORT = API_PORT
-    _core.MCP_SERVERS = MCP_SERVERS
-    _core.MANAGED_PROJECTS = MANAGED_PROJECTS
-    _core.READONLY = READONLY
-    _core.mcp_client = mcp_client
-    _shared.TASK_TYPE = TASK_TYPE
-    _shared.WORKSPACE = WORKSPACE
-    _shared.PROJECT = PROJECT
-    _shared.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
-    # Sync task tool config
-    import swarm.tools.tasks as _tasks
-    _tasks.PROJECT = PROJECT
-    _tasks.TASK_TYPE = TASK_TYPE
-    _tasks.TASK_ID = TASK_ID
-    _tasks.TASK_PRIORITY = TASK_PRIORITY
-    _tasks.API_PORT = API_PORT
+def _sync_all_tool_globals():
+    """Sync config from agent_runtime.py to all tool modules via a single ToolContext.
+
+    Replaces the former _sync_core_globals(), _sync_knowledge_globals(), and
+    _sync_qa_tools_globals() calls. All tool module globals are set through
+    swarm.tools._shared.sync_tool_context() so there is one entry point.
+    """
+    from swarm.tools._shared import sync_tool_context
+    sync_tool_context(_build_tool_context())
 
 
-def _sync_knowledge_globals():
-    """Sync config from agent_runtime.py to swarm.tools.knowledge module."""
-    import swarm.tools.knowledge as _knowledge
-    _knowledge.WORKSPACE = WORKSPACE
-    _knowledge.DATA_DIR = DATA_DIR
-    _knowledge.PROJECT = PROJECT
-    _knowledge.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
-    _knowledge.TASK_ID = TASK_ID
-    _knowledge.API_PORT = API_PORT
-    _knowledge.READONLY = READONLY
-    _knowledge.TASK_TYPE = TASK_TYPE
+# Backward-compat aliases kept for any external callers that imported these by name.
+def _sync_core_globals(): _sync_all_tool_globals()  # noqa: E704
+def _sync_knowledge_globals(): _sync_all_tool_globals()  # noqa: E704
+def _sync_qa_tools_globals(): _sync_all_tool_globals()  # noqa: E704
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +263,8 @@ def main() -> int:
     CLAIMED_FILE_PATHS = set()
     LOCK_CONFLICT_HANDOFF = None
 
-    # Sync config to all tool modules
-    _sync_core_globals()
-    _sync_knowledge_globals()
-    _sync_qa_tools_globals()
+    # Sync config to all tool modules via a single ToolContext
+    _sync_all_tool_globals()
 
     # Ensure any Godot process launched by this agent is killed when we exit,
     # regardless of which return path is taken (TASK_COMPLETE, loop limit, crash).
@@ -325,8 +306,7 @@ def main() -> int:
         mcp_client = MCPClient(MCP_SERVERS, cwd=project_path)
         log(f"MCP configured with servers: {list(MCP_SERVERS.keys())}")
         # Re-sync after mcp_client is set
-        _sync_core_globals()
-        _sync_qa_tools_globals()
+        _sync_all_tool_globals()
 
     # Select prompts based on project type
     is_python = (

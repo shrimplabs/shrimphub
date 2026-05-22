@@ -111,43 +111,26 @@ def _lazy_imports():
 
 WORKSPACE: Path = Path(".")
 
-# DATA_DIR - dynamic lookup from orchestrator
+# DATA_DIR: set explicitly by configure(). _get_data_dir() falls back to
+# orchestrator.DATA_DIR so that code paths that configure orchestrator but not
+# agent_lifecycle (tests, early startup) resolve the correct directory.
 def _get_data_dir() -> Path:
+    """Return DATA_DIR, falling back to orchestrator if it's the unconfigured default."""
+    if _configured:
+        return DATA_DIR
     try:
         import swarm.orchestrator as _orc
         return _orc.DATA_DIR
     except Exception:
-        return Path("data")
+        return DATA_DIR
 
-class _DataDirProxy:
-    """Proxy that forwards to orchestrator.DATA_DIR."""
-    def __str__(self):
-        return str(_get_data_dir())
-    def __truediv__(self, other):
-        return _get_data_dir() / other
-    def __fspath__(self):
-        return str(_get_data_dir())
-    
-DATA_DIR = _DataDirProxy()
+DATA_DIR: Path = Path("data")
+_configured: bool = False  # set True by configure(); guards _get_data_dir fallback
 USE_WORKTREES: bool = True
 WEBHOOK_URL: str = ""
 AUTO_REPLAN_PROJECTS: list = []
 PAUSED_PROJECTS: list = []
-# LOCK_PROJECT - dynamic lookup from orchestrator
-def _get_lock_project() -> bool:
-    try:
-        import swarm.orchestrator as _orc
-        return getattr(_orc, 'LOCK_PROJECT', False)
-    except Exception:
-        return False
-
-class _LockProjectProxy:
-    def __bool__(self):
-        return _get_lock_project()
-    def __eq__(self, other):
-        return _get_lock_project() == other
-
-LOCK_PROJECT = _LockProjectProxy()
+LOCK_PROJECT: bool = False
 
 # State: agent_id -> handle dict
 _active_handles: Dict[str, Dict] = {}
@@ -177,6 +160,7 @@ def configure(
     webhook_url: str = "",
     auto_replan_projects: list = [],
     paused_projects: list = [],
+    lock_project: bool = False,
     max_active_agents: int = 5,
     agent_timeout: float = 0,
     qa_auto_threshold: int = 10,
@@ -193,23 +177,26 @@ def configure(
         webhook_url: URL for task completion/failure webhook notifications.
         auto_replan_projects: List of projects that should auto-replan after QA.
         paused_projects: List of projects that are paused and won't spawn agents.
+        lock_project: When True, only one agent per project runs at a time.
         max_active_agents: Maximum number of concurrent agents.
         agent_timeout: Timeout in seconds for agent execution (0 = no timeout).
         qa_auto_threshold: Number of completed tasks before auto-spawning QA.
         audit_auto_threshold: Number of completed tasks before auto-spawning audit.
         project_registry: Project registry instance for releasing file locks on agent exit.
     """
-    global WORKSPACE, DATA_DIR, USE_WORKTREES
-    global WEBHOOK_URL, AUTO_REPLAN_PROJECTS, PAUSED_PROJECTS
+    global WORKSPACE, DATA_DIR, USE_WORKTREES, _configured
+    global WEBHOOK_URL, AUTO_REPLAN_PROJECTS, PAUSED_PROJECTS, LOCK_PROJECT
     global MAX_ACTIVE_AGENTS, AGENT_TIMEOUT, QA_AUTO_THRESHOLD, AUDIT_AUTO_THRESHOLD
     global _project_registry
 
     WORKSPACE = workspace
     DATA_DIR = data_dir
+    _configured = True
     USE_WORKTREES = use_worktrees
     WEBHOOK_URL = webhook_url
     AUTO_REPLAN_PROJECTS = auto_replan_projects
     PAUSED_PROJECTS = paused_projects
+    LOCK_PROJECT = lock_project
     MAX_ACTIVE_AGENTS = max_active_agents
     AGENT_TIMEOUT = agent_timeout
     QA_AUTO_THRESHOLD = qa_auto_threshold

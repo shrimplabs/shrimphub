@@ -10,6 +10,7 @@ import pytest
 
 from swarm import db
 import swarm.orchestrator as orc
+import swarm.agent_lifecycle as lifecycle
 
 
 # ---------------------------------------------------------------------------
@@ -29,8 +30,8 @@ def isolated_orc(tmp_path):
     orc.DATA_DIR = data_dir
     orc.HISTORY_FILE = data_dir / "agent-history.jsonl"
 
-    with orc._handle_lock:
-        orc._active_handles.clear()
+    with lifecycle._handle_lock:
+        lifecycle._active_handles.clear()
 
     yield tmp_path
 

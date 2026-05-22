@@ -3,12 +3,53 @@ swarm.tool_dispatch -- tool call validation, authority gating, and dispatch.
 
 Extracted from agent_runtime.py. Reads runtime config from agent_runtime at
 call-time via lazy import to avoid capturing stale values.
+
+## Tool registry
+
+Tools are declared as ``ToolSpec`` instances in ``_TOOL_REGISTRY``.  Each spec
+bundles the tool's name, handler, required args, and availability policy
+(QA-only, harness-only, Godot-only, aliases).  ``execute_tool`` and
+``validate_tool_call`` both read from the registry so the three concerns —
+validation, availability, and dispatch — stay in one place.
+
+Adding a new tool: append a ``ToolSpec`` to ``_TOOL_REGISTRY``.  No changes
+to ``_TOOL_REQUIRED_ARGS`` or the conditional dispatch blocks are needed.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, Optional, Set
+
+
+# ---------------------------------------------------------------------------
+# ToolSpec -- declarative tool descriptor
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolSpec:
+    """Metadata and dispatch binding for a single agent tool.
+
+    Attributes:
+        name:         Canonical tool name used in [TOOL_CALL] blocks.
+        handler:      Callable(args: dict) -> dict.  Receives the full args
+                      dict from the tool call and returns the result dict.
+        required_args: Arg names that must be present and non-empty.
+        task_types:   If non-empty, the tool is only available when
+                      TASK_TYPE is one of these values.
+        godot_only:   Available only when project.godot exists in the
+                      project root (and READONLY is False).
+        aliases:      Alternative names that map to this spec (e.g. model
+                      hallucinations from other prompt variants).
+    """
+    name: str
+    handler: Callable
+    required_args: list = field(default_factory=list)
+    task_types: Set[str] = field(default_factory=set)   # empty = all
+    godot_only: bool = False
+    aliases: list = field(default_factory=list)
 
 # Tool function imports — these are safe at module level (no circular imports)
 from swarm.tools.core import (
@@ -52,37 +93,34 @@ from swarm.qa_tools import (
 
 
 # ---------------------------------------------------------------------------
-# Required args validation table
+# Tool registry
 # ---------------------------------------------------------------------------
+# Handlers are defined as module-level lambdas/functions that take an ``args``
+# dict.  They are collected into _TOOL_REGISTRY below the imports.
+# All three concerns — required-arg validation, availability policy, and
+# dispatch — are read from a single ToolSpec, not from separate tables.
+#
+# _TOOL_REQUIRED_ARGS is kept as a backward-compatible derived view so
+# external code that reads it directly (e.g. tests) keeps working.
 
-_TOOL_REQUIRED_ARGS: dict = {
-    "read_file":        ["path"],
-    "read_file_range":  ["path", "start_line", "end_line"],
-    "get_file_outline": ["path"],
-    "get_file_stats":   ["path"],
-    "write_file":       ["path", "content"],
-    "patch_file":       ["path", "old", "new"],
-    "append_file":      ["path", "content"],
-    "run_command":      ["command"],
-    "search_code":      ["query"],
-    "web_search":       ["query"],
-    "fetch_url":        ["url"],
-    "rag_query":        ["question"],
-    "create_task":      ["description"],
-    "create_tasks_file_aware": ["tasks"],
-    "update_knowledge": ["content"],
-    "update_shared_knowledge": ["content"],
-    "mcp_call_tool":    ["server", "tool"],
-    "broadcast_read":  [],
-    "broadcast_write": ["message"],
-    "delegate_helper": ["question"],
-    "delegate_task_batch": ["children"],
-    "annotate_downstream_tasks": ["findings"],
-    "split_task":       ["task_id", "replacement_tasks"],
-    "prune_task":       ["task_id", "reason"],
-    "insert_dependency": ["from_task_id", "to_task_id"],
-    "set_task_complexity": ["task_id", "complexity"],
-}
+_TOOL_REGISTRY: list[ToolSpec] = []   # populated at bottom of module
+
+# Backward-compat view: derived from _TOOL_REGISTRY after it is populated
+_TOOL_REQUIRED_ARGS: dict = {}        # updated by _build_required_args_index()
+
+def _build_required_args_index():
+    """Rebuild _TOOL_REQUIRED_ARGS from the current _TOOL_REGISTRY."""
+    global _TOOL_REQUIRED_ARGS
+    _TOOL_REQUIRED_ARGS = {spec.name: spec.required_args for spec in _TOOL_REGISTRY}
+
+def _registry_by_name() -> dict[str, ToolSpec]:
+    """Return a name→ToolSpec lookup (canonical names + aliases)."""
+    out: dict[str, ToolSpec] = {}
+    for spec in _TOOL_REGISTRY:
+        out[spec.name] = spec
+        for alias in spec.aliases:
+            out[alias] = spec
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +138,12 @@ def validate_tool_call(tool_call: dict) -> str:
     if not isinstance(args, dict):
         return f"Tool '{tool}': 'args' must be a JSON object, got {type(args).__name__}."
 
-    required = _TOOL_REQUIRED_ARGS.get(tool, [])
+    # Resolve alias then look up required args from the registry
+    reg = _registry_by_name()
+    canonical = tool
+    if tool in reg:
+        canonical = reg[tool].name
+    required = reg[canonical].required_args if canonical in reg else _TOOL_REQUIRED_ARGS.get(tool, [])
     missing = [k for k in required if not args.get(k) and args.get(k) != 0]
     if missing:
         example_args = {k: f"<{k}>" for k in required}
@@ -268,179 +311,46 @@ def execute_tool(tool_call: dict) -> dict:
     workspace = _rt.WORKSPACE
     project = _rt.PROJECT
 
-    dispatch = {
-        "read_file":      lambda: read_file(args.get("path", ""), args.get("offset", 0), args.get("limit", 0)),
-        "list_files":     lambda: list_files(args.get("path", ".")),
-        "search_code":    lambda: search_code(args.get("query", "")),
-        "get_file_stats": lambda: get_file_stats(args.get("path", ".")),
-        "get_file_outline": lambda: get_file_outline(args.get("path", "")),
-        "read_file_range": lambda: read_file_range(args.get("path", ""), args.get("start_line", 1), args.get("end_line", 100)),
-        "patch_file": lambda: patch_file(args.get("path", ""), args.get("old", ""), args.get("new", "")),
-        "write_file":     lambda: write_file(args.get("path", ""), args.get("content", "")),
-        "run_command":    lambda: run_command(args.get("command", ""), args.get("timeout", 60)),
-        "git_commit":     lambda: git_commit(args.get("message", "Agent commit"), args.get("files")),
-        "git_push":       lambda: git_push(),
-        "mcp_call_tool":  lambda: mcp_call_tool(args.get("server", ""), args.get("tool", ""), args.get("args", {})),
-        "mcp_list_tools": lambda: mcp_list_tools(args.get("server", "")),
-        "rag_query":      lambda: rag_query(args.get("question", ""), args.get("top_k", 5)),
-        "web_search":     lambda: web_search(args.get("query", ""), args.get("max_results", 3)),
-        "fetch_url":      lambda: fetch_url(args.get("url", ""), args.get("extract_text", True)),
-        "create_task":    lambda: create_task(args.get("description", ""), args.get("type", "feature"), args.get("priority", 50), args.get("dependencies", []), args.get("project"), args.get("parent_task_id"), args.get("metadata")),
-        "create_tasks_file_aware": lambda: create_tasks_file_aware(args.get("tasks", []), args.get("project")),
-        "list_tasks":     lambda: list_tasks(args.get("project")),
-        "list_subtasks":  lambda: list_subtasks(args.get("parent_task_id")),
-        "append_file":     lambda: append_file(args.get("path", ""), args.get("content", "")),
-        "scratchpad_write": lambda: scratchpad_write(args.get("type", "note"), args.get("content", ""), args.get("files"), args.get("key")),
-        "scratchpad_read":  lambda: scratchpad_read(args.get("files"), args.get("type"), args.get("key")),
-        "update_knowledge":  lambda: update_knowledge(args.get("content", "")),
-        "read_shared_knowledge":   lambda: read_shared_knowledge(args.get("topic", "")),
-        "update_shared_knowledge": lambda: update_shared_knowledge(args.get("content", ""), args.get("topic", "")),
-        "get_task_context":        lambda: get_task_context(),
-        "broadcast_read":   lambda: broadcast_read(args.get("tail", 50)),
-        "broadcast_write":  lambda: broadcast_write(args.get("message", "")),
-        "delegate_helper": lambda: delegate_helper(
-            args.get("question", ""),
-            args.get("files", []),
-            args.get("scope", ""),
-            args.get("max_chars", 12000),
-        ),
-        "delegate_task_batch": lambda: delegate_task_batch(
-            args.get("children", []),
-            args.get("mode", "integrate"),
-            args.get("project"),
-        ),
-        "annotate_downstream_tasks": lambda: annotate_downstream_tasks(
-            args.get("findings", ""),
-            args.get("task_ids"),
-        ),
-        "split_task": lambda: split_task(
-            args.get("task_id", ""),
-            args.get("replacement_tasks", []),
-        ),
-        "prune_task": lambda: prune_task(
-            args.get("task_id", ""),
-            args.get("reason", ""),
-        ),
-        "insert_dependency": lambda: insert_dependency(
-            args.get("from_task_id", ""),
-            args.get("to_task_id", ""),
-        ),
-        "set_task_complexity": lambda: set_task_complexity(
-            args.get("task_id", ""),
-            args.get("complexity", ""),
-            args.get("reason", ""),
-        ),
-    }
+    # Build the active dispatch table from the registry.
+    # The registry is static; availability filtering (Godot, QA, harness) is
+    # done here so execute_tool always reflects the current runtime state.
+    reg = _registry_by_name()
+    dispatch: dict[str, Callable] = {}
 
-    # Godot game-verification tools — available to all non-readonly Godot tasks.
     _godot_project_file = (
         Path(_rt.PROJECT_PATH_OVERRIDE) if _rt.PROJECT_PATH_OVERRIDE else (workspace / project)
     ) / "project.godot"
-    if _godot_project_file.exists() and not _rt.READONLY:
-        dispatch.update({
-            "launch_game":    lambda: launch_game_headless(args.get("project_path", str(workspace / project))),
-            "get_game_state": lambda: qa_get_game_state(),
-            "wait":           lambda: qa_wait(args.get("seconds", 1)),
-            "kill_game":      lambda: qa_kill_game(),
-        })
+    _godot_available = _godot_project_file.exists() and not _rt.READONLY
+    _qa_types = {"qa", "art_pass", "hybrid_qa"}
+    _harness_types = {"harness_qa"}
+    _harness_available = (
+        _rt.TASK_TYPE in _harness_types
+        or (_rt.TASK_TYPE == "hybrid_qa" and _project_supports_harness())
+    )
 
-    # QA-only tools (vision-led game interaction)
-    if _rt.TASK_TYPE in ("qa", "art_pass", "hybrid_qa"):
-        dispatch.update({
-            "focus_game":      lambda: qa_focus_game(),
-            "position_window": lambda: qa_position_window(),
-            "launch_game":     lambda: (
-                harness_launch_game(
-                    args.get("project_path", str(workspace / project)),
-                    _parse_extra_args(args.get("extra_args")),
-                )
-                if _rt.TASK_TYPE == "hybrid_qa" and _project_supports_harness() and _parse_extra_args(args.get("extra_args"))
-                else qa_launch_game(args.get("project_path", str(workspace / project)))
-            ),
-            "get_window_bounds": lambda: qa_get_window_bounds(args.get("process_name", "Godot_4")),
-            "take_screenshot": lambda: qa_take_screenshot(
-                args.get("filename", "/tmp/qa_screenshot.png"),
-            ),
-            "click_at":        lambda: qa_click_at(args.get("x", 0), args.get("y", 0)),
-            "click_element":   lambda: qa_click_element(
-                args.get("image_path", ""),
-                args.get("element_description", ""),
-            ),
-            "key_press":       lambda: qa_key_press(args.get("key", "")),
-            "press_button":    lambda: qa_press_button(args.get("text", "")),
-            "wait":            lambda: qa_wait(args.get("seconds", 1)),
-            "vision_query":    lambda: qa_vision_query(
-                args.get("image_path", ""),
-                args.get("question", ""),
-                args.get("model", "fast"),
-            ),
-            "get_game_state":  lambda: qa_get_game_state(),
-            "wait_for_idle":   lambda: qa_wait_for_idle(
-                args.get("timeout", 10.0),
-                args.get("interval", 0.5),
-            ),
-            "poll_until":      lambda: qa_poll_until(
-                args.get("condition_key", ""),
-                args.get("condition_value"),
-                args.get("timeout", 10.0),
-                args.get("interval", 0.1),
-                args.get("negate", False),
-            ),
-            "wait_until":      lambda: qa_wait_until(
-                args.get("state_key", ""),
-                args.get("target_value"),
-                args.get("timeout", 10.0),
-                args.get("interval", 0.1),
-            ),
-            "run_sequence":    lambda: qa_run_sequence(args.get("actions", [])),
-            "kill_game":       lambda: qa_kill_game(),
-            "create_bug_task": lambda: qa_create_bug_task(
-                args.get("description", ""),
-                args.get("evidence_path", ""),
-                args.get("priority", 80),
-                args.get("dependencies", None),
-            ),
-            "requeue_self":    lambda: qa_requeue_self(args.get("bug_task_ids", [])),
-        })
+    for spec in _TOOL_REGISTRY:
+        # Skip tools restricted to specific task types
+        if spec.task_types and _rt.TASK_TYPE not in spec.task_types:
+            continue
+        # Skip Godot-only tools when project.godot is absent
+        if spec.godot_only and not _godot_available:
+            continue
+        # Handler is a factory: call with (args, workspace, project) context
+        dispatch[spec.name] = lambda s=spec: s.handler(args, workspace, project)
 
-    # Harness QA tools — synchronous checkpoint protocol
-    if _rt.TASK_TYPE == "harness_qa" or (_rt.TASK_TYPE == "hybrid_qa" and _project_supports_harness()):
-        dispatch.update({
-            "harness_launch_game": lambda: harness_launch_game(
-                str(workspace / project),
-                _parse_extra_args(args.get("extra_args")),
-            ),
-            "harness_step":    lambda: harness_step(_resolve_harness_action(args), int(args.get("timeout", 30))),
-            "harness_kill_game": lambda: harness_kill_game(),
-            "harness_poll_state": lambda: harness_poll_state(int(args.get("timeout", 5))),
-            "harness_inject": lambda: harness_inject(
-                args.get("command") if isinstance(args.get("command"), dict)
-                    else (__import__('json').loads(args["command"]) if isinstance(args.get("command"), str) and args["command"].strip().startswith("{")
-                          else {k: v for k, v in args.items() if k not in ("timeout",)} if "command" in args
-                          else args),
-                int(args.get("timeout", 5)),
-            ),
-            "harness_take_screenshot": lambda: harness_take_screenshot(
-                args.get("filename", f"data/harness_screenshot_{int(__import__('time').time())}.png"),
-            ),
-            "create_bug_task": lambda: qa_create_bug_task(
-                args.get("description", ""),
-                args.get("evidence_path", ""),
-                args.get("priority", 80),
-                args.get("dependencies", None),
-            ),
-            "requeue_self":    lambda: qa_requeue_self(args.get("bug_task_ids", [])),
-        })
+    # Register aliases into dispatch
+    seen_aliases = set()
+    for spec in _TOOL_REGISTRY:
+        for alias in spec.aliases:
+            if alias not in dispatch:
+                dispatch[alias] = lambda s=spec: s.handler(args, workspace, project)
+                seen_aliases.add(alias)
 
-    # Aliases — model sometimes hallucinates tool names from other prompt variants
-    _TOOL_ALIASES = {
-        "harness_launch_game": "launch_game",
-        "harness_get_state":   "get_game_state",
-        "harness_screenshot":  "take_screenshot",
-        "start_game":          "launch_game",
-    }
-    resolved_tool = _TOOL_ALIASES.get(tool, tool)
-    if resolved_tool != tool:
+    # Resolve alias (log when an alias is used)
+    resolved_tool = tool
+    spec_for_tool = reg.get(tool)
+    if spec_for_tool and spec_for_tool.name != tool:
+        resolved_tool = spec_for_tool.name
         log(f"Tool alias: {tool} → {resolved_tool}")
 
     fn = dispatch.get(resolved_tool)
@@ -451,5 +361,148 @@ def execute_tool(tool_call: dict) -> dict:
         return result
     return {
         "ok": False,
-        "error": f"Unknown tool: {tool}. Valid tools: {', '.join(dispatch.keys())}",
+        "error": f"Unknown tool: {tool}. Valid tools: {', '.join(k for k in dispatch if k not in seen_aliases)}",
     }
+
+
+# ---------------------------------------------------------------------------
+# Tool registry population
+# ---------------------------------------------------------------------------
+# Handlers are module-level functions taking (args, workspace, project).
+# Availability (task_types, godot_only) is declared on the ToolSpec.
+
+_QA_TYPES = {"qa", "art_pass", "hybrid_qa"}
+_HARNESS_TYPES = {"harness_qa", "hybrid_qa"}
+
+
+def _populate_registry():
+    """Build _TOOL_REGISTRY from handler functions.  Called once at module load."""
+    _TOOL_REGISTRY.clear()
+
+    def _reg(name, handler, required_args=None, task_types=(), godot_only=False, aliases=()):
+        _TOOL_REGISTRY.append(ToolSpec(
+            name=name,
+            handler=handler,
+            required_args=list(required_args or []),
+            task_types=set(task_types),
+            godot_only=godot_only,
+            aliases=list(aliases),
+        ))
+
+    # --- File tools ---
+    _reg("read_file",       lambda a, ws, p: read_file(a.get("path", ""), a.get("offset", 0), a.get("limit", 0)),         ["path"])
+    _reg("list_files",      lambda a, ws, p: list_files(a.get("path", ".")))
+    _reg("search_code",     lambda a, ws, p: search_code(a.get("query", "")),                                              ["query"])
+    _reg("get_file_stats",  lambda a, ws, p: get_file_stats(a.get("path", ".")),                                           ["path"])
+    _reg("get_file_outline",lambda a, ws, p: get_file_outline(a.get("path", "")),                                          ["path"])
+    _reg("read_file_range", lambda a, ws, p: read_file_range(a.get("path", ""), a.get("start_line", 1), a.get("end_line", 100)), ["path", "start_line", "end_line"])
+    _reg("patch_file",      lambda a, ws, p: patch_file(a.get("path", ""), a.get("old", ""), a.get("new", "")),            ["path", "old", "new"])
+    _reg("write_file",      lambda a, ws, p: write_file(a.get("path", ""), a.get("content", "")),                          ["path", "content"])
+    _reg("append_file",     lambda a, ws, p: append_file(a.get("path", ""), a.get("content", "")),                         ["path", "content"])
+
+    # --- Shell / git ---
+    _reg("run_command",     lambda a, ws, p: run_command(a.get("command", ""), a.get("timeout", 60)),                       ["command"])
+    _reg("git_commit",      lambda a, ws, p: git_commit(a.get("message", "Agent commit"), a.get("files")))
+    _reg("git_push",        lambda a, ws, p: git_push())
+
+    # --- Web / network ---
+    _reg("web_search",      lambda a, ws, p: web_search(a.get("query", ""), a.get("max_results", 3)),                       ["query"])
+    _reg("fetch_url",       lambda a, ws, p: fetch_url(a.get("url", ""), a.get("extract_text", True)),                      ["url"])
+    _reg("rag_query",       lambda a, ws, p: rag_query(a.get("question", ""), a.get("top_k", 5)),                           ["question"])
+
+    # --- MCP ---
+    _reg("mcp_call_tool",   lambda a, ws, p: mcp_call_tool(a.get("server", ""), a.get("tool", ""), a.get("args", {})),     ["server", "tool"])
+    _reg("mcp_list_tools",  lambda a, ws, p: mcp_list_tools(a.get("server", "")))
+
+    # --- Task tools ---
+    _reg("create_task",     lambda a, ws, p: create_task(a.get("description", ""), a.get("type", "feature"), a.get("priority", 50), a.get("dependencies", []), a.get("project"), a.get("parent_task_id"), a.get("metadata")), ["description"])
+    _reg("create_tasks_file_aware", lambda a, ws, p: create_tasks_file_aware(a.get("tasks", []), a.get("project")),         ["tasks"])
+    _reg("list_tasks",      lambda a, ws, p: list_tasks(a.get("project")))
+    _reg("list_subtasks",   lambda a, ws, p: list_subtasks(a.get("parent_task_id")))
+    _reg("annotate_downstream_tasks", lambda a, ws, p: annotate_downstream_tasks(a.get("findings", ""), a.get("task_ids")), ["findings"])
+    _reg("split_task",      lambda a, ws, p: split_task(a.get("task_id", ""), a.get("replacement_tasks", [])),             ["task_id", "replacement_tasks"])
+    _reg("prune_task",      lambda a, ws, p: prune_task(a.get("task_id", ""), a.get("reason", "")),                        ["task_id", "reason"])
+    _reg("insert_dependency", lambda a, ws, p: insert_dependency(a.get("from_task_id", ""), a.get("to_task_id", "")),      ["from_task_id", "to_task_id"])
+    _reg("set_task_complexity", lambda a, ws, p: set_task_complexity(a.get("task_id", ""), a.get("complexity", ""), a.get("reason", "")), ["task_id", "complexity"])
+    _reg("delegate_task_batch", lambda a, ws, p: delegate_task_batch(a.get("children", []), a.get("mode", "integrate"), a.get("project")), ["children"])
+
+    # --- Knowledge / scratchpad ---
+    _reg("scratchpad_write",    lambda a, ws, p: scratchpad_write(a.get("type", "note"), a.get("content", ""), a.get("files"), a.get("key")))
+    _reg("scratchpad_read",     lambda a, ws, p: scratchpad_read(a.get("files"), a.get("type"), a.get("key")))
+    _reg("update_knowledge",    lambda a, ws, p: update_knowledge(a.get("content", "")),                                   ["content"])
+    _reg("read_agent_knowledge",lambda a, ws, p: read_agent_knowledge())
+    _reg("get_task_context",    lambda a, ws, p: get_task_context())
+    _reg("read_shared_knowledge",   lambda a, ws, p: read_shared_knowledge(a.get("topic", "")))
+    _reg("update_shared_knowledge", lambda a, ws, p: update_shared_knowledge(a.get("content", ""), a.get("topic", "")),   ["content"])
+
+    # --- Broadcast ---
+    _reg("broadcast_read",  lambda a, ws, p: broadcast_read(a.get("tail", 50)))
+    _reg("broadcast_write", lambda a, ws, p: broadcast_write(a.get("message", "")),                                        ["message"])
+    _reg("delegate_helper", lambda a, ws, p: delegate_helper(a.get("question", ""), a.get("files", []), a.get("scope", ""), a.get("max_chars", 12000)), ["question"])
+
+    # --- Godot game verification (all non-readonly Godot projects) ---
+    _reg("launch_game",   lambda a, ws, p: launch_game_headless(a.get("project_path", str(ws / p))),   godot_only=True)
+    _reg("get_game_state",lambda a, ws, p: qa_get_game_state(),                                          godot_only=True)
+    _reg("wait",          lambda a, ws, p: qa_wait(a.get("seconds", 1)),                                 godot_only=True)
+    _reg("kill_game",     lambda a, ws, p: qa_kill_game(),                                               godot_only=True)
+
+    # --- QA-only tools ---
+    # launch_game override for QA: hybrid_qa may use harness_launch_game when
+    # extra_args are present and the project supports a harness.
+    def _qa_launch_game(a, ws, p):
+        from swarm.runtime_config import _parse_extra_args, _project_supports_harness
+        import swarm.agent_runtime as _rt
+        extra = _parse_extra_args(a.get("extra_args"))
+        if _rt.TASK_TYPE == "hybrid_qa" and _project_supports_harness() and extra:
+            return harness_launch_game(a.get("project_path", str(ws / p)), extra)
+        return qa_launch_game(a.get("project_path", str(ws / p)))
+    _reg("launch_game",     _qa_launch_game,                                                             task_types=_QA_TYPES)
+    _reg("focus_game",      lambda a, ws, p: qa_focus_game(),                                            task_types=_QA_TYPES)
+    _reg("position_window", lambda a, ws, p: qa_position_window(),                                       task_types=_QA_TYPES)
+    _reg("get_window_bounds",lambda a, ws, p: qa_get_window_bounds(a.get("process_name", "Godot_4")),    task_types=_QA_TYPES)
+    _reg("take_screenshot", lambda a, ws, p: qa_take_screenshot(a.get("filename", "/tmp/qa_screenshot.png")), task_types=_QA_TYPES)
+    _reg("click_at",        lambda a, ws, p: qa_click_at(a.get("x", 0), a.get("y", 0)),                  task_types=_QA_TYPES)
+    _reg("click_element",   lambda a, ws, p: qa_click_element(a.get("image_path", ""), a.get("element_description", "")), task_types=_QA_TYPES)
+    _reg("key_press",       lambda a, ws, p: qa_key_press(a.get("key", "")),                             task_types=_QA_TYPES)
+    _reg("press_button",    lambda a, ws, p: qa_press_button(a.get("text", "")),                          task_types=_QA_TYPES)
+    _reg("vision_query",    lambda a, ws, p: qa_vision_query(a.get("image_path", ""), a.get("question", ""), a.get("model", "fast")), task_types=_QA_TYPES)
+    _reg("wait_for_idle",   lambda a, ws, p: qa_wait_for_idle(a.get("timeout", 10.0), a.get("interval", 0.5)), task_types=_QA_TYPES)
+    _reg("poll_until",      lambda a, ws, p: qa_poll_until(a.get("condition_key", ""), a.get("condition_value"), a.get("timeout", 10.0), a.get("interval", 0.1), a.get("negate", False)), task_types=_QA_TYPES)
+    _reg("wait_until",      lambda a, ws, p: qa_wait_until(a.get("state_key", ""), a.get("target_value"), a.get("timeout", 10.0), a.get("interval", 0.1)), task_types=_QA_TYPES)
+    _reg("run_sequence",    lambda a, ws, p: qa_run_sequence(a.get("actions", [])),                       task_types=_QA_TYPES)
+    _reg("create_bug_task", lambda a, ws, p: qa_create_bug_task(a.get("description", ""), a.get("evidence_path", ""), a.get("priority", 80), a.get("dependencies", None)), task_types=_QA_TYPES)
+    _reg("requeue_self",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                  task_types=_QA_TYPES)
+
+    # --- Harness QA tools ---
+    _reg("harness_launch_game",    lambda a, ws, p: harness_launch_game(str(ws / p), _parse_extra_args(a.get("extra_args"))), task_types=_HARNESS_TYPES)
+    _reg("harness_step",           lambda a, ws, p: harness_step(_resolve_harness_action(a), int(a.get("timeout", 30))),      task_types=_HARNESS_TYPES)
+    _reg("harness_kill_game",      lambda a, ws, p: harness_kill_game(),                                                      task_types=_HARNESS_TYPES)
+    _reg("harness_poll_state",     lambda a, ws, p: harness_poll_state(int(a.get("timeout", 5))),                             task_types=_HARNESS_TYPES)
+    _reg("harness_take_screenshot",lambda a, ws, p: harness_take_screenshot(a.get("filename", f"data/harness_screenshot_{int(__import__('time').time())}.png")), task_types=_HARNESS_TYPES)
+    _reg("harness_inject",         lambda a, ws, p: harness_inject(
+        a.get("command") if isinstance(a.get("command"), dict)
+        else (__import__('json').loads(a["command"]) if isinstance(a.get("command"), str) and a["command"].strip().startswith("{")
+              else {k: v for k, v in a.items() if k not in ("timeout",)} if "command" in a
+              else a),
+        int(a.get("timeout", 5)),
+    ), task_types=_HARNESS_TYPES)
+    # create_bug_task + requeue_self also available in harness_qa
+    _reg("create_bug_task_harness", lambda a, ws, p: qa_create_bug_task(a.get("description", ""), a.get("evidence_path", ""), a.get("priority", 80), a.get("dependencies", None)), task_types={"harness_qa"}, aliases=["create_bug_task"])
+    _reg("requeue_self_harness",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                              task_types={"harness_qa"}, aliases=["requeue_self"])
+
+    # Aliases — model sometimes hallucinates tool names from other prompt variants
+    # (applied via the aliases= field on existing specs rather than separate entries)
+    for spec in list(_TOOL_REGISTRY):
+        if spec.name == "launch_game":
+            spec.aliases.extend(["start_game"])
+        if spec.name == "harness_launch_game":
+            spec.aliases.extend(["harness_launch_game"])  # no-op self-alias; real aliases below
+        if spec.name == "get_game_state":
+            spec.aliases.extend(["harness_get_state"])
+        if spec.name == "take_screenshot":
+            spec.aliases.extend(["harness_screenshot"])
+
+    _build_required_args_index()
+
+
+_populate_registry()

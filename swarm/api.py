@@ -28,6 +28,143 @@ _config_write_lock = threading.Lock()
 from swarm.api_webhook import fire_webhook as _fire_webhook
 
 
+# ---------------------------------------------------------------------------
+# Startup helpers (extracted from create_app for focused testability)
+# ---------------------------------------------------------------------------
+
+def _init_db(data_dir: Path):
+    """Initialise SQLite, run schema migrations, and repair any corrupted rows.
+
+    Idempotent: safe to call multiple times (db.init() is a no-op if already
+    initialised with the same path).  Extracted from create_app so DB startup
+    can be tested independently of Flask app construction.
+    """
+    from swarm import db
+    db_path = data_dir / "swarm.db"
+    db.init(db_path, migrate_from={
+        "tasks":    data_dir / "task-queue.json",
+        "projects": data_dir / "projects.json",
+        "agents":   data_dir / "agents.json",
+    })
+    try:
+        repaired_project_locks = db.repair_project_lock_rows()
+        if repaired_project_locks:
+            print(f"[API] Repaired corrupted project lock rows: {', '.join(sorted(repaired_project_locks))}")
+        repaired_task_rows = db.repair_malformed_task_rows()
+        if repaired_task_rows:
+            print(f"[API] Repaired malformed task rows: {', '.join(sorted(repaired_task_rows))}")
+        backfilled_completed = db.backfill_completed_task_ids()
+        if backfilled_completed:
+            print(f"[API] Backfilled completed task archive rows: {', '.join(sorted(backfilled_completed))}")
+    except Exception as exc:
+        print(f"[API] Startup repair skipped: {exc}")
+    return db_path
+
+
+def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, project_registry) -> Optional[object]:
+    """Wire orchestrator, agent_lifecycle, and swarm_runner module globals from config.
+
+    Returns the generate_task_script callable (or None if swarm_runner unavailable).
+    Extracted from create_app so runtime wiring can be tested or re-applied without
+    reconstructing the full Flask app.
+    """
+    from swarm import orchestrator, agent_lifecycle
+    from swarm.constants import AGENT_TIMEOUT
+
+    orchestrator.WORKSPACE           = workspace
+    orchestrator.DATA_DIR            = data_dir
+    orchestrator.HISTORY_FILE        = data_dir / "agent-history.jsonl"
+    orchestrator.MAX_ACTIVE_AGENTS   = config.get("max_active_agents", 3)
+    orchestrator.MAX_LINES           = config.get("max_lines", 5000)
+    orchestrator.LOCK_PROJECT        = config.get("lock_project", False)
+    orchestrator.AGENT_TIMEOUT       = config.get("agent_timeout", AGENT_TIMEOUT)
+    orchestrator.QUOTA_LIMIT_PERCENT = config.get("quota_limit_percent", 90)
+    orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
+    orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
+    orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
+    _startup_ceiling = config.get("max_active_agents", 60)
+    orchestrator._auto_scale_current = _startup_ceiling
+    if config.get("auto_scale", False):
+        orchestrator.MAX_ACTIVE_AGENTS = _startup_ceiling
+    orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
+    orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
+    orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))
+    orchestrator.IGNORE_EXTENSIONS   = set(config.get("ignore_extensions", []))
+    orchestrator.MANAGED_PROJECTS         = config.get("managed_projects", [])
+    orchestrator.TASK_SELECTION_STRATEGY  = config.get("task_selection_strategy", "priority")
+    orchestrator.PAUSED_PROJECTS          = config.get("paused_projects", [])
+    orchestrator.AUTO_REPLAN_PROJECTS     = config.get("auto_replan_projects", [])
+    orchestrator._projects_sprint_qa_done.update(config.get("auto_replan_projects", []))
+    orchestrator.MINIMAX_API_KEY     = os.environ.get("MINIMAX_API_KEY", "")
+    orchestrator.LLM_PROVIDER        = config.get("llm_provider", "minimax")
+    orchestrator.FALLBACK_PROVIDERS  = config.get("fallback_providers", [])
+    orchestrator.WEBHOOK_URL         = config.get("completion_webhook_url", "")
+
+    agent_lifecycle.configure(
+        workspace=workspace,
+        data_dir=data_dir,
+        use_worktrees=config.get("use_worktrees", True),
+        webhook_url=config.get("completion_webhook_url", ""),
+        auto_replan_projects=config.get("auto_replan_projects", []),
+        paused_projects=config.get("paused_projects", []),
+        lock_project=config.get("lock_project", False),
+        max_active_agents=config.get("max_active_agents", 3),
+        agent_timeout=config.get("agent_timeout", AGENT_TIMEOUT),
+        project_registry=project_registry,
+    )
+
+    try:
+        import swarm_runner as _runner_mod
+        _runner_mod.WORKSPACE          = workspace
+        _runner_mod.DATA_DIR           = data_dir
+        _runner_mod.MAX_LINES          = config.get("max_lines", 5000)
+        _runner_mod.IGNORE_DIRS        = set(config.get("ignore_dirs", []))
+        _runner_mod.IGNORE_EXTENSIONS  = set(config.get("ignore_extensions", []))
+        _runner_mod.MCP_SERVERS        = config.get("mcp_servers", {})
+        _runner_mod.LLM_PROVIDER       = config.get("llm_provider", "minimax")
+        if config.get("llm_providers"):
+            for _n, _c in config["llm_providers"].items():
+                if _n in _runner_mod.LLM_PROVIDERS:
+                    _runner_mod.LLM_PROVIDERS[_n].update(_c)
+                else:
+                    _runner_mod.LLM_PROVIDERS[_n] = _c
+        from swarm_runner import generate_task_script
+        return generate_task_script, _runner_mod
+    except Exception:
+        return None, None
+
+
+def _handle_startup_orphans(data_dir: Path, agent_timeout: float):
+    """Mark long-running orphan agents as failed on startup.
+
+    After a server restart, agents that were 'active' have no live process handle.
+    Those older than agent_timeout are marked failed and their tasks reset to pending.
+    Recent orphans are left alone — they will be reaped by the monitor on the next tick.
+
+    Extracted from create_app so orphan handling can be tested independently.
+    """
+    from swarm import db
+    _now = datetime.now()
+    for _a in db.agent_get_active():
+        if _a.get("status") != "active":
+            continue
+        spawned_at = _a.get("spawned_at", "")
+        try:
+            age = (_now - datetime.fromisoformat(spawned_at)).total_seconds()
+        except Exception:
+            age = agent_timeout + 1
+        _aid = _a["id"]
+        if age > agent_timeout:
+            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — marking failed")
+            db.agent_update_status(_aid, "failed",
+                                   completed_at=_now.isoformat(), exit_code=-1,
+                                   output="[Swarm] Orphan: server restarted while agent was running")
+            if _a.get("task_id"):
+                db.task_update_status(_a["task_id"], "pending")
+        else:
+            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — within timeout, will reap normally")
+
+
 def create_app(
     workspace: Optional[Path] = None,
     data_dir: Optional[Path] = None,
@@ -93,129 +230,20 @@ def create_app(
     from swarm.projects import SQLiteProjectRegistry
     from swarm.agents import SQLiteAgentTracker
 
-    # Initialise SQLite (migrates from JSON files on first run)
-    db_path = data_dir / "swarm.db"
-    db.init(db_path, migrate_from={
-        "tasks":    data_dir / "task-queue.json",
-        "projects": data_dir / "projects.json",
-        "agents":   data_dir / "agents.json",
-    })
-    try:
-        repaired_project_locks = db.repair_project_lock_rows()
-        if repaired_project_locks:
-            print(f"[API] Repaired corrupted project lock rows: {', '.join(sorted(repaired_project_locks))}")
-        repaired_task_rows = db.repair_malformed_task_rows()
-        if repaired_task_rows:
-            print(f"[API] Repaired malformed task rows: {', '.join(sorted(repaired_task_rows))}")
-        backfilled_completed = db.backfill_completed_task_ids()
-        if backfilled_completed:
-            print(f"[API] Backfilled completed task archive rows: {', '.join(sorted(backfilled_completed))}")
-    except Exception as exc:
-        print(f"[API] Startup repair skipped: {exc}")
+    # Initialise SQLite, run schema migrations, and repair any corrupted rows.
+    db_path = _init_db(data_dir)
+    print(f"[API] SQLite db initialised at {db_path}")
 
     task_source      = SQLiteTaskSource()
     project_registry = SQLiteProjectRegistry(workspace)
     agent_tracker    = SQLiteAgentTracker()
 
-    # Initialise orchestrator with runtime config
+    # Wire orchestrator, agent_lifecycle, and swarm_runner globals from config.
     from swarm import orchestrator
-    orchestrator.WORKSPACE           = workspace
-    orchestrator.DATA_DIR            = data_dir
-    orchestrator.HISTORY_FILE        = data_dir / "agent-history.jsonl"
-    orchestrator.MAX_ACTIVE_AGENTS   = config.get("max_active_agents", 3)
-    orchestrator.MAX_LINES           = config.get("max_lines", 5000)
-    orchestrator.LOCK_PROJECT        = config.get("lock_project", False)
-    orchestrator.AGENT_TIMEOUT       = config.get("agent_timeout", AGENT_TIMEOUT)
-    orchestrator.QUOTA_LIMIT_PERCENT = config.get("quota_limit_percent", 90)
-    orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
-    orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
-    orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
-    # On restart, begin at the ceiling so any surviving orphan agents don't
-    # immediately stall fill_slots.  The scaler will decrement if 429s appear.
-    _startup_ceiling = config.get("max_active_agents", 60)
-    orchestrator._auto_scale_current = _startup_ceiling
-    if config.get("auto_scale", False):
-        orchestrator.MAX_ACTIVE_AGENTS = _startup_ceiling
-    orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
-    orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
-    orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))
-    orchestrator.IGNORE_EXTENSIONS   = set(config.get("ignore_extensions", []))
-    orchestrator.MANAGED_PROJECTS         = config.get("managed_projects", [])
-    orchestrator.TASK_SELECTION_STRATEGY  = config.get("task_selection_strategy", "priority")
-    orchestrator.PAUSED_PROJECTS          = config.get("paused_projects", [])
-    orchestrator.AUTO_REPLAN_PROJECTS     = config.get("auto_replan_projects", [])
-    # On startup, assume QA is already done for all auto_replan projects so the first
-    # fill_slots fires the sprint planner (not QA) when the queue is empty.
-    orchestrator._projects_sprint_qa_done.update(config.get("auto_replan_projects", []))
-    orchestrator.MINIMAX_API_KEY     = os.environ.get("MINIMAX_API_KEY", "")
-    orchestrator.LLM_PROVIDER        = config.get("llm_provider", "minimax")
-    orchestrator.FALLBACK_PROVIDERS  = config.get("fallback_providers", [])
-    orchestrator.WEBHOOK_URL         = config.get("completion_webhook_url", "")
+    generate_task_script, _runner_mod = _wire_runtime(config, workspace, data_dir, project_registry)
 
-    # Re-configure agent_lifecycle with the resolved runtime values. The module-level
-    # configure() call in orchestrator.py runs at import time with WORKSPACE=Path("."),
-    # so it must be re-applied here after api.py has resolved the real paths.
-    from swarm import agent_lifecycle
-    agent_lifecycle.configure(
-        workspace=workspace,
-        data_dir=data_dir,
-        use_worktrees=config.get("use_worktrees", True),
-        webhook_url=config.get("completion_webhook_url", ""),
-        auto_replan_projects=config.get("auto_replan_projects", []),
-        paused_projects=config.get("paused_projects", []),
-        max_active_agents=config.get("max_active_agents", 3),
-        agent_timeout=config.get("agent_timeout", AGENT_TIMEOUT),
-        project_registry=project_registry,
-    )
-
-    # Import generate_task_script from the runner (single source of truth for prompts).
-    # Sync the runner's module-level config vars so generate_task_script uses resolved values.
-    try:
-        import swarm_runner as _runner_mod
-        _runner_mod.WORKSPACE          = workspace
-        _runner_mod.DATA_DIR           = data_dir
-        _runner_mod.MAX_LINES          = config.get("max_lines", 5000)
-        _runner_mod.IGNORE_DIRS        = set(config.get("ignore_dirs", []))
-        _runner_mod.IGNORE_EXTENSIONS  = set(config.get("ignore_extensions", []))
-        _runner_mod.MCP_SERVERS        = config.get("mcp_servers", {})
-        _runner_mod.LLM_PROVIDER       = config.get("llm_provider", "minimax")
-        if config.get("llm_providers"):
-            for _n, _c in config["llm_providers"].items():
-                if _n in _runner_mod.LLM_PROVIDERS:
-                    _runner_mod.LLM_PROVIDERS[_n].update(_c)
-                else:
-                    _runner_mod.LLM_PROVIDERS[_n] = _c
-        from swarm_runner import generate_task_script
-    except Exception:
-        generate_task_script = None
-    print(f"[API] SQLite db initialised at {db_path}")
-
-    # Orphan detection: on startup, any agent still "active" has no live process
-    # handle (they were lost on the previous server shutdown). If the agent has
-    # been running longer than agent_timeout, mark it failed and reset its task.
-    _agent_timeout = config.get("agent_timeout", AGENT_TIMEOUT)
-    _now = datetime.now()
-    for _a in db.agent_get_active():
-        if _a.get("status") != "active":
-            continue
-        spawned_at = _a.get("spawned_at", "")
-        try:
-            age = (_now - datetime.fromisoformat(spawned_at)).total_seconds()
-        except Exception:
-            age = _agent_timeout + 1  # unknown age → treat as timed out
-        _aid = _a["id"]
-        if age > _agent_timeout:
-            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — marking failed")
-            db.agent_update_status(_aid, "failed",
-                                   completed_at=_now.isoformat(), exit_code=-1,
-                                   output="[Swarm] Orphan: server restarted while agent was running")
-            if _a.get("task_id"):
-                db.task_update_status(_a["task_id"], "pending")
-        else:
-            # Agent was spawned recently enough — assume it's still running.
-            # It will be reaped normally on the next monitor tick once its
-            # process exits, or timed out by the existing hung-agent check.
-            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — within timeout, will reap normally")
+    # Mark long-running orphan agents as failed; recent orphans reap on next tick.
+    _handle_startup_orphans(data_dir, config.get("agent_timeout", AGENT_TIMEOUT))
 
     _start_time = time.time()
 
@@ -251,6 +279,10 @@ def create_app(
         if dashboard_path.exists():
             return send_file(dashboard_path)
         return jsonify({"message": "No dashboard found"})
+
+    @app.route("/dashboard-utils.js")
+    def serve_dashboard_utils_js():
+        return send_from_directory(project_root, "dashboard-utils.js", mimetype="application/javascript")
 
     @app.route("/dashboard.js")
     def serve_dashboard_js():

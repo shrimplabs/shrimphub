@@ -20,42 +20,118 @@ from swarm.task_chains import anchor_project_batch_roots, chain_to_project_head,
 
 
 def _llm_call(prompt: str, system: str, config: dict) -> str:
-    """Minimal LLM call using the currently configured provider."""
-    import requests as _req
-    provider_name = config.get("llm_provider", "minimax")
-    from swarm_runner import LLM_PROVIDERS as _providers
-    cfg = dict(_providers.get(provider_name, _providers.get("minimax", {})))
-    api_key_env = cfg.get("api_key_env", "MINIMAX_API_KEY")
-    api_key = os.environ.get(api_key_env, "")
-    if not api_key:
-        raise ValueError(f"{api_key_env} not set")
-    base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
-    model = cfg.get("model", "MiniMax-M2.7")
-    fmt = cfg.get("format", "anthropic")
-    max_tok = cfg.get("max_tokens", 8096)
-    messages = [{"role": "user", "content": prompt}]
-    if fmt == "anthropic_native":
-        url = f"{base_url}/messages"
-        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
-        body = {"model": model, "max_tokens": max_tok, "system": system, "messages": messages}
-    elif fmt == "openai":
-        url = f"{base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        body = {"model": model, "max_tokens": max_tok,
-                "messages": [{"role": "system", "content": system}] + messages}
-    else:
-        url = f"{base_url}/messages"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        body = {"model": model, "max_tokens": max_tok, "system": system, "messages": messages}
-        group_id = os.environ.get("MINIMAX_GROUP_ID", "")
-        if group_id:
-            body["group_id"] = group_id
-    resp = _req.post(url, headers=headers, json=body, timeout=180)
-    resp.raise_for_status()
-    data = resp.json()
-    if "content" in data:
-        return "".join(item.get("text", "") for item in data["content"] if item.get("type") == "text")
-    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    """One-shot LLM call using the currently configured provider.
+
+    Delegates to _chat_call_llm (the shared chat/wizard LLM wrapper) so all
+    provider resolution, retry, and format handling live in one place.
+    """
+    return _chat_call_llm(
+        system_prompt=system,
+        messages=[{"role": "user", "content": prompt}],
+        config=config,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Prompt templates (extracted from route bodies for readability and testability)
+# ---------------------------------------------------------------------------
+
+_IMAGINE_SYSTEM = (
+    "You are a wildly creative game designer and software inventor. "
+    "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+)
+
+_IMAGINE_PROMPT_TEMPLATE = """\
+Invent a completely original concept for {type_desc}.{hint_line}
+
+You have total creative freedom. No scope limits — if you want to design an MMO, a physics sandbox,
+a generative art tool, or something that has never been built before, go for it.
+
+Return a JSON object with this exact structure:
+{{
+  "project_name": "slug-style-name-no-spaces",
+  "display_name": "Human Readable Title",
+  "project_type": "{project_type}",
+  "description": "2-4 sentences describing the concept, core mechanics, and what makes it interesting",
+  "genre": "one word or short phrase",
+  "ambition_level": "small | medium | large | massive"
+}}
+
+Rules:
+- project_name must be lowercase, hyphens only, no spaces, 2-4 words
+- Be genuinely creative — avoid the most obvious ideas (simple snake, basic platformer, todo app)
+- description should be specific enough that an AI agent can start building immediately
+- Output ONLY the JSON object, nothing else"""
+
+_PLAN_SYSTEM = (
+    "You are a senior software architect helping plan a development project. "
+    "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+)
+
+_PLAN_PROMPT_TEMPLATE = """\
+Plan the full implementation of this project as a comprehensive, atomic list of tasks for autonomous AI agents.
+
+Project name: {project_name}
+Project type: {type_hint}
+Goal: {description}
+
+Return a JSON object with this exact structure:
+{{
+  "tasks": [
+    {{
+      "type": "feature",
+      "priority": 50,
+      "description": "Concise, actionable description of what the agent should implement",
+      "depends_on": []
+    }}
+  ]
+}}
+
+ATOMICITY RULES — each task must be a single, self-contained unit of work:
+- One task = one logical concern (one script, one scene, one system, one mechanic)
+- NEVER bundle implementation + tests in one task — always split into separate tasks with a dependency
+- NEVER combine two distinct systems in one task — any "and" or "+" in a description is a split signal
+- One task should touch at most 2–3 files
+- Target size: what one agent can do in ~30 tool loops
+
+DEPENDENCY GRAPH RULES:
+- Use a DAG (directed acyclic graph) with meaningful branching AND convergence.
+- A task only depends on another if it literally cannot start without that task's output.
+- Foundation tasks (data models, core loop, base classes) come first; systems that build on them fan out in parallel.
+- Integration/wiring tasks come last and depend on the systems they connect.
+- WRONG: A → B → C → D → E (pure chain, wastes parallelism)
+- WRONG: A, B, C, D, E (all roots — no sequencing, everything launches at once)
+- RIGHT: A → [B, C, D in parallel] → E (fan out, then converge)
+- RULE: No more than half of all tasks should be root tasks (no dependencies). Most tasks should depend on something.
+
+SPLITTING HEURISTICS:
+- "Create X and write tests" → Task 1: Create X / Task 2: Write tests (depends on Task 1)
+- "Create scene, script, and wire up" → Task 1: Script / Task 2: Scene (depends on Task 1) / Task 3: Wire up (depends on Task 2)
+- "Fix X + add Y" → Task 1: Fix X / Task 2: Add Y (no dependency — independent systems)
+- "Game needs: player, enemies, items, HUD" →
+    Task 0: Core game loop (foundation)
+    Task 1: Player system (depends on 0)
+    Task 2: Enemy system (depends on 0)      ← parallel with Task 1
+    Task 3: Item system (depends on 0)       ← parallel with Tasks 1 and 2
+    Task 4: HUD (depends on 0)               ← parallel with Tasks 1, 2, 3
+    Task 5: Wire up all systems (depends on 1, 2, 3, 4)
+- "Implement A and B" → Task 1: Implement A / Task 2: Implement B (parallel, no dependency unless A's output feeds B)
+
+SCOPE: Break the entire project into ALL the tasks needed to fully implement it, from foundational systems to polish. Generate between {min_tasks} and {max_tasks} tasks. Do not summarize or abbreviate — enumerate every distinct piece of work.
+
+TASK TYPES:
+- feature: new functionality
+- bug: fix a defect
+- refactor: improve structure without changing behavior
+- polish: UX, animations, sound, visual feedback
+
+Rules:
+- type must be one of: feature, bug, refactor, polish
+- priority: 80=critical/foundational, 60=important, 50=normal, 40=nice-to-have/polish
+- depends_on: list of 0-based indices of tasks this task depends on (e.g. [0, 1])
+- Each description must be specific and actionable — one or two sentences the agent can act on directly
+- No setup tasks (assume repo already exists); focus on actual implementation work
+- Output ONLY the JSON object, nothing else"""
 
 
 def register_routes(app, config, config_file, _config_write_lock, orchestrator, db):
@@ -77,35 +153,13 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
             "other":      "a software project",
         }
         type_desc = type_hints.get(project_type, type_hints["other"])
-
-        system = (
-            "You are a wildly creative game designer and software inventor. "
-            "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
-        )
         hint_line = f"\nCreative nudge from the human: {hint}" if hint else ""
-        prompt = f"""Invent a completely original concept for {type_desc}.{hint_line}
-
-You have total creative freedom. No scope limits — if you want to design an MMO, a physics sandbox,
-a generative art tool, or something that has never been built before, go for it.
-
-Return a JSON object with this exact structure:
-{{
-  "project_name": "slug-style-name-no-spaces",
-  "display_name": "Human Readable Title",
-  "project_type": "{project_type}",
-  "description": "2-4 sentences describing the concept, core mechanics, and what makes it interesting",
-  "genre": "one word or short phrase",
-  "ambition_level": "small | medium | large | massive"
-}}
-
-Rules:
-- project_name must be lowercase, hyphens only, no spaces, 2-4 words
-- Be genuinely creative — avoid the most obvious ideas (simple snake, basic platformer, todo app)
-- description should be specific enough that an AI agent can start building immediately
-- Output ONLY the JSON object, nothing else"""
+        prompt = _IMAGINE_PROMPT_TEMPLATE.format(
+            type_desc=type_desc, hint_line=hint_line, project_type=project_type,
+        )
 
         try:
-            raw = _llm_call(prompt, system, config)
+            raw = _llm_call(prompt, _IMAGINE_SYSTEM, config)
             raw = raw.strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
@@ -234,77 +288,16 @@ Rules:
             "other":      "Software project. Tasks use type: feature/bug/refactor.",
         }
         type_hint = type_hints.get(project_type, type_hints["other"])
-
-        system = (
-            "You are a senior software architect helping plan a development project. "
-            "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+        prompt = _PLAN_PROMPT_TEMPLATE.format(
+            project_name=project_name,
+            type_hint=type_hint,
+            description=description,
+            min_tasks=min_tasks,
+            max_tasks=max_tasks,
         )
-        prompt = f"""Plan the full implementation of this project as a comprehensive, atomic list of tasks for autonomous AI agents.
-
-Project name: {project_name}
-Project type: {type_hint}
-Goal: {description}
-
-Return a JSON object with this exact structure:
-{{
-  "tasks": [
-    {{
-      "type": "feature",
-      "priority": 50,
-      "description": "Concise, actionable description of what the agent should implement",
-      "depends_on": []
-    }}
-  ]
-}}
-
-ATOMICITY RULES — each task must be a single, self-contained unit of work:
-- One task = one logical concern (one script, one scene, one system, one mechanic)
-- NEVER bundle implementation + tests in one task — always split into separate tasks with a dependency
-- NEVER combine two distinct systems in one task — any "and" or "+" in a description is a split signal
-- One task should touch at most 2–3 files
-- Target size: what one agent can do in ~30 tool loops
-
-DEPENDENCY GRAPH RULES:
-- Use a DAG (directed acyclic graph) with meaningful branching AND convergence.
-- A task only depends on another if it literally cannot start without that task's output.
-- Foundation tasks (data models, core loop, base classes) come first; systems that build on them fan out in parallel.
-- Integration/wiring tasks come last and depend on the systems they connect.
-- WRONG: A → B → C → D → E (pure chain, wastes parallelism)
-- WRONG: A, B, C, D, E (all roots — no sequencing, everything launches at once)
-- RIGHT: A → [B, C, D in parallel] → E (fan out, then converge)
-- RULE: No more than half of all tasks should be root tasks (no dependencies). Most tasks should depend on something.
-
-SPLITTING HEURISTICS:
-- "Create X and write tests" → Task 1: Create X / Task 2: Write tests (depends on Task 1)
-- "Create scene, script, and wire up" → Task 1: Script / Task 2: Scene (depends on Task 1) / Task 3: Wire up (depends on Task 2)
-- "Fix X + add Y" → Task 1: Fix X / Task 2: Add Y (no dependency — independent systems)
-- "Game needs: player, enemies, items, HUD" →
-    Task 0: Core game loop (foundation)
-    Task 1: Player system (depends on 0)
-    Task 2: Enemy system (depends on 0)      ← parallel with Task 1
-    Task 3: Item system (depends on 0)       ← parallel with Tasks 1 and 2
-    Task 4: HUD (depends on 0)               ← parallel with Tasks 1, 2, 3
-    Task 5: Wire up all systems (depends on 1, 2, 3, 4)
-- "Implement A and B" → Task 1: Implement A / Task 2: Implement B (parallel, no dependency unless A's output feeds B)
-
-SCOPE: Break the entire project into ALL the tasks needed to fully implement it, from foundational systems to polish. Generate between {min_tasks} and {max_tasks} tasks. Do not summarize or abbreviate — enumerate every distinct piece of work.
-
-TASK TYPES:
-- feature: new functionality
-- bug: fix a defect
-- refactor: improve structure without changing behavior
-- polish: UX, animations, sound, visual feedback
-
-Rules:
-- type must be one of: feature, bug, refactor, polish
-- priority: 80=critical/foundational, 60=important, 50=normal, 40=nice-to-have/polish
-- depends_on: list of 0-based indices of tasks this task depends on (e.g. [0, 1])
-- Each description must be specific and actionable — one or two sentences the agent can act on directly
-- No setup tasks (assume repo already exists); focus on actual implementation work
-- Output ONLY the JSON object, nothing else"""
 
         try:
-            raw = _llm_call(prompt, system, config)
+            raw = _llm_call(prompt, _PLAN_SYSTEM, config)
             # Extract JSON from response (strip any accidental markdown fences)
             raw = raw.strip()
             if raw.startswith("```"):
