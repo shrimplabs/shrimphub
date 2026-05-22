@@ -78,6 +78,29 @@ def _sanitize_text(content: str) -> str:
     return content.translate(_FANCY_PUNCT_TABLE).replace('\r\n', '\n').replace('\r', '\n')
 
 
+def _read_text_with_fallback(path: str | Path) -> tuple[str, str]:
+    """Read text files that may have been authored with Windows ANSI tools.
+
+    Always returns LF-only text regardless of what line endings are on disk,
+    so patch_file matches reliably on Windows without agents needing to
+    account for CRLF vs LF differences.
+    """
+    raw = Path(path).read_bytes()
+    for encoding in ("utf-8", "utf-8-sig", "cp1252"):
+        try:
+            text = raw.decode(encoding)
+            return text.replace('\r\n', '\n').replace('\r', '\n'), encoding
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace").replace('\r\n', '\n').replace('\r', '\n'), "utf-8-replace"
+
+
+def _read_lines_with_fallback(path: str | Path) -> tuple[list[str], str]:
+    text, encoding = _read_text_with_fallback(path)
+    return text.splitlines(keepends=True), encoding
+
+
+
 def _api_request(method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
     body = None
     headers = {}

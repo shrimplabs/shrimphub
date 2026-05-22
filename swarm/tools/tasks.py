@@ -566,11 +566,11 @@ def list_tasks(project: str = None) -> dict:
 
 def list_subtasks(parent_task_id: str = None) -> dict:
     """List sub-tasks. Defaults to the current TASK_ID if parent not specified."""
-    import urllib.request as _ur
+    from swarm.tools import core as _core
     _proj, _type, _tid, _prio, _port = _read_core()
     target = parent_task_id if parent_task_id else _tid
     try:
-        with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+        with _core._ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
             data = json.loads(resp.read())
         subtasks = [
             {
