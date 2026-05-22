@@ -22,9 +22,11 @@
     </div>
 
     <div id="main-content">
-        <div class="timestamp">Last updated: <span id="lastUpdated">-</span></div>
-    <button id="themeToggleBtn" onclick="cycleTheme()" title="Switch theme"></button>
-    <button id="debugModeBtn" onclick="toggleDebugMode()" title="Toggle debug panels" style="position:fixed;top:10px;right:52px;z-index:1000;background:transparent;border:1px solid #30363d;border-radius:4px;color:#484f58;font-size:11px;padding:3px 7px;cursor:pointer">🐛</button>
+    <div id="top-toolbar">
+        <span class="timestamp">Last updated: <span id="lastUpdated">-</span></span>
+        <button id="debugModeBtn" onclick="toggleDebugMode()" title="Toggle debug panels">🐛</button>
+        <button id="themeToggleBtn" onclick="cycleTheme()" title="Switch theme"></button>
+    </div>
 
     <h1>
         <span class="title-text">🦐 ShrimpHub</span>
