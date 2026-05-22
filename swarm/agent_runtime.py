@@ -24,8 +24,6 @@ import sqlite3
 import subprocess
 import sys
 import urllib.request as _ur
-from datetime import datetime
-import time
 from pathlib import Path
 from swarm import constants, db
 from swarm.provider_utils import LLM_PROVIDERS
@@ -47,21 +45,28 @@ from swarm.qa_tools import (  # noqa: E402
     get_game_state as qa_get_game_state,
     vision_query as qa_vision_query,
     harness_launch_game, harness_step, harness_take_screenshot,
-    harness_get_state, harness_run_test, harness_kill_game,
+    harness_kill_game,
     harness_poll_state, harness_inject,
 )
 
 # Import tool functions from submodules
 from swarm.tools.core import (  # noqa: F401
     log, _project_root, _safe_cwd, run,
-    read_file, list_files, search_code, get_file_stats, get_file_outline,
-    read_file_range, patch_file, write_file, append_file,
     run_command, git_commit, git_push,
     mcp_call_tool, mcp_list_tools,
     rag_query, web_search, fetch_url,
-    create_task, create_tasks_file_aware, list_tasks, list_subtasks,
+    broadcast_read, broadcast_write, delegate_helper,
+)
+
+from swarm.tools.files import (  # noqa: F401, E402
+    read_file, list_files, search_code, get_file_stats, get_file_outline,
+    read_file_range, patch_file, write_file, append_file,
+)
+
+from swarm.tools.tasks import (  # noqa: F401
+    create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
+    list_tasks, list_subtasks,
     annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
-    broadcast_read, broadcast_write, delegate_helper, delegate_task_batch,
 )
 from swarm.tools.knowledge import (  # noqa: F401
     scratchpad_write, scratchpad_read,
@@ -731,6 +736,13 @@ def _sync_core_globals():
     _shared.WORKSPACE = WORKSPACE
     _shared.PROJECT = PROJECT
     _shared.PROJECT_PATH_OVERRIDE = PROJECT_PATH_OVERRIDE
+    # Sync task tool config
+    import swarm.tools.tasks as _tasks
+    _tasks.PROJECT = PROJECT
+    _tasks.TASK_TYPE = TASK_TYPE
+    _tasks.TASK_ID = TASK_ID
+    _tasks.TASK_PRIORITY = TASK_PRIORITY
+    _tasks.API_PORT = API_PORT
 
 
 def _sync_knowledge_globals():
@@ -1196,7 +1208,7 @@ def _run_meta_investigation(repeated_error: str, loop_history: list[str], task_d
             # No more tool calls (or hint already found) — if still no hint, use last response
             if not hint and response.strip():
                 hint = response.strip()[:800]
-                log(f"[Meta] No HINT: marker — using full response as hint")
+                log("[Meta] No HINT: marker — using full response as hint")
             break
 
     if hint:
@@ -1392,7 +1404,6 @@ def main() -> int:
 
     # Build the legacy Godot refactor prompt only for Godot projects.
     if TASK_TYPE == "refactor" and not is_python and not is_typescript:
-        ignore_dirs_repr = repr(IGNORE_DIRS)
         system_prompt = f"""You are an expert Godot game developer. Use tool calls to modify the codebase — do not just describe changes.
 
 Available tools (use [TOOL_CALL]{{"tool": "name", "args": {{...}}}}[/TOOL_CALL] format):
@@ -1458,7 +1469,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                             except Exception:
                                 pass
                 if oversized:
-                    oversized_list = "\n".join(f"  - {p} ({l} lines)" for p, l in sorted(oversized, key=lambda x: -x[1]))
+                    oversized_list = "\n".join(f"  - {p} ({l_cnt} lines)" for p, l_cnt in sorted(oversized, key=lambda x: -x[1]))
                     resume_context = (
                         f"\nrefactor.md exists but all items are checked off. However these files are still over {MAX_LINES} lines:\n{oversized_list}\n"
                         f"Previous plan for reference:\n```\n{refactor_md_content[:1500]}\n```\n"
@@ -1470,7 +1481,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         f"Say TASK_COMPLETE immediately."
                     )
         else:
-            resume_context = f"\nNo refactor.md found — start with Phase 1: analyse oversized files and write the plan."
+            resume_context = "\nNo refactor.md found — start with Phase 1: analyse oversized files and write the plan."
 
         user_prompt = (
             f"Project: {PROJECT}\n"
@@ -1543,7 +1554,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     history = _error_loop_history.get(err_key, [])
                     try:
                         hint = _run_meta_investigation(err_key, history, TASK_DESC)
-                        log(f"[Meta] Investigation complete")
+                        log("[Meta] Investigation complete")
                         conversation.append({"role": "user", "content": (
                             f"[INVESTIGATOR NOTE — out-of-band analysis of your repeated error]\n\n"
                             f"{hint}\n\n"
@@ -1643,14 +1654,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 if _retries < 2:
                     _malformed_retries[tool_loop_count] = _retries + 1
                     _corrections = "\n".join(f"- {err}" for _, err in _bad)
-                    log(f"WARNING: malformed tool call(s), injecting correction (retry {_retries + 1}/2)")
+                    log("WARNING: malformed tool call(s), injecting correction (retry {_retries + 1}/2)")
                     conversation.append({"role": "user", "content": (
                         f"Fix these tool call errors and try again:\n{_corrections}"
                     )})
                     # Don't increment tool_loop_count — this retry is free
                     continue
                 else:
-                    log(f"WARNING: malformed tool call(s) after 2 retries — executing anyway")
+                    log("WARNING: malformed tool call(s) after 2 retries — executing anyway")
 
         if not tool_calls:
             has_open = "[TOOL_CALL]" in response or "<tool_call>" in response
@@ -1686,7 +1697,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     feedback = (
                         "TASK_COMPLETE rejected. Your most recent command output still contains errors "
                         "that must be fixed before the task can be marked complete:\n\n"
-                        + "\n".join(f"  {l}" for l in failures[:10])
+                        + "\n".join(f"  {line}" for line in failures[:10])
                         + "\n\nFix all errors, re-run validation, and only say TASK_COMPLETE "
                         "when every check passes cleanly. Use the smallest targeted validation first, "
                         "then broader validation. Do not rely on grep/tail-only output as final proof."
@@ -1765,7 +1776,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 feedback = (
                     "TASK_COMPLETE rejected. Your most recent command output still contains errors "
                     "that must be fixed before the task can be marked complete:\n\n"
-                    + "\n".join(f"  {l}" for l in failures[:10])
+                    + "\n".join(f"  {line}" for line in failures[:10])
                     + "\n\nFix all errors, re-run validation, and only say TASK_COMPLETE "
                     "when every check passes cleanly. Use the smallest targeted validation first, "
                     "then broader validation. Do not rely on grep/tail-only output as final proof."
@@ -2039,7 +2050,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         try:
             code, out, err = run("git status --porcelain")
             if code == 0 and out.strip():
-                changed = [l[3:].strip() for l in out.strip().splitlines() if l.strip()]
+                changed = [line[3:].strip() for line in out.strip().splitlines() if line.strip()]
                 new_files = [f for f in changed if not f.endswith(".md")]
                 if new_files:
                     names = ", ".join(os.path.basename(f) for f in new_files[:4])

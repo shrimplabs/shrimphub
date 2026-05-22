@@ -17,6 +17,21 @@ function applyTheme(theme) {
     localStorage.setItem('swarm-theme', theme);
 }
 
+// Debug mode — shows internal panels (429 pressure chart, etc.)
+let _debugMode = localStorage.getItem('swarm-debug') === '1';
+function _applyDebugMode() {
+    const panel = document.getElementById('rlHistoryPanel');
+    const btn = document.getElementById('debugModeBtn');
+    if (panel) panel.style.display = _debugMode ? '' : 'none';
+    if (btn) btn.style.color = _debugMode ? '#f0883e' : '#484f58';
+}
+function toggleDebugMode() {
+    _debugMode = !_debugMode;
+    localStorage.setItem('swarm-debug', _debugMode ? '1' : '0');
+    _applyDebugMode();
+}
+document.addEventListener('DOMContentLoaded', _applyDebugMode);
+
 function cycleTheme() {
     const current = document.body.getAttribute('data-theme') || 'cyberpunk';
     const idx = THEMES.indexOf(current);
@@ -748,7 +763,7 @@ function createTaskCard(task, isActive, isParent, activeBadge, isChild) {
                 ${activeBadge}
                 <span class="status ${task.status}">${task.status.replace('_', ' ')}</span>${deepChainBadge}${humanReviewBadge}${delegationBadge}${helperBadge}
             </div>
-            <div class="task-desc">${escapeHtml(task.description)}</div>
+            <div class="task-desc" title="${escapeHtml(task.description)}">${escapeHtml(task.description.split('\n')[0].slice(0, 120))}${task.description.length > 120 || task.description.includes('\n') ? '…' : ''}</div>
             <div class="stat">Type: <span>${escapeHtml(task.type)}</span> | Priority: <span>${task.priority}${attempts}</span></div>
             ${isActive ? `
                 <div class="progress-bar">
@@ -1922,20 +1937,35 @@ async function loadRlHistory() {
 
         ctx.clearRect(0, 0, W, H);
 
-        // Current hour highlight
         const currentHour = new Date().getHours();
 
         counts.forEach((count, h) => {
             const barH = count > 0 ? Math.max(2, (count / maxCount) * (H - 8)) : 0;
             const x = h * barW;
             const y = H - barH;
-            const alpha = h === currentHour ? 1.0 : 0.7;
             const intensity = count > 0 ? Math.max(0.3, count / maxCount) : 0.08;
             ctx.fillStyle = count > 0
-                ? `rgba(248, 81, 73, ${intensity * alpha})`
+                ? `rgba(248, 81, 73, ${intensity})`
                 : `rgba(33, 38, 45, 0.6)`;
             ctx.fillRect(x + 1, y, barW - 2, barH);
         });
+
+        // Playhead — thin green line at the left edge of the current hour
+        const playheadX = currentHour * barW;
+        ctx.strokeStyle = '#3fb950';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(playheadX, 0);
+        ctx.lineTo(playheadX, H);
+        ctx.stroke();
+        // Small triangle at top
+        ctx.fillStyle = '#3fb950';
+        ctx.beginPath();
+        ctx.moveTo(playheadX - 4, 0);
+        ctx.lineTo(playheadX + 4, 0);
+        ctx.lineTo(playheadX, 6);
+        ctx.closePath();
+        ctx.fill();
 
         // Hour axis labels (0, 6, 12, 18, 23)
         ctx.fillStyle = '#484f58';

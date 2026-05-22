@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Swarm Controller is a modular agent orchestration system. It spawns LLM-powered subprocesses to build, refactor, and maintain multiple code projects (Godot, Python, TypeScript). Key properties:
+Swarm Controller is a modular agent orchestration system. It spawns LLM-powered subprocesses to build, refactor, and maintain multiple code projects (Godot, Python, TypeScript, Swift/iOS, Unity, Rust, Go, C++, C#). Key properties:
 
 - SQLite-backed state (WAL mode, thread-safe)
 - Multiple LLM providers: Minimax, Claude, OpenRouter, Kimi, custom
@@ -471,8 +471,19 @@ These two are network-flaky and allowed to fail in CI:
 
 After a successful run, `_post_task_validation_in_worktree()` runs synchronously in the monitor thread (blocking). This can delay the monitor by up to ~5 minutes when GUT tests run. GUT tests only run when `addons/gut/` exists AND has a complete install (checked via `_gut_installation_complete()` -- requires `gut_loader.gd`):
 
-- **Godot** -- `godot --headless --script res://check_scripts.gd`; also greps combined stdout+stderr for `ERROR:` / `SCRIPT ERROR:` even when exit code is 0
-- **Python** -- `python -m py_compile *.py` in the project directory
+Project type is auto-detected by `_detect_project_type()` in `validation.py` from file signatures:
+
+| Type | Detection | Validation |
+|------|-----------|------------|
+| `godot` | `project.godot` | `godot --headless --script res://check_scripts.gd`; GUT tests if `addons/gut/` present |
+| `python` | `*.py` / `pyproject.toml` / `requirements.txt` | `python -m py_compile *.py`; pytest if `.venv/bin/pytest` exists |
+| `swift` | `Package.swift` or `*.xcodeproj` | `swiftc -parse` on all `.swift` files |
+| `unity` | `Assets/` + `ProjectSettings/` | `mcs` (Unity bundled or system) on all `.cs` files |
+| `rust` | `Cargo.toml` | `cargo check` |
+| `csharp` | `*.csproj` / `*.sln` | `mcs` on all `.cs` files |
+| `typescript` | `package.json` + `*.ts` | `tsc --noEmit` |
+
+Agents use generic prompts (no language-specific prompt files for Swift/Unity/Rust/etc.) — the task description carries enough context. The Godot-specific parts of prompts are ignored for non-Godot projects.
 
 Failure → `_spawn_validation_bug_task()` creates a priority-100 bug task.
 
