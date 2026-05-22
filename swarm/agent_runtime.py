@@ -843,6 +843,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             conversation, system_prompt, compact_token_threshold, log
         )
 
+        tool_loop_count += 1
+
     if tool_loop_count >= MAX_TOOL_LOOPS and not context_limit_hit:
         loop_limit_hit = True
         task_complete_hit = True  # loop limit counts as a success exit (continuation spawned)
