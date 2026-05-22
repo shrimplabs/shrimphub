@@ -41,6 +41,12 @@ from swarm.agent_recovery import (  # noqa: F401
     _task_history_lookup,
     _replacement_task_dependencies,
 )
+from swarm.agent_auto_tasks import (  # noqa: F401
+    auto_spawn_integration_task,
+    auto_handle_sprint_qa,
+    auto_spawn_qa_task,
+    auto_spawn_audit_task,
+)
 
 # Lazy imports to avoid circular dependencies
 db = None
@@ -821,166 +827,56 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                     except Exception as _closure_err:
                         print(f"[Swarm] Closure verification trigger failed for {project} {task_id}: {_closure_err}")
 
-        # Auto-integration: after a feature/polish on a Godot project, spawn a lightweight
-        # task to wire the new system into the existing game (signals, autoloads, scene tree).
-        # Chained as a dependency of nothing -- runs immediately in parallel with other work.
-        # Gated on is_integration_task metadata to prevent infinite chains.
-        _integration_skip = {"qa", "audit", "manager", "project_create", "project_plan", "art_pass"}
-        if (not validation_failed_after_completion
-                and task_type_finished in ("feature", "polish")
-                and _task_for_val
-                and not _task_for_val.get("metadata", {}).get("is_integration_task")):
-            project_path = WORKSPACE / project
-            if (project_path / "project.godot").exists():
-                existing_tasks = db.task_get_by_project(project)
-                has_integration = any(
-                    t.get("metadata", {}).get("is_integration_task")
-                    and t.get("status") in ("pending", "in_progress")
-                    for t in existing_tasks
-                )
-                if not has_integration:
-                    orig_desc = _task_for_val.get("description", "")[:300]
-                    integ_id = f"integration-{project}-{int(time.time())}"
-                    integ_desc = (
-                        f"Integration: wire up recently completed features into the game.\n\n"
-                        f"Triggering task: {orig_desc}\n\n"
-                        f"Files changed by triggering task:\n{diff_stat[:400]}\n\n"
-                        f"IMPORTANT: Other features may have completed while a previous integration "
-                        f"task was running. Before doing anything, run:\n"
-                        f"  git log --oneline -15\n"
-                        f"  git diff HEAD~10..HEAD --stat\n"
-                        f"to find ALL recently committed work, not just the triggering task. "
-                        f"Read every changed file. Identify any new systems, signals, nodes, or "
-                        f"autoloads that were added across all recent commits. Ensure they are "
-                        f"properly connected to existing game systems (SignalBus, GameManager, "
-                        f"scene tree, UI). Fix any disconnections. "
-                        f"Do NOT rewrite existing working systems \u2014 only add the missing wiring."
-                    )
-                    db.task_upsert({
-                        "id": integ_id,
-                        "project": project,
-                        "type": "bug",
-                        "description": integ_desc,
-                        "priority": 85,
-                        "status": "pending",
-                        "dependencies": [task_id],
-                        "metadata": {"is_integration_task": True},
-                        "attempts": 0,
-                        "max_attempts": 2,
-                    })
-                    print(f"[Swarm] Auto-spawned integration task {integ_id} for {project} after feature completion")
-
-        # Sprint QA: when a QA task completes for an auto_replan project, mark it ready for planner
-        if (not validation_failed_after_completion
-                and task_type_finished in ("qa", "harness_qa", "hybrid_qa")
-                and project in AUTO_REPLAN_PROJECTS):
-            _projects_sprint_qa_done.add(project)
-            print(f"[Swarm] Sprint QA complete for {project} \u2014 planner fires on next empty queue")
-
-        # Auto-QA: increment counter for Godot projects NOT on the sprint cycle
-        global _qa_completion_counter
         _task_metadata_for_qa = (_task_for_val or {}).get("metadata") or {}
         _is_recovery_task = _task_metadata_for_qa.get("is_recovery_task", False)
-        if (not validation_failed_after_completion
-                and not _spawned_continuation
-                and not _is_recovery_task
-                and task_type_finished not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager", "project_create", "project_plan")):
-            project_path = WORKSPACE / project
-            if (project_path / "project.godot").exists() and project not in AUTO_REPLAN_PROJECTS:
-                _qa_completion_counter[project] = _qa_completion_counter.get(project, 0) + 1
-                existing = db.task_get_by_project(project)
-                has_qa = any(
-                    t.get("type") in ("qa", "harness_qa", "hybrid_qa") and t.get("status") in ("pending", "in_progress")
-                    for t in existing
-                )
-                open_nonqa = [
-                    t for t in existing
-                    if t.get("status") in ("pending", "in_progress")
-                    and t.get("id") != task_id
-                    and t.get("type") not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager")
-                ]
-                threshold_due = _qa_completion_counter[project] >= QA_AUTO_THRESHOLD
-                empty_queue_due = not open_nonqa
-                if threshold_due or empty_queue_due:
-                    _qa_completion_counter[project] = 0
-                    if not has_qa:
-                        # Use harness_qa if the project has TestHarness wired up,
-                        # otherwise fall back to vision-based qa
-                        has_harness = (project_path / "autoload" / "test_harness.gd").exists()
-                        qa_type = "harness_qa" if has_harness else "qa"
-                        qa_id = f"qa-auto-{project}-{int(time.time())}"
-                        qa_reason = (
-                            f"after {QA_AUTO_THRESHOLD} completions"
-                            if threshold_due else
-                            "because the Godot project queue is empty"
-                        )
-                        qa_desc = (
-                            f"Auto harness QA: run synchronous checkpoint tests against the game logic ({qa_reason})"
-                            if has_harness else
-                            f"Auto QA: playtest and verify core game loop is functional after recent changes ({qa_reason})"
-                        )
-                        # Depend on all pending/in_progress sprint tasks so QA runs after
-                        # the sprint finishes and appears connected in the dep graph chain.
-                        # Also chain to project HEAD so the QA task never floats free from
-                        # the project's historical dependency chain.
-                        sprint_task_ids = [
-                            t["id"] for t in existing
-                            if t.get("status") in ("pending", "in_progress")
-                            and t.get("type") not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager")
-                        ]
-                        # Always chain to the canonical project HEAD as the base dep;
-                        # sprint tasks are additional blockers.
-                        qa_deps = _task_chains.append_project_head(
-                            db, project, sprint_task_ids, task_id=qa_id, ensure_head=True
-                        )
-                        db.task_upsert({
-                            "id": qa_id,
-                            "project": project,
-                            "type": qa_type,
-                            "description": qa_desc,
-                            "priority": 75,
-                            "status": "pending",
-                            "dependencies": qa_deps,
-                            "metadata": {},
-                            "attempts": 0,
-                            "max_attempts": 2,
-                        })
-                        print(f"[Swarm] Auto-spawned {qa_type} task {qa_id} for {project} {qa_reason} (deps: {len(qa_deps)} task(s))")
+
+        # Auto-integration: after a feature/polish on a Godot project, spawn a lightweight
+        # task to wire the new system into the existing game (signals, autoloads, scene tree).
+        auto_spawn_integration_task(
+            project=project,
+            task_id=task_id,
+            task_type_finished=task_type_finished,
+            task_for_val=_task_for_val,
+            diff_stat=diff_stat,
+            workspace=WORKSPACE,
+            validation_failed=validation_failed_after_completion,
+        )
+
+        # Sprint QA: when a QA task completes for an auto_replan project, mark it ready for planner
+        auto_handle_sprint_qa(
+            project=project,
+            task_type_finished=task_type_finished,
+            auto_replan_projects=AUTO_REPLAN_PROJECTS,
+            projects_sprint_qa_done=_projects_sprint_qa_done,
+            validation_failed=validation_failed_after_completion,
+        )
+
+        # Auto-QA: increment counter for Godot projects NOT on the sprint cycle
+        auto_spawn_qa_task(
+            project=project,
+            task_id=task_id,
+            task_type_finished=task_type_finished,
+            task_for_val=_task_for_val,
+            workspace=WORKSPACE,
+            auto_replan_projects=AUTO_REPLAN_PROJECTS,
+            qa_completion_counter=_qa_completion_counter,
+            qa_auto_threshold=QA_AUTO_THRESHOLD,
+            validation_failed=validation_failed_after_completion,
+            spawned_continuation=_spawned_continuation,
+            is_recovery_task=_is_recovery_task,
+        )
 
         # Auto-audit: fire for any project (not just Godot) to catch false completions
-        global _audit_completion_counter
-        if (not validation_failed_after_completion
-                and not _spawned_continuation
-                and not _is_recovery_task
-                and task_type_finished not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager", "project_create", "project_plan")):
-            _audit_completion_counter[project] = _audit_completion_counter.get(project, 0) + 1
-            if _audit_completion_counter[project] >= AUDIT_AUTO_THRESHOLD:
-                _audit_completion_counter[project] = 0
-                existing = db.task_get_by_project(project)
-                has_audit = any(
-                    t.get("type") == "audit" and t.get("status") in ("pending", "in_progress")
-                    for t in existing
-                )
-                if not has_audit:
-                    audit_id = f"audit-auto-{project}-{int(time.time())}"
-                    # Chain to project HEAD so the audit task always connects to the
-                    # project's dependency chain rather than floating from just one task.
-                    audit_deps = _task_chains.append_project_head(
-                        db, project, [task_id], task_id=audit_id, ensure_head=True
-                    )
-                    db.task_upsert({
-                        "id": audit_id,
-                        "project": project,
-                        "type": "audit",
-                        "description": "Auto audit: verify recently completed tasks are genuinely implemented in the repo",
-                        "priority": 70,
-                        "status": "pending",
-                        "dependencies": audit_deps,
-                        "metadata": {},
-                        "attempts": 0,
-                        "max_attempts": 2,
-                    })
-                    print(f"[Swarm] Auto-spawned audit task {audit_id} for {project} after {AUDIT_AUTO_THRESHOLD} completions (deps: {len(audit_deps)})")
+        auto_spawn_audit_task(
+            project=project,
+            task_id=task_id,
+            task_type_finished=task_type_finished,
+            audit_completion_counter=_audit_completion_counter,
+            audit_auto_threshold=AUDIT_AUTO_THRESHOLD,
+            validation_failed=validation_failed_after_completion,
+            spawned_continuation=_spawned_continuation,
+            is_recovery_task=_is_recovery_task,
+        )
 
 
 # ---------------------------------------------------------------------------
