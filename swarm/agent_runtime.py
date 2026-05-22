@@ -73,6 +73,13 @@ from swarm.tools.knowledge import (  # noqa: F401
     read_agent_knowledge, update_knowledge,
     get_task_context, read_shared_knowledge, update_shared_knowledge,
 )
+from swarm.runtime_config import (  # noqa: F401
+    _get_provider_runtime_limits,
+    _get_compaction_threshold,
+    _project_supports_harness,
+    _parse_extra_args,
+    _resolve_harness_action,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -164,69 +171,7 @@ user_prompt: str = ""
 mcp_client = None
 
 
-def _get_provider_runtime_limits() -> tuple[int, int]:
-    cfg = dict(LLM_PROVIDERS.get(LLM_PROVIDER, LLM_PROVIDERS.get("minimax", {})))
-    context_window = int(cfg.get("context_window", 120_000))
-    max_output_tokens = int(cfg.get("max_tokens", 8_096))
-    return context_window, max_output_tokens
-
-
-def _get_compaction_threshold() -> int:
-    context_window, max_output_tokens = _get_provider_runtime_limits()
-    # Leave headroom for tool responses, system prompt growth, and a full model answer.
-    reserve = max(12_000, min(max_output_tokens + 8_000, context_window // 4))
-    threshold = context_window - reserve
-    # Planners benefit from larger repo context before compaction; other task types stay safer.
-    if TASK_TYPE == "project_plan":
-        threshold = min(context_window - 20_000, threshold + 12_000)
-    return max(60_000, threshold)
 SCRATCHPAD: list = []  # NOTE: actual scratchpad lives in swarm.tools.knowledge.SCRATCHPAD
-
-
-def _project_supports_harness() -> bool:
-    project_root = Path(PROJECT_PATH_OVERRIDE) if PROJECT_PATH_OVERRIDE else (WORKSPACE / PROJECT)
-    return (project_root / "autoload" / "test_harness.gd").exists()
-
-
-def _parse_extra_args(raw) -> list:
-    if isinstance(raw, list):
-        return raw
-    if isinstance(raw, str):
-        txt = raw.strip()
-        if not txt:
-            return []
-        try:
-            parsed = __import__("json").loads(txt)
-            if isinstance(parsed, list):
-                return parsed
-        except Exception:
-            pass
-        return [txt]
-    return []
-
-
-def _resolve_harness_action(args: dict) -> dict:
-    raw = args.get("action")
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        txt = raw.strip()
-        if txt.startswith("{"):
-            try:
-                parsed = __import__("json").loads(txt)
-                if isinstance(parsed, dict):
-                    return parsed
-            except Exception:
-                pass
-        if txt:
-            payload = {"type": txt}
-            for k, v in args.items():
-                if k not in ("action", "timeout"):
-                    payload[k] = v
-            return payload
-    if "type" in args:
-        return {k: v for k, v in args.items() if k != "timeout"}
-    return {"type": "noop"}
 
 
 def _normalized_report_path(path: str) -> str:
