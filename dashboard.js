@@ -17,6 +17,21 @@ function applyTheme(theme) {
     localStorage.setItem('swarm-theme', theme);
 }
 
+// Debug mode — shows internal panels (429 pressure chart, etc.)
+let _debugMode = localStorage.getItem('swarm-debug') === '1';
+function _applyDebugMode() {
+    const panel = document.getElementById('rlHistoryPanel');
+    const btn = document.getElementById('debugModeBtn');
+    if (panel) panel.style.display = _debugMode ? '' : 'none';
+    if (btn) btn.style.color = _debugMode ? '#f0883e' : '#484f58';
+}
+function toggleDebugMode() {
+    _debugMode = !_debugMode;
+    localStorage.setItem('swarm-debug', _debugMode ? '1' : '0');
+    _applyDebugMode();
+}
+document.addEventListener('DOMContentLoaded', _applyDebugMode);
+
 function cycleTheme() {
     const current = document.body.getAttribute('data-theme') || 'cyberpunk';
     const idx = THEMES.indexOf(current);

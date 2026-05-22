@@ -24,6 +24,7 @@
     <div id="main-content">
         <div class="timestamp">Last updated: <span id="lastUpdated">-</span></div>
     <button id="themeToggleBtn" onclick="cycleTheme()" title="Switch theme"></button>
+    <button id="debugModeBtn" onclick="toggleDebugMode()" title="Toggle debug panels" style="position:fixed;top:10px;right:52px;z-index:1000;background:transparent;border:1px solid #30363d;border-radius:4px;color:#484f58;font-size:11px;padding:3px 7px;cursor:pointer">🐛</button>
 
     <h1>
         <span class="title-text">🦐 ShrimpHub</span>
@@ -100,7 +101,7 @@
         <span class="quota-reset" id="quotaReset"></span>
     </div>
 
-    <div id="rlHistoryPanel" style="margin:8px 0 4px;padding:10px 14px;background:#0d1117;border:1px solid #21262d;border-radius:6px;">
+    <div id="rlHistoryPanel" style="margin:8px 0 4px;padding:10px 14px;background:#0d1117;border:1px solid #21262d;border-radius:6px;display:none">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
             <span style="font-size:11px;font-weight:600;color:#8b949e;letter-spacing:.05em">429 PRESSURE BY HOUR</span>
             <span id="rlHistoryTotal" style="font-size:10px;color:#484f58"></span>
