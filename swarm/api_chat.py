@@ -240,6 +240,419 @@ def _execute_chat_actions(action_blocks, db, config, config_file, _config_write_
     return "\n".join(results) if results else ""
 
 
+_SESSION_TTL_DAYS = 7
+
+
+def _session_dir(data_dir: Path, project: str) -> Path:
+    d = data_dir / "chat_sessions" / project
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _session_path(data_dir: Path, project: str, session_id: str) -> Path:
+    return _session_dir(data_dir, project) / f"{session_id}.jsonl"
+
+
+def _load_session(data_dir: Path, project: str, session_id: str) -> list:
+    """Load session history from disk. Returns [] if missing or expired."""
+    p = _session_path(data_dir, project, session_id)
+    if not p.exists():
+        return []
+    age_days = (time.time() - p.stat().st_mtime) / 86400
+    if age_days > _SESSION_TTL_DAYS:
+        p.unlink(missing_ok=True)
+        return []
+    messages = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return messages
+
+
+def _save_session(data_dir: Path, project: str, session_id: str, messages: list) -> None:
+    """Persist session history to disk."""
+    p = _session_path(data_dir, project, session_id)
+    p.write_text(
+        "\n".join(json.dumps(m, ensure_ascii=False) for m in messages) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _delete_session(data_dir: Path, project: str, session_id: str) -> bool:
+    p = _session_path(data_dir, project, session_id)
+    if p.exists():
+        p.unlink()
+        return True
+    return False
+
+
+_DEBUG_BLOCKED_COMMANDS = frozenset([
+    "rm -rf /", "git push --force", "git push -f", "sudo rm", "mkfs",
+    "dd if=", ":(){:|:&};:", "chmod -R 777 /",
+])
+
+_DEBUG_TOOLS_DESCRIPTION = """\
+You have access to the following tools. Call them using JSON blocks:
+[TOOL_CALL]{"tool": "...", "args": {...}}[/TOOL_CALL]
+
+File/shell tools (paths relative to project root):
+- read_file(path) — read a file
+- write_file(path, content) — write/overwrite a file
+- list_dir(path="") — list directory contents
+- run_command(command, timeout_seconds=30) — run a shell command in the project root
+- git_commit(message) — stage all changes and commit
+
+Task graph tools:
+- list_tasks(status="") — list tasks for this project; filter by status (pending/in_progress/completed/failed)
+- create_task(type, description, priority=50, dependencies=[]) — create a new task
+- update_task(task_id, fields) — update task fields (e.g. priority, description)
+- get_critical_path() — find the longest pending dependency chain (the bottleneck)
+- get_subgraph(root_id, direction="downstream", depth=3) — BFS from a task to see its dependency cluster
+- bulk_deps(ops) — apply multiple add/remove dependency ops atomically; ops=[{action,task_id,dep_id}]
+
+When asked about priorities or what to work on next, call get_critical_path() first.
+When asked about project state, read AGENT_KNOWLEDGE.md if present.
+"""
+
+
+def _validate_project_path(project_root: Path, rel_path: str) -> Path:
+    """Resolve rel_path relative to project_root and verify it stays within."""
+    resolved = (project_root / rel_path).resolve()
+    try:
+        resolved.relative_to(project_root.resolve())
+    except ValueError:
+        raise ValueError(f"Path '{rel_path}' is outside the project directory")
+    return resolved
+
+
+_GRAPH_TOOLS = frozenset([
+    "list_tasks", "create_task", "update_task",
+    "get_critical_path", "get_subgraph", "bulk_deps",
+])
+
+
+def _execute_debug_tool(tool: str, args: dict, project_root: Path,
+                        project: str = "", db=None) -> str:
+    """Execute a single debug tool call. Returns string result (never raises)."""
+    try:
+        if tool in _GRAPH_TOOLS:
+            return _execute_graph_tool(tool, args, project, db)
+        return _execute_debug_tool_inner(tool, args, project_root)
+    except ValueError as exc:
+        return f"Error: {exc}"
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+def _execute_debug_tool_inner(tool: str, args: dict, project_root: Path) -> str:
+    if tool == "read_file":
+        path = _validate_project_path(project_root, args.get("path", ""))
+        if not path.exists():
+            return f"Error: file not found: {args.get('path')}"
+        return path.read_text(encoding="utf-8", errors="replace")[:20000]
+
+    elif tool == "write_file":
+        path = _validate_project_path(project_root, args.get("path", ""))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(args.get("content", ""), encoding="utf-8")
+        return f"Written: {args.get('path')}"
+
+    elif tool == "list_dir":
+        path = _validate_project_path(project_root, args.get("path", ""))
+        if not path.exists():
+            return f"Error: directory not found: {args.get('path', '.')}"
+        entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name))
+        return "\n".join(
+            ("/" if e.is_dir() else " ") + e.name for e in entries
+        )
+
+    elif tool == "run_command":
+        command = args.get("command", "")
+        for blocked in _DEBUG_BLOCKED_COMMANDS:
+            if blocked in command:
+                return f"Error: command blocked for safety: {blocked!r}"
+        timeout = min(int(args.get("timeout_seconds", 30)), 60)
+        try:
+            result = subprocess.run(
+                command, shell=True, cwd=str(project_root),
+                capture_output=True, text=True, timeout=timeout,
+            )
+            out = (result.stdout or "") + (result.stderr or "")
+            return out[:10000] or "(no output)"
+        except subprocess.TimeoutExpired:
+            return f"Error: command timed out after {timeout}s"
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    elif tool == "git_commit":
+        message = args.get("message", "chore: update from project-debug chat")
+        try:
+            subprocess.run(["git", "add", "-A"], cwd=str(project_root),
+                           capture_output=True, timeout=15)
+            result = subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=str(project_root), capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip() or "Committed"
+            return f"Error: {result.stderr.strip()}"
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    else:
+        return f"Error: unknown tool '{tool}'"
+
+
+def _execute_graph_tool(tool: str, args: dict, project: str, db) -> str:
+    """Execute a task-graph tool for the project-debug chat."""
+    if tool == "list_tasks":
+        status_filter = args.get("status", "")
+        all_tasks = db.task_get_all() if hasattr(db, "task_get_all") else {}
+        tasks = [
+            t for t in (all_tasks.values() if isinstance(all_tasks, dict) else all_tasks)
+            if t.get("project") == project
+            and (not status_filter or t.get("status") == status_filter)
+        ]
+        if not tasks:
+            return f"No tasks found for project '{project}'" + (f" with status '{status_filter}'" if status_filter else "")
+        lines = [
+            f"[{t['status']}] {t['id']}: {t.get('type','')} — {t.get('description','')[:100]}"
+            for t in tasks[:50]
+        ]
+        return "\n".join(lines)
+
+    elif tool == "create_task":
+        task_id = f"debug-chat-{uuid.uuid4().hex[:8]}"
+        task = {
+            "id": task_id,
+            "project": project,
+            "type": args.get("type", "feature"),
+            "description": args.get("description", ""),
+            "priority": int(args.get("priority", 50)),
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "metadata": {},
+            "dependencies": args.get("dependencies", []),
+        }
+        db.task_upsert(task)
+        return f"Created task {task_id}"
+
+    elif tool == "update_task":
+        task_id = args.get("task_id", "")
+        fields = {k: v for k, v in args.items() if k != "task_id"}
+        if not task_id:
+            return "Error: task_id required"
+        if not db.task_get(task_id):
+            return f"Error: task '{task_id}' not found"
+        db.task_update(task_id, fields)
+        return f"Updated task {task_id}"
+
+    elif tool == "get_critical_path":
+        from swarm.dependencies import build_graph_from_tasks
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        chain = graph.get_critical_path(project=project)
+        if not chain:
+            return "No pending tasks or no critical path found."
+        task_map = {t["id"]: t for t in all_tasks}
+        lines = []
+        for tid in chain:
+            t = task_map.get(tid, {})
+            desc = (t.get("description") or "").split("\n")[0][:100]
+            lines.append(f"  {tid}: {desc}")
+        return f"Critical path ({len(chain)} tasks):\n" + "\n".join(lines)
+
+    elif tool == "get_subgraph":
+        from swarm.dependencies import build_graph_from_tasks
+        root_id = args.get("root_id", "")
+        direction = args.get("direction", "downstream")
+        depth = int(args.get("depth", 3))
+        if not root_id:
+            return "Error: root_id required"
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        task_ids = graph.get_subgraph(root_id, direction=direction, depth=depth)
+        if not task_ids:
+            return f"No tasks found in {direction} subgraph of '{root_id}'"
+        task_map = {t["id"]: t for t in all_tasks}
+        lines = []
+        for tid in task_ids:
+            t = task_map.get(tid, {})
+            desc = (t.get("description") or "").split("\n")[0][:80]
+            lines.append(f"  [{t.get('status','')}] {tid}: {desc}")
+        return f"Subgraph ({direction}, depth={depth}) from '{root_id}':\n" + "\n".join(lines)
+
+    elif tool == "bulk_deps":
+        from swarm.dependencies import build_graph_from_tasks
+        ops = args.get("ops", [])
+        applied, skipped, errors = [], [], []
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        for op in ops:
+            action = op.get("action", "")
+            tid = op.get("task_id", "")
+            dep_id = op.get("dep_id", "")
+            if action == "add":
+                # Cycle check: adding dep_id as dep of tid creates a cycle if
+                # tid is already a transitive dependency of dep_id
+                if tid in graph.get_all_dependencies(dep_id) or tid == dep_id:
+                    skipped.append(f"{tid}←{dep_id} (would create cycle)")
+                else:
+                    existing = db.task_get(tid) or {}
+                    deps = list(existing.get("dependencies") or [])
+                    if dep_id not in deps:
+                        deps.append(dep_id)
+                        db.task_update(tid, {"dependencies": deps})
+                    applied.append(f"add {tid}←{dep_id}")
+            elif action == "remove":
+                existing = db.task_get(tid) or {}
+                deps = [d for d in (existing.get("dependencies") or []) if d != dep_id]
+                db.task_update(tid, {"dependencies": deps})
+                applied.append(f"remove {tid}←{dep_id}")
+            else:
+                errors.append(f"unknown action '{action}'")
+        return json.dumps({"applied": applied, "skipped": skipped, "errors": errors})
+
+    else:
+        return f"Error: unknown graph tool '{tool}'"
+
+
+def _run_debug_tool_loop(
+    system_prompt: str,
+    history: list,
+    config: dict,
+    project_root: Path,
+    project: str = "",
+    db=None,
+    max_rounds: int = 5,
+) -> tuple[str, list]:
+    """Run a tool loop for the project-debug chat.
+
+    Calls the LLM, parses [TOOL_CALL] blocks, executes them, feeds results
+    back as a user message, and repeats until no tool calls remain or max_rounds
+    is hit. Returns (final_response_text, list_of_tool_call_dicts).
+    """
+    tool_calls_log = []
+    messages = list(history)
+
+    for _ in range(max_rounds):
+        response_text = _chat_call_llm(system_prompt, messages, config)
+        # Parse tool calls
+        pattern = r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]'
+        raw_calls = _re.findall(pattern, response_text, _re.DOTALL)
+        if not raw_calls:
+            return response_text, tool_calls_log
+
+        # Execute each tool call and collect results
+        tool_results = []
+        for raw in raw_calls:
+            try:
+                call = json.loads(raw.strip())
+                tool = call.get("tool", "")
+                args = call.get("args", {})
+            except json.JSONDecodeError:
+                tool, args = "unknown", {}
+
+            result = _execute_debug_tool(tool, args, project_root, project=project, db=db)
+            tool_calls_log.append({"tool": tool, "args": args, "result": result})
+            tool_results.append(f"[TOOL_RESULT: {tool}]\n{result}\n[/TOOL_RESULT]")
+
+        # Add the assistant turn and tool results to history for next round
+        messages.append({"role": "assistant", "content": response_text})
+        messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+
+    # Final LLM call to summarise after max rounds
+    final = _chat_call_llm(system_prompt, messages, config)
+    return final, tool_calls_log
+
+
+def _build_project_context(workspace: Path, project: str, data_dir: Path, db) -> str:
+    """Build a project context block for the system prompt on session start.
+
+    Loads: recent git commits, pending/in-progress tasks, last 3 agent log tails,
+    AGENT_KNOWLEDGE.md. Each section is capped to keep the prompt reasonable.
+    Returns empty string if the project workspace does not exist.
+    """
+    project_path = workspace / project
+    if not project_path.exists():
+        return ""
+
+    sections = []
+
+    # --- Git log ---
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-20"],
+            cwd=str(project_path),
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            sections.append("## Recent commits (git log)\n" + result.stdout.strip())
+    except Exception:
+        pass
+
+    # --- Task queue ---
+    try:
+        all_tasks = db.task_get_all() if hasattr(db, "task_get_all") else {}
+        relevant = [
+            t for t in (all_tasks.values() if isinstance(all_tasks, dict) else all_tasks)
+            if t.get("project") == project and t.get("status") in ("pending", "in_progress")
+        ][:50]
+        if relevant:
+            lines = [
+                f"- [{t['status']}] {t['id'][:12]}: {t.get('description','')[:120]}"
+                for t in relevant
+            ]
+            sections.append("## Current task queue\n" + "\n".join(lines))
+    except Exception:
+        pass
+
+    # --- Recent agent logs ---
+    try:
+        log_files = sorted(
+            data_dir.glob("agent_*.log"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+        # Find logs for this project by scanning the first few lines
+        project_logs = []
+        for lf in log_files:
+            if len(project_logs) >= 3:
+                break
+            try:
+                head = lf.read_text(encoding="utf-8", errors="replace")[:2000]
+                if project in head:
+                    tail_lines = lf.read_text(encoding="utf-8", errors="replace").splitlines()[-100:]
+                    project_logs.append((lf.name, "\n".join(tail_lines)))
+            except Exception:
+                pass
+        if project_logs:
+            log_block = "\n\n".join(
+                f"### {name} (last 100 lines)\n{tail}" for name, tail in project_logs
+            )
+            sections.append("## Recent agent logs\n" + log_block)
+    except Exception:
+        pass
+
+    # --- AGENT_KNOWLEDGE.md ---
+    knowledge_path = project_path / "AGENT_KNOWLEDGE.md"
+    if knowledge_path.exists():
+        try:
+            content = knowledge_path.read_text(encoding="utf-8", errors="replace")[:8000]
+            sections.append("## AGENT_KNOWLEDGE.md\n" + content)
+        except Exception:
+            pass
+
+    if not sections:
+        return ""
+    return "\n\n---\n\n".join(sections)
+
+
 def register_routes(app, config, config_file, _config_write_lock, orchestrator, workspace,
                     db, auto_mode_state, generate_task_script):
     """Register chat and project-creation routes on the Flask app."""
@@ -1148,3 +1561,147 @@ FORMAT:
         db.task_update_status(gate_id, "completed", completed=datetime.now().isoformat())
         released = db.task_get(gate_id) or {**task, "status": "completed"}
         return jsonify({"released": True, "task": released})
+
+    # ------------------------------------------------------------------ #
+    #  Project debug chat  (POST /api/project-debug)                       #
+    # ------------------------------------------------------------------ #
+
+    def _debug_data_dir() -> Path:
+        from flask import current_app
+        return Path(current_app.config.get("DATA_DIR", "data"))
+
+    @app.route("/api/project-debug", methods=["POST"])
+    def project_debug_chat():
+        """Persistent project-scoped debugging chat.
+
+        Request JSON:
+          { "project": "my-project", "message": "...", "session_id": "<uuid>" }
+
+        Response JSON:
+          { "response": "...", "session_id": "<uuid>", "tool_calls": [...] }
+
+        Sessions survive page refreshes; history stored in
+        data/chat_sessions/<project>/<session_id>.jsonl.
+        Expires after 7 days of inactivity.
+        """
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        user_message = (data.get("message") or "").strip()
+        session_id = (data.get("session_id") or "").strip() or str(uuid.uuid4())
+
+        if not project:
+            return jsonify({"error": "project required"}), 400
+        if not user_message:
+            return jsonify({"error": "message required"}), 400
+
+        data_dir = _debug_data_dir()
+        history = _load_session(data_dir, project, session_id)
+        is_new_session = len(history) == 0
+
+        history.append({"role": "user", "content": user_message})
+        _save_session(data_dir, project, session_id, history)
+
+        project_context = ""
+        if is_new_session:
+            project_context = _build_project_context(
+                Path(workspace), project, data_dir, db
+            )
+
+        context_block = (
+            f"\n\n--- PROJECT CONTEXT (loaded at session start) ---\n{project_context}"
+            if project_context else ""
+        )
+        project_root = Path(workspace) / project
+        system_prompt = (
+            f"You are a debugging and project-guidance assistant for the swarm-managed project '{project}'. "
+            "Help the user understand what is happening in the project, diagnose issues, and decide what to work on next. "
+            "Be concise and direct. Reference specific files, task IDs, and log lines when relevant.\n\n"
+            + _DEBUG_TOOLS_DESCRIPTION
+            + context_block
+        )
+        try:
+            response_text, tool_calls = _run_debug_tool_loop(
+                system_prompt, history, config, project_root,
+                project=project, db=db,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        history.append({"role": "assistant", "content": response_text})
+        _save_session(data_dir, project, session_id, history)  # data_dir bound above
+
+        return jsonify({
+            "response": response_text,
+            "session_id": session_id,
+            "tool_calls": tool_calls,
+        })
+
+    @app.route("/api/project-debug/<session_id>", methods=["DELETE"])
+    def delete_project_debug_session(session_id):
+        """Delete a project debug chat session."""
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        if not project:
+            return jsonify({"error": "project required"}), 400
+        deleted = _delete_session(_debug_data_dir(), project, session_id)
+        return jsonify({"deleted": deleted, "session_id": session_id})
+
+    @app.route("/api/project-debug/<session_id>/stop", methods=["POST"])
+    def stop_project_debug_session(session_id):
+        """Emergency stop — inject a reset message, return immediately without LLM call.
+
+        Request JSON: { "project": "..." }
+        Response JSON: { "response": "...", "session_id": "...", "stopped": true }
+        """
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        if not project:
+            return jsonify({"error": "project required"}), 400
+
+        data_dir = _debug_data_dir()
+        history = _load_session(data_dir, project, session_id)
+
+        stop_message = (
+            "⚠️ Stopped by user. I've been interrupted — please tell me what you'd "
+            "like to do instead and I'll follow your direction."
+        )
+        history.append({"role": "assistant", "content": stop_message})
+        _save_session(data_dir, project, session_id, history)
+
+        return jsonify({
+            "response": stop_message,
+            "session_id": session_id,
+            "tool_calls": [],
+            "stopped": True,
+        })
+
+    @app.route("/api/project-debug/<session_id>/last", methods=["DELETE"])
+    def rollback_project_debug_session(session_id):
+        """Roll back the last user+assistant exchange from session history.
+
+        Request JSON: { "project": "..." }
+        Response JSON: { "rolled_back": true, "turns_removed": N, "session_id": "..." }
+        """
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        if not project:
+            return jsonify({"error": "project required"}), 400
+
+        data_dir = _debug_data_dir()
+        history = _load_session(data_dir, project, session_id)
+
+        # Remove trailing assistant message(s) then trailing user message
+        turns_removed = 0
+        while history and history[-1]["role"] == "assistant":
+            history.pop()
+            turns_removed += 1
+        while history and history[-1]["role"] == "user":
+            history.pop()
+            turns_removed += 1
+
+        _save_session(data_dir, project, session_id, history)
+        return jsonify({
+            "rolled_back": turns_removed > 0,
+            "turns_removed": turns_removed,
+            "session_id": session_id,
+        })
