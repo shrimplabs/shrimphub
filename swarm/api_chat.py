@@ -318,6 +318,22 @@ When asked about priorities or what to work on next, call get_critical_path() fi
 When asked about project state, read AGENT_KNOWLEDGE.md if present.
 """
 
+_DEBUG_SYSTEM_PROMPT = """\
+You are a project co-pilot and debugging assistant for the swarm-managed project '{project}'.
+Your role is to help the user understand what is happening, diagnose issues, and decide what to work on next.
+
+BEHAVIOUR GUIDELINES:
+- Investigate before answering: use read_file or run_command to look at actual code, logs, or test output rather than guessing
+- When asked about priorities or what to work on, call get_critical_path() first, then explain the bottleneck
+- Read AGENT_KNOWLEDGE.md before answering questions about project architecture or recent changes
+- Be concise and direct — reference specific file paths, task IDs, and log line numbers
+- You have full write access: use write_file and git_commit when the user asks you to make changes
+- When you find a bug or issue worth tracking, offer to create a task for it
+
+TOOL USAGE:
+{tools}
+{context}"""
+
 
 def _validate_project_path(project_root: Path, rel_path: str) -> Path:
     """Resolve rel_path relative to project_root and verify it stays within."""
@@ -1612,12 +1628,10 @@ FORMAT:
             if project_context else ""
         )
         project_root = Path(workspace) / project
-        system_prompt = (
-            f"You are a debugging and project-guidance assistant for the swarm-managed project '{project}'. "
-            "Help the user understand what is happening in the project, diagnose issues, and decide what to work on next. "
-            "Be concise and direct. Reference specific files, task IDs, and log lines when relevant.\n\n"
-            + _DEBUG_TOOLS_DESCRIPTION
-            + context_block
+        system_prompt = _DEBUG_SYSTEM_PROMPT.format(
+            project=project,
+            tools=_DEBUG_TOOLS_DESCRIPTION,
+            context=context_block,
         )
         try:
             response_text, tool_calls = _run_debug_tool_loop(

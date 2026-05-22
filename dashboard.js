@@ -2220,12 +2220,16 @@ function renderSidebar(projectNames, projectTaskCounts) {
         const active = _selectedProject === item.key;
         const dataAttr = item.key !== null ? `data-project="${escapeHtml(item.name)}"` : '';
         const hasAgent = item.key !== null && _activeProjectSet.has(item.key);
+        const debugBtn = item.key !== null
+            ? `<button class="debug-project-btn" onclick="event.stopPropagation();openDebugChat('${escapeHtml(item.name)}')" title="Open debug chat">🔍</button>`
+            : '';
         return `
             <div class="sidebar-item ${active ? 'active' : ''}" ${dataAttr}
                  onclick="selectSidebarProject(${item.key === null ? 'null' : "'" + item.name + "'"})">
                 ${hasAgent ? '<span class="active-led"></span>' : ''}
                 <span class="sidebar-item-name">${escapeHtml(item.name)}</span>
                 <span class="sidebar-item-count">${item.count}</span>
+                ${debugBtn}
             </div>`;
     }).join('');
 }
@@ -3444,4 +3448,194 @@ function appendChatMsg(role, text) {
     div.innerHTML = role === 'user' ? escapeHtml(text).replace(/\n/g,'<br>') : renderMarkdown(text);
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+}
+
+// ---- Project Debug Chat ----
+
+let _debugProject = '';
+let _debugSessionId = '';
+let _debugAbortController = null;
+
+function openDebugChat(project) {
+    _debugProject = project;
+    _debugSessionId = localStorage.getItem('debug_session_' + project) || '';
+    document.getElementById('debugChatTitle').textContent = '🔍 ' + project;
+    const panel = document.getElementById('debugChatPanel');
+    panel.classList.add('open');
+    document.getElementById('debugChatInput').focus();
+    if (!_debugSessionId) {
+        _appendDebugMsg('assistant', 'Hi! I can read files, run commands, inspect logs, and query the task graph for **' + project + '**. What do you need?');
+    }
+}
+
+function toggleDebugChat() {
+    document.getElementById('debugChatPanel').classList.remove('open');
+}
+
+function debugNewSession() {
+    if (_debugProject) localStorage.removeItem('debug_session_' + _debugProject);
+    _debugSessionId = '';
+    document.getElementById('debugChatMessages').innerHTML = '';
+    _appendDebugMsg('assistant', 'Started a new conversation. What do you need?');
+    document.getElementById('debugUndoBtn').style.display = 'none';
+}
+
+async function debugStop() {
+    if (_debugAbortController) {
+        _debugAbortController.abort();
+        _debugAbortController = null;
+    }
+    if (!_debugSessionId) return;
+    document.getElementById('debugStopBtn').style.display = 'none';
+    document.getElementById('debugSendBtn').disabled = false;
+    try {
+        const r = await fetch('/api/project-debug/' + _debugSessionId + '/stop', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({project: _debugProject}),
+        });
+        const data = await r.json();
+        const thinking = document.getElementById('debugThinking');
+        if (thinking) thinking.remove();
+        _appendDebugMsg('stopped', data.response || '⚠️ Stopped. Tell me what to do instead.');
+        document.getElementById('debugUndoBtn').style.display = '';
+    } catch(e) {
+        _appendDebugMsg('stopped', '⚠️ Stopped.');
+    }
+}
+
+async function debugRollback() {
+    if (!_debugSessionId) return;
+    try {
+        await fetch('/api/project-debug/' + _debugSessionId + '/last', {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({project: _debugProject}),
+        });
+        // Remove last two message elements (user + assistant/stopped)
+        const msgs = document.getElementById('debugChatMessages');
+        for (let i = 0; i < 2; i++) {
+            if (msgs.lastElementChild) msgs.removeChild(msgs.lastElementChild);
+        }
+        document.getElementById('debugUndoBtn').style.display = 'none';
+    } catch(e) { /* ignore */ }
+}
+
+document.getElementById('debugChatInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        const stopBtn = document.getElementById('debugStopBtn');
+        if (stopBtn.style.display !== 'none') {
+            debugStop();
+        } else {
+            toggleDebugChat();
+        }
+        return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendDebugChat();
+    }
+});
+
+async function sendDebugChat() {
+    const input = document.getElementById('debugChatInput');
+    const msg = input.value.trim();
+    if (!msg || !_debugProject) return;
+
+    const sendBtn = document.getElementById('debugSendBtn');
+    const stopBtn = document.getElementById('debugStopBtn');
+    const undoBtn = document.getElementById('debugUndoBtn');
+
+    _appendDebugMsg('user', msg);
+    input.value = '';
+    sendBtn.disabled = true;
+    stopBtn.style.display = '';
+    undoBtn.style.display = 'none';
+
+    const thinking = document.createElement('div');
+    thinking.className = 'debug-msg thinking';
+    thinking.id = 'debugThinking';
+    thinking.textContent = 'Thinking...';
+    document.getElementById('debugChatMessages').appendChild(thinking);
+    document.getElementById('debugChatMessages').scrollTop = 99999;
+
+    _debugAbortController = new AbortController();
+
+    try {
+        const resp = await fetch('/api/project-debug', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            signal: _debugAbortController.signal,
+            body: JSON.stringify({
+                project: _debugProject,
+                message: msg,
+                session_id: _debugSessionId || undefined,
+            }),
+        });
+        const data = await resp.json();
+        thinking.remove();
+
+        if (data.session_id) {
+            _debugSessionId = data.session_id;
+            localStorage.setItem('debug_session_' + _debugProject, _debugSessionId);
+        }
+
+        if (data.error) {
+            _appendDebugMsg('assistant', 'Error: ' + data.error);
+        } else {
+            _appendDebugMsgWithTools('assistant', data.response, data.tool_calls || []);
+            undoBtn.style.display = '';
+        }
+    } catch(e) {
+        thinking.remove();
+        if (e.name !== 'AbortError') {
+            _appendDebugMsg('assistant', 'Network error — is the server running?');
+        }
+    } finally {
+        _debugAbortController = null;
+        sendBtn.disabled = false;
+        stopBtn.style.display = 'none';
+        input.focus();
+    }
+}
+
+function _appendDebugMsg(role, text) {
+    const msgs = document.getElementById('debugChatMessages');
+    const div = document.createElement('div');
+    div.className = 'debug-msg ' + role;
+    div.innerHTML = role === 'user'
+        ? escapeHtml(text).replace(/\n/g, '<br>')
+        : renderMarkdown(text);
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+function _appendDebugMsgWithTools(role, text, toolCalls) {
+    const msgs = document.getElementById('debugChatMessages');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'debug-msg ' + role;
+    wrapper.innerHTML = renderMarkdown(text);
+
+    for (const tc of toolCalls) {
+        const block = document.createElement('div');
+        block.className = 'debug-tool-call';
+        const header = document.createElement('div');
+        header.className = 'debug-tool-call-header';
+        header.innerHTML = '<span class="tool-arrow">▶</span> ' +
+            escapeHtml(tc.tool) + '(' +
+            escapeHtml(JSON.stringify(tc.args || {})).slice(0, 80) + ')';
+        header.onclick = function() {
+            this.classList.toggle('open');
+        };
+        const body = document.createElement('div');
+        body.className = 'debug-tool-call-body';
+        body.textContent = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2);
+        block.appendChild(header);
+        block.appendChild(body);
+        wrapper.appendChild(block);
+    }
+
+    msgs.appendChild(wrapper);
+    msgs.scrollTop = msgs.scrollHeight;
 }

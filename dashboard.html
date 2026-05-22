@@ -726,6 +726,27 @@
 
     </div><!-- /main-content -->
 
+    <!-- Project Debug Chat Panel -->
+    <div id="debugChatPanel" class="debug-chat-panel">
+        <div class="debug-chat-header">
+            <span id="debugChatTitle">🔍 Project Debug</span>
+            <div class="debug-chat-header-btns">
+                <button id="debugUndoBtn" onclick="debugRollback()" title="Undo last exchange" style="display:none">↩ Undo</button>
+                <button onclick="debugNewSession()" title="New conversation">＋ New</button>
+                <button onclick="toggleDebugChat()" title="Close">✕</button>
+            </div>
+        </div>
+        <div id="debugChatMessages" class="debug-chat-messages"></div>
+        <div class="debug-chat-input-row">
+            <textarea id="debugChatInput" placeholder="Ask about the project, inspect files, or say 'what's blocking progress?'" rows="2"></textarea>
+            <div class="debug-chat-input-btns">
+                <button id="debugStopBtn" onclick="debugStop()" title="Emergency stop (Esc)" style="display:none">⏹ Stop</button>
+                <button id="debugSendBtn" onclick="sendDebugChat()">Send</button>
+            </div>
+        </div>
+        <div class="debug-chat-hint">Shift+Enter for newline · Esc to stop</div>
+    </div>
+
     <script src="dashboard-utils.js?v=20260522a"></script>
     <script src="dashboard_deps_integrity.js?v=20260409d"></script>
     <script src="dashboard_closure.js?v=20260501b"></script>
