@@ -42,3 +42,6 @@ If implementation changes any of the defaults or flows above, update the matchin
 
 ---
 swarm/tools/shell.py _safe_cwd(): _project_root() returns str, not Path — must call Path(root).is_dir() not root.is_dir(). _core._safe_cwd() does not exist in core.py — removed dead call. Both bugs were introduced during tools-split refactor.
+
+---
+ARCH GOTCHA: never do `import swarm.tools.core as _core` inside a function in swarm/tools/shell.py, or any other file that core.py re-exports from. core.py re-exports from shell.py at module level — any call-time import of core inside shell creates a module-load circular import. If shell.py needs config vars (WORKSPACE, etc.), import them from swarm.tools._shared instead (same source as _project_root). _shared is safe because neither core nor shell imports _shared at module level — they only reference the functions it defines.
