@@ -39,3 +39,6 @@ See:
 - Agent helper docs: `docs/agent-ops/`
 
 If implementation changes any of the defaults or flows above, update the matching docs in the same change.
+
+---
+swarm/tools/shell.py _safe_cwd(): _project_root() returns str, not Path — must call Path(root).is_dir() not root.is_dir(). _core._safe_cwd() does not exist in core.py — removed dead call. Both bugs were introduced during tools-split refactor.
