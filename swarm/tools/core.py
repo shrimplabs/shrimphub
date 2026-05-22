@@ -20,7 +20,7 @@ import random
 from swarm import db as swarm_db
 from swarm.task_chains import chain_to_project_head
 from swarm.tools import _shared
-from swarm.tools.shell import run, run_command, git_commit, git_push  # noqa: F401
+from swarm.tools.shell import run, run_command, git_commit, git_push, _safe_cwd  # noqa: F401
 from swarm.tools._shared import _project_root
 from swarm.tools.path_guard import _is_vendor_path, _protected_path_reason, _protected_path_error, _command_targets_protected_path, _embedded_protected_path_matches, _command_attempts_embedded_protected_write, _check_catastrophic_command, _command_attempts_protected_write, _looks_like_dependency_path, _CATASTROPHIC_PATTERNS, _resolve_project_path
 from swarm.tools.files import read_file, list_files, search_code, get_file_stats, get_file_outline, read_file_range, patch_file, write_file, append_file
