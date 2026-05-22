@@ -8,16 +8,6 @@ in agent_runtime.py (same pattern as _sync_qa_tools_globals).
 
 from swarm.tools.core import (  # noqa: F401
     log,
-    _project_root,
-    read_file,
-    list_files,
-    search_code,
-    get_file_stats,
-    get_file_outline,
-    read_file_range,
-    patch_file,
-    write_file,
-    append_file,
     run_command,
     git_commit,
     git_push,
@@ -31,7 +21,21 @@ from swarm.tools.core import (  # noqa: F401
     delegate_helper,
 )
 
-from swarm.tools.tasks import (  # noqa: F401
+from swarm.tools._shared import _project_root  # noqa: F401
+
+from swarm.tools.files import (  # noqa: F401, E402
+    read_file as read_file,
+    list_files as list_files,
+    search_code as search_code,
+    get_file_stats as get_file_stats,
+    get_file_outline as get_file_outline,
+    read_file_range as read_file_range,
+    patch_file as patch_file,
+    write_file as write_file,
+    append_file as append_file,
+)
+
+from swarm.tools.tasks import (  # noqa: F401, E402
     create_task,
     create_tasks_file_aware,
     create_tasks,

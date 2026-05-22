@@ -3,9 +3,14 @@
 Globals (TASK_TYPE, READONLY, MAX_LINES, etc.) are set on swarm.tools.core
 by _sync_core_globals() at the start of each agent run. We read them at call
 time via a lazy import of swarm.tools.core so the values are always current.
+
+_sanitize_text() is imported from swarm.tools._shared to avoid triggering
+the core.py <-> files.py circular import.
 """
 
 from __future__ import annotations
+
+from swarm.tools._shared import _sanitize_text  # noqa: F401
 
 
 def read_file(relative_path: str, offset: int = 0, limit: int = 0) -> dict:
@@ -233,7 +238,7 @@ def patch_file(relative_path: str, old: str, new: str) -> dict:
                     best_lines = lines[max(0, i - 1):i + 3]
             hint = ""
             if best_ratio > 0.5 and best_line_no >= 0:
-                preview = "\n".join(f"  {l}" for l in best_lines)
+                preview = "\n".join(f"  {line}" for line in best_lines)
                 hint = f" Closest match at line {best_line_no} (similarity {best_ratio:.0%}):\n{preview}"
             return {"ok": False, "error": f"string not found in {relative_path}.{hint}", "searched_chars": len(content)}
 
@@ -241,7 +246,7 @@ def patch_file(relative_path: str, old: str, new: str) -> dict:
         if count > 1:
             return {"ok": False, "error": f"ambiguous: found {count} occurrences"}
 
-        new_content = _core._sanitize_text(content.replace(old, new, 1))
+        new_content = _sanitize_text(content.replace(old, new, 1))
 
         with open(path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(new_content)
@@ -269,7 +274,7 @@ def write_file(path_arg: str, content: str) -> dict:
         return _protected_path_error(path_arg, protected_reason)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        path.write_text(_core._sanitize_text(content), encoding='utf-8', newline="\n")
+        path.write_text(_sanitize_text(content), encoding='utf-8', newline="\n")
         return {"ok": True, "path": str(path)}
     except Exception as e:
         return {"ok": False, "error": str(e)}

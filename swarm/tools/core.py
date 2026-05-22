@@ -9,21 +9,13 @@ script on swarm.agent_runtime before calling main().
 import json
 import os
 import re
-import sys
 from datetime import datetime
 import urllib.request as _ur
-import time
-import uuid
 from pathlib import Path
-import random
 
-from swarm import db as swarm_db
-from swarm.task_chains import chain_to_project_head
-from swarm.tools import _shared
 from swarm.tools.shell import run, run_command, git_commit, git_push, _safe_cwd  # noqa: F401
-from swarm.tools._shared import _project_root
-from swarm.tools.path_guard import _is_vendor_path, _protected_path_reason, _protected_path_error, _command_targets_protected_path, _embedded_protected_path_matches, _command_attempts_embedded_protected_write, _check_catastrophic_command, _command_attempts_protected_write, _looks_like_dependency_path, _CATASTROPHIC_PATTERNS, _resolve_project_path
-from swarm.tools.files import read_file, list_files, search_code, get_file_stats, get_file_outline, read_file_range, patch_file, write_file, append_file
+from swarm.tools._shared import _project_root, log, _sanitize_text  # noqa: F401
+from swarm.tools.path_guard import _resolve_project_path
 
 
 # ---------------------------------------------------------------------------
@@ -53,30 +45,6 @@ mcp_client = None
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
-def log(msg: str):
-    print(f"[Agent] {msg}", flush=True)
-
-
-# Map Windows-1252 "fancy" punctuation → plain ASCII equivalents.
-# Applied to all text written via write_file / patch_file so LLM-generated
-# em-dashes and smart quotes never produce non-UTF-8 bytes in GDScript files.
-_FANCY_PUNCT_TABLE = str.maketrans({
-    "\u2014": "--",  # em-dash → two hyphens
-    "\u2013": "-",   # en-dash → hyphen
-    "\u201c": '"',   # left double quote → ASCII quote
-    "\u201d": '"',   # right double quote → ASCII quote
-    "\u2018": "'",   # left single quote → ASCII apostrophe
-    "\u2019": "'",   # right single quote → ASCII apostrophe
-    "\u2026": "...", # ellipsis → three dots
-    "\u00b7": "*",   # middle dot → asterisk
-})
-
-
-def _sanitize_text(content: str) -> str:
-    """Replace fancy Unicode punctuation with ASCII equivalents and normalise line endings."""
-    return content.translate(_FANCY_PUNCT_TABLE).replace('\r\n', '\n').replace('\r', '\n')
-
 
 def _read_text_with_fallback(path: str | Path) -> tuple[str, str]:
     """Read text files that may have been authored with Windows ANSI tools.
@@ -341,7 +309,6 @@ def web_search(query: str, max_results: int = 3) -> dict:
 
 def fetch_url(url: str, extract_text: bool = True) -> dict:
     """Fetch a URL and return its content as clean markdown."""
-    import re
     try:
         import urllib.request
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
@@ -497,7 +464,7 @@ def delegate_helper(question: str, files: list | None = None, scope: str = "", m
 # refactor/tools-split branch.
 # ---------------------------------------------------------------------------
 
-from swarm.tools.tasks import (  # noqa: F401
+from swarm.tools.tasks import (  # noqa: F401, E402
     create_task,
     create_tasks_file_aware,
     create_tasks,
