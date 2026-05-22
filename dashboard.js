@@ -1937,20 +1937,27 @@ async function loadRlHistory() {
 
         ctx.clearRect(0, 0, W, H);
 
-        // Current hour highlight
         const currentHour = new Date().getHours();
+
+        // Current hour column background highlight
+        ctx.fillStyle = 'rgba(88, 166, 255, 0.08)';
+        ctx.fillRect(currentHour * barW, 0, barW, H);
 
         counts.forEach((count, h) => {
             const barH = count > 0 ? Math.max(2, (count / maxCount) * (H - 8)) : 0;
             const x = h * barW;
             const y = H - barH;
-            const alpha = h === currentHour ? 1.0 : 0.7;
             const intensity = count > 0 ? Math.max(0.3, count / maxCount) : 0.08;
             ctx.fillStyle = count > 0
-                ? `rgba(248, 81, 73, ${intensity * alpha})`
+                ? `rgba(248, 81, 73, ${intensity})`
                 : `rgba(33, 38, 45, 0.6)`;
             ctx.fillRect(x + 1, y, barW - 2, barH);
         });
+
+        // Current hour border
+        ctx.strokeStyle = 'rgba(88, 166, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(currentHour * barW + 0.5, 0.5, barW - 1, H - 1);
 
         // Hour axis labels (0, 6, 12, 18, 23)
         ctx.fillStyle = '#484f58';
