@@ -404,19 +404,16 @@
             const badge = document.getElementById('planBadge');
             let dot = '';
             try {
-                if (!ctx.selectedProject) {
-                    container.textContent = 'Select a project to render its dependency graph. Global graph rendering is disabled for performance.';
-                    if (badge) {
-                        badge.textContent = '';
-                        badge.style.display = 'none';
-                    }
-                    return;
-                }
                 const taskData = await fetch(`${ctx.API}/api/tasks`).then(r => r.json());
                 const tasks = Array.isArray(taskData.tasks) ? taskData.tasks : [];
                 const liveProjectTasks = ctx.selectedProject
                     ? tasks.filter(task => task.project === ctx.selectedProject)
                     : tasks;
+                // Global graph: warn if very large but still render
+                if (!ctx.selectedProject && liveProjectTasks.length > 200) {
+                    container.textContent = `Too many tasks to render globally (${liveProjectTasks.length}). Select a project.`;
+                    return;
+                }
                 if (ctx.selectedProject && !liveProjectTasks.length) {
                     container.textContent = 'No live tasks found for this project.';
                     if (badge) {
@@ -439,7 +436,7 @@
                     const data = await depsRes.json();
                     dot = data.dot || '';
                     if (!dot.trim() || dot.trim() === 'digraph {}') {
-                        container.textContent = ctx.selectedProject ? 'No tasks found for this project.' : 'No task dependencies defined.';
+                        container.textContent = ctx.selectedProject ? 'No tasks found for this project.' : 'No pending tasks with dependencies.';
                         return;
                     }
                     try {
