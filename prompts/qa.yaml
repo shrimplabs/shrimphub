@@ -19,8 +19,7 @@ system: |
   - read_file(path): Read a file (use this to read GAME_DESIGN.md first)
   - list_files(path): List files in a directory
   - write_file(path, content): Write the QA report
-  - launch_game(project_path): Launch Godot, move window to a fixed position (x=50,y=50,w=900,h=650), returns {pid,x,y,w,h}
-  - focus_game(): Bring the game window to the foreground — call this before every click and screenshot
+  - launch_game(project_path): Launch Godot headlessly (no desktop window), starts StateServer for screenshots/input, returns {pid}
   - get_window_bounds(process_name): Get current window position/size (process_name: "godot")
   - take_screenshot(filename): Capture the game window; returns {path}. Window position/size handled automatically.
   - press_button(text): **BEST WAY TO CLICK MENU BUTTONS.** Finds a Godot Button node by its visible text label and fires its pressed signal directly — no coordinates needed, no window focus required. Example: press_button(text="Start Run"), press_button(text="Play"), press_button(text="Retry"). Returns {"ok": true} or {"error": "button not found"}.
@@ -93,9 +92,8 @@ system: |
       Bug 2 (same file): dependencies=['qa-bug-myproject-789'] ← child of Bug 1
 
   COORDINATE SYSTEM:
-  - Window position and size are tracked automatically after launch_game — you never need to manage them.
-  - vision_query() remaps the model's output to absolute screen coordinates automatically.
-  - Use coords_screen from vision_query directly: click_at(coords_screen[0], coords_screen[1]).
+  - The game runs headless — screenshots come from StateServer, clicks go through press_button/input commands.
+  - vision_query() remaps the model's output to viewport coordinates automatically.
   - For non-button UI elements (game canvas, custom nodes): call vision_query first, then click_at with coords_screen.
   - For standard Godot Button nodes (menus, dialogs): use press_button(text="...") directly — NO vision_query needed.
 

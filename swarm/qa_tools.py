@@ -402,32 +402,23 @@ def launch_game(project_path: str) -> dict:
         return {"ok": False, "error": f"Godot binary not found at {godot_bin}"}
 
     try:
+        # Always run headless — screenshots come from StateServer.screenshot_b64,
+        # clicks go through StateServer press_button/input commands.
+        # Windowed mode causes Godot to open the editor instead of the game
+        # when there are script errors, which is never what we want for QA.
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--path", project_path, "--",
+            [godot_bin, "--headless", "--path", project_path, "--",
              "--state-port", str(_state_port),
              "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         pid = _qa_game_process.pid
-        log(f"Launched Godot PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
+        log(f"Launched Godot headless PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
         _time.sleep(6)
 
         if _qa_game_process.poll() is not None:
             return {"ok": False, "error": "Godot exited immediately", "pid": pid}
-
-        # Move window to fixed position but do NOT force a size — portrait games
-        # must keep their natural height. Position only (x,y); size read below.
-        qa_position_window()
-        qa_focus_game()
-        detected_bounds = qa_get_window_bounds("godot")
-        if detected_bounds.get("ok"):
-            _qa_window["x"] = detected_bounds["x"]
-            _qa_window["y"] = detected_bounds["y"]
-            _qa_window["w"] = detected_bounds["w"]
-            _qa_window["h"] = detected_bounds["h"]
-            _qa_window["viewport_w"] = detected_bounds["w"]
-            _qa_window["viewport_h"] = detected_bounds["h"]
 
         # Try StateServer screenshot first — it tells us actual pixel dimensions
         # including the pixel_ratio, which is the authoritative source for
