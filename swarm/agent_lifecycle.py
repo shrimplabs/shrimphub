@@ -25,7 +25,7 @@ from typing import Dict, List, Optional, Set
 
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
 from swarm.integrity import active_agent_matches_task, can_task_accept_agent, is_continuity_eligible_task
-from swarm.platform import popen_session_kwargs
+from swarm.platform import popen_session_kwargs, kill_godot_children
 from swarm.agent_recovery import (  # noqa: F401
     _handle_task_failure,
     _looks_like_file_path,
@@ -423,12 +423,14 @@ def check_dep_violations():
               f"deps not met: {unmet} \u2014 killing")
         if process:
             try:
+                kill_godot_children(process.pid)
                 process.kill()
                 process.wait(timeout=5)
             except Exception as _ke:
                 print(f"[Swarm] Dep violation kill error: {_ke}")
         elif pid:
             try:
+                kill_godot_children(pid)
                 os.kill(pid, 9)
             except Exception as _ke:
                 print(f"[Swarm] Dep violation PID kill error: {_ke}")
@@ -495,6 +497,7 @@ def check_agent_status() -> List[threading.Thread]:
     for agent_id, data in timed_out:
         print(f"[Swarm] Agent {agent_id[:8]} timed out after {AGENT_TIMEOUT}s \u2014 killing")
         try:
+            kill_godot_children(data["process"].pid)
             data["process"].kill()
             data["process"].wait(timeout=5)
         except Exception:

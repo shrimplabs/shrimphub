@@ -314,8 +314,9 @@ def execute_tool(tool_call: dict) -> dict:
     # Build the active dispatch table from the registry.
     # The registry is static; availability filtering (Godot, QA, harness) is
     # done here so execute_tool always reflects the current runtime state.
-    reg = _registry_by_name()
     dispatch: dict[str, Callable] = {}
+    dispatch_canonical: dict[str, str] = {}
+    alias_names: set[str] = set()
 
     _godot_project_file = (
         Path(_rt.PROJECT_PATH_OVERRIDE) if _rt.PROJECT_PATH_OVERRIDE else (workspace / project)
@@ -328,6 +329,7 @@ def execute_tool(tool_call: dict) -> dict:
         or (_rt.TASK_TYPE == "hybrid_qa" and _project_supports_harness())
     )
 
+    available_specs: list[ToolSpec] = []
     for spec in _TOOL_REGISTRY:
         # Skip tools restricted to specific task types
         if spec.task_types and _rt.TASK_TYPE not in spec.task_types:
@@ -335,33 +337,33 @@ def execute_tool(tool_call: dict) -> dict:
         # Skip Godot-only tools when project.godot is absent
         if spec.godot_only and not _godot_available:
             continue
+        available_specs.append(spec)
         # Handler is a factory: call with (args, workspace, project) context
         dispatch[spec.name] = lambda s=spec: s.handler(args, workspace, project)
+        dispatch_canonical[spec.name] = spec.name
 
-    # Register aliases into dispatch
-    seen_aliases = set()
-    for spec in _TOOL_REGISTRY:
+    # Register aliases only for specs available to this task type. This keeps
+    # harness-only aliases from shadowing same-named QA tools in normal QA runs.
+    for spec in available_specs:
         for alias in spec.aliases:
             if alias not in dispatch:
                 dispatch[alias] = lambda s=spec: s.handler(args, workspace, project)
-                seen_aliases.add(alias)
+                dispatch_canonical[alias] = spec.name
+                alias_names.add(alias)
 
-    # Resolve alias (log when an alias is used)
-    resolved_tool = tool
-    spec_for_tool = reg.get(tool)
-    if spec_for_tool and spec_for_tool.name != tool:
-        resolved_tool = spec_for_tool.name
-        log(f"Tool alias: {tool} → {resolved_tool}")
+    canonical_tool = dispatch_canonical.get(tool, tool)
+    if tool in alias_names and canonical_tool != tool:
+        log(f"Tool alias: {tool} → {canonical_tool}")
 
-    fn = dispatch.get(resolved_tool)
+    fn = dispatch.get(tool)
     if fn:
         result = fn()
-        if resolved_tool == "broadcast_write" and isinstance(result, dict) and result.get("ok", True) is not False:
+        if canonical_tool == "broadcast_write" and isinstance(result, dict) and result.get("ok", True) is not False:
             _rt.RUN_BROADCAST_WRITE_COUNT += 1
         return result
     return {
         "ok": False,
-        "error": f"Unknown tool: {tool}. Valid tools: {', '.join(k for k in dispatch if k not in seen_aliases)}",
+        "error": f"Unknown tool: {tool}. Valid tools: {', '.join(k for k in dispatch if k not in alias_names)}",
     }
 
 
@@ -474,8 +476,16 @@ def _populate_registry():
     _reg("requeue_self",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                  task_types=_QA_TYPES)
 
     # --- Harness QA tools ---
-    _reg("harness_launch_game",    lambda a, ws, p: harness_launch_game(str(ws / p), _parse_extra_args(a.get("extra_args"))), task_types=_HARNESS_TYPES)
-    _reg("harness_step",           lambda a, ws, p: harness_step(_resolve_harness_action(a), int(a.get("timeout", 30))),      task_types=_HARNESS_TYPES)
+    def _harness_launch_game(a, ws, p):
+        from swarm.runtime_config import _parse_extra_args
+        return harness_launch_game(str(ws / p), _parse_extra_args(a.get("extra_args")))
+
+    def _harness_step(a, ws, p):
+        from swarm.runtime_config import _resolve_harness_action
+        return harness_step(_resolve_harness_action(a), int(a.get("timeout", 30)))
+
+    _reg("harness_launch_game",    _harness_launch_game,                                                                    task_types=_HARNESS_TYPES)
+    _reg("harness_step",           _harness_step,                                                                           task_types=_HARNESS_TYPES)
     _reg("harness_kill_game",      lambda a, ws, p: harness_kill_game(),                                                      task_types=_HARNESS_TYPES)
     _reg("harness_poll_state",     lambda a, ws, p: harness_poll_state(int(a.get("timeout", 5))),                             task_types=_HARNESS_TYPES)
     _reg("harness_take_screenshot",lambda a, ws, p: harness_take_screenshot(a.get("filename", f"data/harness_screenshot_{int(__import__('time').time())}.png")), task_types=_HARNESS_TYPES)

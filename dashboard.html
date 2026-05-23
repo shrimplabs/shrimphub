@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShrimpHub Dashboard</title>
-    <link rel="stylesheet" href="/dashboard.css?v=20260521c">
+    <link rel="stylesheet" href="/dashboard.css?v=20260522b">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
     <script>
@@ -623,7 +623,7 @@
         </div>
     </div>
 
-    <button class="refresh-btn" onclick="toggleChat()" id="chatToggleBtn" title="Ask the swarm manager">💬 Ask Manager</button>
+    <button class="refresh-btn" onclick="openUnifiedChat(_selectedProject || null)" id="unifiedChatBtn" title="Talk to the Swarm">💬 Swarm</button>
 
     <div style="margin:8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e">
         <label title="POST a JSON summary here when the queue empties">🔔 Webhook:</label>
@@ -708,48 +708,50 @@
     </div>
 
 
-    <!-- Chat Panel -->
-
-    <div id="chatPanel">
-        <div id="chatHeader">
-            <span>💬 Swarm Manager</span>
-            <button onclick="toggleChat()" title="Close">✕</button>
-        </div>
-        <div id="chatMessages">
-            <div class="chat-msg assistant">Hi! I can observe the swarm and take actions — kill agents, create bug tasks, toggle auto mode, or restart the server. What do you need?</div>
-        </div>
-        <div id="chatInputRow">
-            <textarea id="chatInput" placeholder="Ask about status, or say 'kill all agents', 'create a bug task for...'" rows="1"></textarea>
-            <button id="chatSendBtn" onclick="sendChat()">Send</button>
-        </div>
-    </div>
-
     </div><!-- /main-content -->
 
-    <!-- Project Debug Chat Panel -->
-    <div id="debugChatPanel" class="debug-chat-panel">
-        <div class="debug-chat-header">
-            <span id="debugChatTitle">🔍 Project Debug</span>
-            <div class="debug-chat-header-btns">
-                <button id="debugUndoBtn" onclick="debugRollback()" title="Undo last exchange" style="display:none">↩ Undo</button>
-                <button onclick="debugNewSession()" title="New conversation">＋ New</button>
-                <button onclick="toggleDebugChat()" title="Close">✕</button>
+    <!-- Unified Chat Panel -->
+    <div id="unifiedChatPanel" class="unified-chat-panel" style="display:none">
+        <div class="unified-chat-header">
+            <div class="unified-chat-scope" id="unifiedChatScope">💬 Swarm Chat</div>
+            <div class="unified-chat-header-btns">
+                <button id="unifiedStopBtn" onclick="unifiedChatStop()" title="Emergency stop (Esc)" style="display:none">⏹ Stop</button>
+                <button onclick="unifiedChatNewSession()" title="New conversation">＋ New</button>
+                <button onclick="closeUnifiedChat()" title="Close">✕</button>
             </div>
         </div>
-        <div id="debugChatMessages" class="debug-chat-messages"></div>
-        <div class="debug-chat-input-row">
-            <textarea id="debugChatInput" placeholder="Ask about the project, inspect files, or say 'what's blocking progress?'" rows="2"></textarea>
-            <div class="debug-chat-input-btns">
-                <button id="debugStopBtn" onclick="debugStop()" title="Emergency stop (Esc)" style="display:none">⏹ Stop</button>
-                <button id="debugSendBtn" onclick="sendDebugChat()">Send</button>
+        <div id="unifiedChatMessages" class="unified-chat-messages"></div>
+        <div class="unified-chat-input-row">
+            <textarea id="unifiedChatInput" placeholder="Ask anything about the swarm or selected project…" rows="2"></textarea>
+            <div class="unified-chat-input-btns">
+                <button id="unifiedSendBtn" onclick="sendUnifiedChat()">Send</button>
             </div>
         </div>
-        <div class="debug-chat-hint">Shift+Enter for newline · Esc to stop</div>
+        <div class="unified-chat-hint">Shift+Enter for newline · Esc to stop</div>
+    </div>
+
+    <!-- Confirm Challenge Dialog (for destructive actions) -->
+    <div id="unifiedConfirmDialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;justify-content:center;align-items:center">
+        <div style="background:#161b22;border:1px solid #f85149;border-radius:10px;padding:24px;max-width:440px;width:90vw">
+            <div style="font-size:15px;font-weight:600;color:#f85149;margin-bottom:10px">⚠️ Confirm Destructive Action</div>
+            <div style="font-size:13px;color:#c9d1d9;margin-bottom:20px" id="unifiedConfirmDesc"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button onclick="unifiedConfirmCancel()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer">Cancel</button>
+                <button onclick="unifiedConfirmExecute()" style="background:#6e1a1a;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer;font-weight:600">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <script src="dashboard-utils.js?v=20260522a"></script>
     <script src="dashboard_deps_integrity.js?v=20260409d"></script>
     <script src="dashboard_closure.js?v=20260501b"></script>
-    <script src="dashboard.js?v=20260521c"></script>
+    <script src="dashboard-core.js?v=20260523e"></script>
+    <script src="dashboard-projects.js?v=20260522f"></script>
+    <script src="dashboard-agents.js?v=20260523e"></script>
+    <script src="dashboard-tasks.js?v=20260523e"></script>
+    <script src="dashboard-config.js?v=20260523e"></script>
+    <script src="dashboard-wizard.js?v=20260523e"></script>
+    <script src="dashboard-chat.js?v=20260523e"></script>
+    <script src="dashboard.js?v=20260523e"></script>
 </body>
 </html>

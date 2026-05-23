@@ -8,6 +8,7 @@ import os
 import requests
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -81,15 +82,24 @@ def _build_state_snapshot(db, all_tasks=None, all_agents=None, projects=None):
         for a in recent_failed
     ]
 
+    # projects may be a dict {name: data} or a list of dicts
+    if isinstance(projects, dict):
+        known_project_names = sorted(n for n in projects if n and n != "_swarm")
+    else:
+        known_project_names = sorted(p["name"] for p in projects if p.get("name") and p["name"] != "_swarm")
+
     return f"""CURRENT SWARM STATE ({datetime.now().strftime('%H:%M:%S')}):
+
+KNOWN PROJECTS (exact names — use these verbatim when creating tasks):
+{', '.join(known_project_names) or '(none registered)'}
 
 Active agents ({len(active_agents)}):
 {chr(10).join(f'  id={a.get("id","")[:12]} project={a.get("project","")} task={a.get("task_id","")[:30]}' for a in active_agents) or '  (none)'}
 
 Pending tasks: {len(pending_tasks)}  In-progress: {len(in_prog_tasks)}  Failed: {len(failed_tasks)}
 
-Per-project summary:
-{chr(10).join(f'  {p}: pending={v["pending"]} in_progress={v["in_progress"]} failed={v["failed"]}' for p, v in sorted(proj_summary.items()) if p != '_swarm')}
+Per-project summary (projects with tasks):
+{chr(10).join(f'  {p}: pending={v["pending"]} in_progress={v["in_progress"]} failed={v["failed"]}' for p, v in sorted(proj_summary.items()) if p != '_swarm') or '  (none)'}
 
 Failed tasks (up to 10):
 {chr(10).join(f'  {t["id"]} ({t["project"]}) att:{t.get("attempts",0)}/{t.get("max_attempts",3)}: {t["description"][:80]}' for t in failed_tasks[-10:]) or '  (none)'}
@@ -308,7 +318,7 @@ File/shell tools (paths relative to project root):
 
 Task graph tools:
 - list_tasks(status="") — list tasks for this project; filter by status (pending/in_progress/completed/failed)
-- create_task(type, description, priority=50, dependencies=[]) — create a new task
+- create_task(type, description, priority=50, dependencies=[]) — create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
 - update_task(task_id, fields) — update task fields (e.g. priority, description)
 - get_critical_path() — find the longest pending dependency chain (the bottleneck)
 - get_subgraph(root_id, direction="downstream", depth=3) — BFS from a task to see its dependency cluster
@@ -319,7 +329,7 @@ When asked about project state, read AGENT_KNOWLEDGE.md if present.
 """
 
 _DEBUG_SYSTEM_PROMPT = """\
-You are a project co-pilot and debugging assistant for the swarm-managed project '{project}'.
+You are the Swarm, focused on project '{project}'.
 Your role is to help the user understand what is happening, diagnose issues, and decide what to work on next.
 
 BEHAVIOUR GUIDELINES:
@@ -442,11 +452,18 @@ def _execute_graph_tool(tool: str, args: dict, project: str, db) -> str:
         return "\n".join(lines)
 
     elif tool == "create_task":
-        task_id = f"debug-chat-{uuid.uuid4().hex[:8]}"
+        _valid_types = {"feature","bug","refactor","polish","qa","harness_qa",
+                        "art_pass","audit","research","plan","project_plan"}
+        task_type = args.get("type", "")
+        if not task_type:
+            return "Error: type is required (e.g. feature, bug, art_pass, qa)"
+        if task_type not in _valid_types:
+            return f"Error: invalid type '{task_type}'. Must be one of: {', '.join(sorted(_valid_types))}"
+        task_id = f"{task_type}-{uuid.uuid4().hex[:8]}"
         task = {
             "id": task_id,
             "project": project,
-            "type": args.get("type", "feature"),
+            "type": task_type,
             "description": args.get("description", ""),
             "priority": int(args.get("priority", 50)),
             "status": "pending",
@@ -669,11 +686,660 @@ def _build_project_context(workspace: Path, project: str, data_dir: Path, db) ->
     return "\n\n---\n\n".join(sections)
 
 
+# ---------------------------------------------------------------------------
+# Unified chat — module-level state (stop signals, confirm tokens)
+# ---------------------------------------------------------------------------
+
+_UNIFIED_STOP_EVENTS: dict[str, threading.Event] = {}
+_UNIFIED_CONFIRM_TOKENS: dict[str, dict] = {}   # token -> {action, args, expires_at}
+_UNIFIED_CONFIRM_LOCK = threading.Lock()
+_UNIFIED_CONFIRM_TTL_SECONDS = 60
+
+# Hard-blocked shell patterns — rejected regardless of any confirmation
+_UNIFIED_HARD_BLOCKED = frozenset([
+    "rm -rf /", "rm -rf ~", "git push --force", "git push -f",
+    "sudo rm", "mkfs", "dd if=", ":(){:|:&};:", "chmod -R 777 /",
+    "drop table", "DROP TABLE", "truncate table", "TRUNCATE TABLE",
+])
+
+
+def _issue_confirm_challenge(action: str, args: dict) -> str:
+    """Issue a confirmation challenge for a destructive action.
+
+    Stores the pending action and returns a JSON challenge string that the
+    client must acknowledge by re-sending with confirm_token.
+    """
+    token = uuid.uuid4().hex
+    expires_at = time.time() + _UNIFIED_CONFIRM_TTL_SECONDS
+    with _UNIFIED_CONFIRM_LOCK:
+        # Prune expired tokens
+        expired = [t for t, v in _UNIFIED_CONFIRM_TOKENS.items() if v["expires_at"] < time.time()]
+        for t in expired:
+            _UNIFIED_CONFIRM_TOKENS.pop(t, None)
+        _UNIFIED_CONFIRM_TOKENS[token] = {"action": action, "args": args, "expires_at": expires_at}
+    return json.dumps({
+        "requires_confirmation": True,
+        "action": action,
+        "confirm_token": token,
+        "expires_in_seconds": _UNIFIED_CONFIRM_TTL_SECONDS,
+    })
+
+
+def _validate_confirm_token(token: str) -> tuple[bool, str]:
+    """Validate a confirm token. Returns (valid, error_message)."""
+    with _UNIFIED_CONFIRM_LOCK:
+        entry = _UNIFIED_CONFIRM_TOKENS.get(token)
+        if not entry:
+            return False, "confirm_token not found or already used"
+        if entry["expires_at"] < time.time():
+            _UNIFIED_CONFIRM_TOKENS.pop(token, None)
+            return False, f"confirm_token expired (TTL {_UNIFIED_CONFIRM_TTL_SECONDS}s)"
+        # Single-use: consume it
+        _UNIFIED_CONFIRM_TOKENS.pop(token, None)
+    return True, ""
+
+_UNIFIED_GLOBAL_SCOPE = "_global"
+
+_UNIFIED_GLOBAL_SYSTEM_PROMPT = """\
+You are the Swarm — the brain behind the agent orchestration system.
+You can observe and control tasks, agents, and projects across all managed projects.
+
+BEHAVIOUR GUIDELINES:
+- Investigate before answering: use list_tasks or the state snapshot to look at actual data
+- Be concise and direct — reference specific task IDs, project names, and agent IDs
+- When asked what to work on, use get_critical_path for the most relevant project
+- Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
+- CRITICAL: project names must exactly match the KNOWN PROJECTS list in the state snapshot. If the user gives a name that doesn't match exactly, pick the closest match and confirm before creating anything — never silently create a task on a misspelled or invented project name
+
+TOOL USAGE:
+{tools}
+
+{memory}
+
+{state}"""
+
+_UNIFIED_PROJECT_SYSTEM_PROMPT = """\
+You are the Swarm, focused on project '{project}'.
+You can read code, inspect tasks and agents, make changes, and commit — ask anything or give orders.
+Your role is to help the user understand what is happening, diagnose issues, and decide what to work on next.
+
+BEHAVIOUR GUIDELINES:
+- Investigate before answering: use read_file or run_command to look at actual code, logs, or test output rather than guessing
+- When asked about priorities or what to work on, call get_critical_path() first, then explain the bottleneck
+- Read AGENT_KNOWLEDGE.md before answering questions about project architecture or recent changes
+- Be concise and direct — reference specific file paths, task IDs, and log line numbers
+- You have full write access: use write_file and git_commit when the user asks you to make changes
+- When you find a bug or issue worth tracking, offer to create a task for it
+- Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
+
+TOOL USAGE:
+{tools}
+
+{memory}
+
+{context}"""
+
+_UNIFIED_TOOLS_DESCRIPTION = """\
+You have access to the following tools. Call them using JSON blocks:
+[TOOL_CALL]{"tool": "...", "args": {...}}[/TOOL_CALL]
+
+File/shell tools (paths relative to project root — only available in project scope):
+- read_file(path) — read a file
+- write_file(path, content) — write/overwrite a file
+- list_dir(path="") — list directory contents
+- run_command(command, timeout_seconds=30) — run a shell command in the project root
+- git_commit(message) — stage all changes and commit
+
+Task graph tools:
+- list_tasks(project="", status="") — list tasks; in global scope pass project name; in project scope defaults to current project
+- create_task(project, type, description, priority=50, dependencies=[]) — create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
+- update_task(task_id, fields) — update task fields (e.g. priority, description)
+- delete_task(task_id) — delete a task (requires confirmation)
+- get_critical_path(project) — find the longest pending dependency chain
+- get_subgraph(root_id, direction="downstream", depth=3) — BFS from a task to see its dependency cluster
+- bulk_deps(ops) — apply multiple add/remove dependency ops atomically; ops=[{"action":"add"|"remove","task_id":"...","dep_id":"..."}]
+
+Agent tools:
+- kill_agent(agent_id) — kill a running agent (requires confirmation)
+- list_agents(project="") — list active agents
+
+Memory tools:
+- write_swarm_memory(content) — overwrite the swarm-level knowledge file (data/SWARM_KNOWLEDGE.md)
+- write_project_memory(project, content) — overwrite a project knowledge file (data/project_knowledge/<project>.md)
+
+When asked about priorities or what to work on next, call get_critical_path() first.
+When asked about project state, read AGENT_KNOWLEDGE.md if present."""
+
+
+def _load_unified_memory(data_dir: Path, project: str = "") -> str:
+    """Load swarm-level and optionally project-level memory files."""
+    sections = []
+    swarm_mem = data_dir / "SWARM_KNOWLEDGE.md"
+    if swarm_mem.exists():
+        content = swarm_mem.read_text(encoding="utf-8", errors="replace").strip()
+        if content:
+            sections.append(f"## Swarm Knowledge\n{content}")
+
+    if project and project != _UNIFIED_GLOBAL_SCOPE:
+        proj_mem = data_dir / "project_knowledge" / f"{project}.md"
+        if proj_mem.exists():
+            content = proj_mem.read_text(encoding="utf-8", errors="replace").strip()
+            if content:
+                sections.append(f"## Project Knowledge: {project}\n{content}")
+
+    if not sections:
+        return ""
+    return "--- MEMORY ---\n" + "\n\n".join(sections) + "\n--- END MEMORY ---"
+
+
+def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
+                          data_dir: Path, db, config: dict) -> tuple[str, bool]:
+    """Execute a unified chat tool. Returns (result_string, requires_confirmation).
+
+    Destructive tools (delete_task, kill_agent) require a confirm_token in args.
+    If confirm_token is absent, a challenge is returned instead of executing.
+    Hard-blocked commands are rejected regardless of any token.
+    """
+    # --- Hard-blocked command check for run_command ---
+    if tool == "run_command":
+        command = args.get("command", "")
+        for blocked in _UNIFIED_HARD_BLOCKED:
+            if blocked.lower() in command.lower():
+                return f"Error: command hard-blocked for safety: {blocked!r}", False
+    # --- Memory write tools ---
+    if tool == "write_swarm_memory":
+        content = args.get("content", "")
+        swarm_mem = data_dir / "SWARM_KNOWLEDGE.md"
+        swarm_mem.write_text(content, encoding="utf-8")
+        return "Swarm knowledge file updated.", False
+
+    if tool == "write_project_memory":
+        project = args.get("project", "").strip()
+        content = args.get("content", "")
+        if not project:
+            return "Error: project required", False
+        proj_dir = data_dir / "project_knowledge"
+        proj_dir.mkdir(parents=True, exist_ok=True)
+        proj_mem = proj_dir / f"{project}.md"
+        proj_mem.write_text(content, encoding="utf-8")
+        return f"Project knowledge file updated for '{project}'.", False
+
+    # --- Agent tools ---
+    if tool == "list_agents":
+        project_filter = args.get("project", "")
+        all_agents = db.agent_get_all()
+        agents = [a for a in all_agents if a.get("status") == "active"]
+        if project_filter:
+            agents = [a for a in agents if a.get("project") == project_filter]
+        if not agents:
+            return "No active agents.", False
+        lines = [
+            f"  [{a.get('id','')[:12]}] {a.get('project','')} — {a.get('task_id','')[:40]}"
+            for a in agents[:30]
+        ]
+        return f"Active agents ({len(agents)}):\n" + "\n".join(lines), False
+
+    if tool == "kill_agent":
+        agent_id = args.get("agent_id", "")
+        if not agent_id:
+            return "Error: agent_id required", False
+        agent = db.agent_get(agent_id)
+        if not agent:
+            return f"Error: agent '{agent_id}' not found", False
+        # Require confirmation unless token already provided
+        confirm_token = args.get("confirm_token", "")
+        if not confirm_token:
+            return _issue_confirm_challenge(
+                f"kill_agent {agent_id[:12]} (project: {agent.get('project','')})",
+                args,
+            ), True
+        valid, err = _validate_confirm_token(confirm_token)
+        if not valid:
+            return f"Error: {err}", False
+        import swarm.orchestrator as _orch
+        killed = False
+        handle = _orch._active_handles.get(agent_id)
+        if handle and handle.get("process"):
+            try:
+                handle["process"].kill()
+                killed = True
+            except Exception:
+                pass
+        if not killed:
+            pid = agent.get("pid")
+            if pid:
+                try:
+                    os.kill(int(pid), 9)
+                    killed = True
+                except Exception:
+                    pass
+        if killed:
+            db.agent_update_status(agent_id, "killed")
+            task_id = agent.get("task_id")
+            if task_id:
+                task = db.task_get(task_id)
+                if task and task.get("status") == "in_progress":
+                    db.task_update(task_id, {"status": "pending"})
+            return f"Killed agent {agent_id[:12]} (task reset to pending).", False
+        return f"Error: could not kill agent {agent_id[:12]}", False
+
+    # --- Task graph tools ---
+    if tool == "list_tasks":
+        project_filter = args.get("project", scope if scope != _UNIFIED_GLOBAL_SCOPE else "")
+        status_filter = args.get("status", "")
+        all_tasks = db.task_get_all()
+        tasks = [
+            t for t in all_tasks
+            if (not project_filter or t.get("project") == project_filter)
+            and (not status_filter or t.get("status") == status_filter)
+        ]
+        if not tasks:
+            label = f" for project '{project_filter}'" if project_filter else ""
+            return f"No tasks found{label}" + (f" with status '{status_filter}'" if status_filter else ""), False
+        lines = [
+            f"[{t['status']}] {t['id']}: {t.get('type','')} — {t.get('description','')[:100]}"
+            for t in tasks[:50]
+        ]
+        return "\n".join(lines), False
+
+    if tool == "create_task":
+        _valid_types = {"feature","bug","refactor","polish","qa","harness_qa",
+                        "art_pass","audit","research","plan","project_plan"}
+        project = args.get("project", scope if scope != _UNIFIED_GLOBAL_SCOPE else "")
+        task_type = args.get("type", "")
+        if not project:
+            return "Error: project required", False
+        if not task_type:
+            return "Error: type is required (e.g. feature, bug, art_pass, qa)", False
+        if task_type not in _valid_types:
+            return f"Error: invalid type '{task_type}'. Must be one of: {', '.join(sorted(_valid_types))}", False
+        # Validate project exists (project_get_all returns dict {name: data})
+        all_projects = db.project_get_all()
+        known_projects = set(all_projects.keys()) if isinstance(all_projects, dict) else {p["name"] for p in all_projects}
+        if known_projects and project not in known_projects:
+            close = [p for p in known_projects if project.lower().replace('-','') in p.lower().replace('-','') or p.lower().replace('-','') in project.lower().replace('-','')]
+            suggestion = f" Did you mean: {', '.join(close[:3])}?" if close else f" Known projects: {', '.join(sorted(known_projects)[:10])}..."
+            return f"Error: project '{project}' not found.{suggestion}", False
+        task_id = f"{task_type}-{uuid.uuid4().hex[:8]}"
+        task = {
+            "id": task_id,
+            "project": project,
+            "type": task_type,
+            "description": args.get("description", ""),
+            "priority": int(args.get("priority", 50)),
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "metadata": {"created_by": "unified-chat"},
+            "dependencies": args.get("dependencies", []),
+        }
+        db.task_upsert(task)
+        return f"Created task {task_id}", False
+
+    if tool == "update_task":
+        task_id = args.get("task_id", "")
+        fields = {k: v for k, v in args.items() if k != "task_id"}
+        if not task_id:
+            return "Error: task_id required", False
+        if not db.task_get(task_id):
+            return f"Error: task '{task_id}' not found", False
+        db.task_update(task_id, fields)
+        return f"Updated task {task_id}", False
+
+    if tool == "delete_task":
+        task_id = args.get("task_id", "")
+        if not task_id:
+            return "Error: task_id required", False
+        task = db.task_get(task_id)
+        if not task:
+            return f"Error: task '{task_id}' not found", False
+        # Require confirmation unless token already provided
+        confirm_token = args.get("confirm_token", "")
+        if not confirm_token:
+            desc = (task.get("description") or "")[:60]
+            return _issue_confirm_challenge(
+                f"delete_task {task_id} ({task.get('project','')}): {desc}",
+                args,
+            ), True
+        valid, err = _validate_confirm_token(confirm_token)
+        if not valid:
+            return f"Error: {err}", False
+        db.task_delete(task_id)
+        return f"Deleted task {task_id}", False
+
+    if tool == "get_critical_path":
+        from swarm.dependencies import build_graph_from_tasks
+        project = args.get("project", scope if scope != _UNIFIED_GLOBAL_SCOPE else "")
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        chain = graph.get_critical_path(project=project if project else None)
+        if not chain:
+            return "No pending tasks or no critical path found.", False
+        task_map = {t["id"]: t for t in all_tasks}
+        lines = []
+        for tid in chain:
+            t = task_map.get(tid, {})
+            desc = (t.get("description") or "").split("\n")[0][:100]
+            lines.append(f"  {tid}: {desc}")
+        return f"Critical path ({len(chain)} tasks):\n" + "\n".join(lines), False
+
+    if tool == "get_subgraph":
+        from swarm.dependencies import build_graph_from_tasks
+        root_id = args.get("root_id", "")
+        direction = args.get("direction", "downstream")
+        depth = int(args.get("depth", 3))
+        if not root_id:
+            return "Error: root_id required", False
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        task_ids = graph.get_subgraph(root_id, direction=direction, depth=depth)
+        if not task_ids:
+            return f"No tasks found in {direction} subgraph of '{root_id}'", False
+        task_map = {t["id"]: t for t in all_tasks}
+        lines = []
+        for tid in task_ids:
+            t = task_map.get(tid, {})
+            desc = (t.get("description") or "").split("\n")[0][:80]
+            lines.append(f"  [{t.get('status','')}] {tid}: {desc}")
+        return f"Subgraph ({direction}, depth={depth}) from '{root_id}':\n" + "\n".join(lines), False
+
+    if tool == "bulk_deps":
+        from swarm.dependencies import build_graph_from_tasks
+        ops = args.get("ops", [])
+        applied, skipped, errors = [], [], []
+        all_tasks = db.task_get_all()
+        graph = build_graph_from_tasks(all_tasks)
+        for op in ops:
+            action = op.get("action", "")
+            tid = op.get("task_id", "")
+            dep_id = op.get("dep_id", "")
+            if action == "add":
+                if tid in graph.get_all_dependencies(dep_id) or tid == dep_id:
+                    skipped.append(f"{tid}←{dep_id} (would create cycle)")
+                else:
+                    existing = db.task_get(tid) or {}
+                    deps = list(existing.get("dependencies") or [])
+                    if dep_id not in deps:
+                        deps.append(dep_id)
+                        db.task_update(tid, {"dependencies": deps})
+                    applied.append(f"add {tid}←{dep_id}")
+            elif action == "remove":
+                existing = db.task_get(tid) or {}
+                deps = [d for d in (existing.get("dependencies") or []) if d != dep_id]
+                db.task_update(tid, {"dependencies": deps})
+                applied.append(f"remove {tid}←{dep_id}")
+            else:
+                errors.append(f"unknown action '{action}'")
+        return json.dumps({"applied": applied, "skipped": skipped, "errors": errors}), False
+
+    # --- File/shell tools (project scope only) ---
+    if scope == _UNIFIED_GLOBAL_SCOPE:
+        return f"Error: tool '{tool}' is only available in project scope", False
+
+    project_root = workspace / scope
+    return _execute_debug_tool(tool, args, project_root, project=scope, db=db), False
+
+
+_COMPACT_TOKEN_THRESHOLD = 80_000
+_COMPACT_KEEP_TAIL = 4  # messages to keep verbatim at the end
+_COMPACT_MARKER = "[COMPACTED]"
+
+
+def _compact_unified_session(messages: list, config: dict) -> list:
+    """Summarize the middle of a long session to keep it under the token threshold.
+
+    Preserves: first 2 messages + last _COMPACT_KEEP_TAIL messages verbatim.
+    Replaces middle with a single summary message.
+    Returns the compacted message list (or original if no compaction needed).
+    """
+    estimated_tokens = sum(len(m.get("content", "")) for m in messages) // 2
+    if estimated_tokens <= _COMPACT_TOKEN_THRESHOLD:
+        return messages
+
+    # Need at least keep_tail + 3 messages to compact meaningfully
+    min_messages = _COMPACT_KEEP_TAIL + 3
+    if len(messages) < min_messages:
+        return messages
+
+    head = messages[:2]
+    tail = messages[-_COMPACT_KEEP_TAIL:]
+    middle = messages[2:-_COMPACT_KEEP_TAIL]
+
+    if not middle:
+        return messages
+
+    middle_text = "\n\n".join(
+        f"{m['role'].upper()}: {m.get('content','')[:500]}" for m in middle
+    )
+    summary_prompt = (
+        "Summarize the following conversation excerpt concisely. "
+        "Focus on decisions made, actions taken, and key findings. "
+        "Omit filler exchanges.\n\n"
+        + middle_text
+    )
+    try:
+        summary = _chat_call_llm(
+            "You are a conversation summarizer. Output only the summary, no preamble.",
+            [{"role": "user", "content": summary_prompt}],
+            config,
+        )
+    except Exception:
+        return messages  # If compaction fails, keep original
+
+    summary_message = {
+        "role": "user",
+        "content": f"{_COMPACT_MARKER}\n[Earlier conversation summarized]\n{summary}",
+    }
+    return head + [summary_message] + tail
+
+
+def _run_unified_tool_loop(
+    system_prompt: str,
+    history: list,
+    config: dict,
+    scope: str,
+    workspace: Path,
+    data_dir: Path,
+    db,
+    session_id: str,
+    max_rounds: int = 8,
+) -> tuple[str, list]:
+    """Run the unified chat tool loop with stop-signal and compaction support."""
+    stop_event = _UNIFIED_STOP_EVENTS.get(session_id)
+    tool_calls_log = []
+    # Compact if history is long before starting
+    messages = _compact_unified_session(list(history), config)
+
+    for _ in range(max_rounds):
+        if stop_event and stop_event.is_set():
+            break
+
+        response_text = _chat_call_llm(system_prompt, messages, config)
+        pattern = r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]'
+        raw_calls = _re.findall(pattern, response_text, _re.DOTALL)
+        if not raw_calls:
+            return response_text, tool_calls_log
+
+        tool_results = []
+        for raw in raw_calls:
+            if stop_event and stop_event.is_set():
+                break
+            try:
+                call = json.loads(raw.strip())
+                tool = call.get("tool", "")
+                args = call.get("args", {})
+            except json.JSONDecodeError:
+                tool, args = "unknown", {}
+
+            result, _ = _execute_unified_tool(
+                tool, args, scope, workspace, data_dir, db, config
+            )
+            tool_calls_log.append({"tool": tool, "args": args, "result": result})
+            tool_results.append(f"[TOOL_RESULT: {tool}]\n{result}\n[/TOOL_RESULT]")
+
+        messages.append({"role": "assistant", "content": response_text})
+        messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+
+    if stop_event and stop_event.is_set():
+        return (
+            "⚠️ Stopped by user. Tell me what you'd like to do instead.",
+            tool_calls_log,
+        )
+
+    final = _chat_call_llm(system_prompt, messages, config)
+    return final, tool_calls_log
+
+
 def register_routes(app, config, config_file, _config_write_lock, orchestrator, workspace,
                     db, auto_mode_state, generate_task_script):
     """Register chat and project-creation routes on the Flask app."""
 
     import re as _re
+
+    # ------------------------------------------------------------------ #
+    #  Unified chat  (POST /api/unified-chat)                              #
+    # ------------------------------------------------------------------ #
+
+    @app.route("/api/unified-chat", methods=["POST"])
+    def unified_chat():
+        """Unified swarm + project chat endpoint.
+
+        Request JSON:
+          { "message": "...", "session_id": "<uuid>", "project": "my-project" }
+          project is optional; omit for global (swarm-wide) scope.
+
+        Response JSON:
+          { "reply": "...", "session_id": "<uuid>", "tool_calls": [...], "scope": "global"|"<project>" }
+        """
+        data = request.get_json(force=True) or {}
+        user_message = (data.get("message") or "").strip()
+        session_id = (data.get("session_id") or "").strip() or str(uuid.uuid4())
+        project = (data.get("project") or "").strip()
+        scope = project if project else _UNIFIED_GLOBAL_SCOPE
+
+        if not user_message:
+            return jsonify({"error": "message required"}), 400
+
+        data_dir = Path(app.config.get("DATA_DIR", "data"))
+
+        # Register stop event for this session
+        if session_id not in _UNIFIED_STOP_EVENTS:
+            _UNIFIED_STOP_EVENTS[session_id] = threading.Event()
+        _UNIFIED_STOP_EVENTS[session_id].clear()
+
+        history = _load_session(data_dir, scope, session_id)
+        is_new_session = len(history) == 0
+
+        history.append({"role": "user", "content": user_message})
+        _save_session(data_dir, scope, session_id, history)
+
+        memory_block = _load_unified_memory(data_dir, project=project)
+
+        if scope == _UNIFIED_GLOBAL_SCOPE:
+            try:
+                state_snapshot = _build_state_snapshot(db)
+            except Exception as e:
+                state_snapshot = f"(Could not load swarm state: {e})"
+            system_prompt = _UNIFIED_GLOBAL_SYSTEM_PROMPT.format(
+                tools=_UNIFIED_TOOLS_DESCRIPTION,
+                memory=memory_block,
+                state=state_snapshot,
+            )
+        else:
+            project_context = ""
+            if is_new_session:
+                project_context = _build_project_context(
+                    Path(workspace), project, data_dir, db
+                )
+            context_block = (
+                f"\n\n--- PROJECT CONTEXT (loaded at session start) ---\n{project_context}"
+                if project_context else ""
+            )
+            system_prompt = _UNIFIED_PROJECT_SYSTEM_PROMPT.format(
+                project=project,
+                tools=_UNIFIED_TOOLS_DESCRIPTION,
+                memory=memory_block,
+                context=context_block,
+            )
+
+        try:
+            response_text, tool_calls = _run_unified_tool_loop(
+                system_prompt, history, config,
+                scope=scope,
+                workspace=Path(workspace),
+                data_dir=data_dir,
+                db=db,
+                session_id=session_id,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        finally:
+            # Clear stop event after response
+            if session_id in _UNIFIED_STOP_EVENTS:
+                _UNIFIED_STOP_EVENTS[session_id].clear()
+
+        history.append({"role": "assistant", "content": response_text})
+        _save_session(data_dir, scope, session_id, history)
+
+        return jsonify({
+            "reply": response_text,
+            "session_id": session_id,
+            "tool_calls": tool_calls,
+            "scope": "global" if scope == _UNIFIED_GLOBAL_SCOPE else scope,
+        })
+
+    @app.route("/api/unified-chat/<session_id>/stop", methods=["POST"])
+    def stop_unified_chat(session_id):
+        """Emergency stop for unified chat tool loop.
+
+        Request JSON: { "project": "..." }  (optional — for logging only)
+        Response JSON: { "stopped": true, "session_id": "..." }
+        """
+        event = _UNIFIED_STOP_EVENTS.get(session_id)
+        if event:
+            event.set()
+        return jsonify({"stopped": True, "session_id": session_id})
+
+    @app.route("/api/unified-chat/<session_id>", methods=["DELETE"])
+    def delete_unified_chat(session_id):
+        """Delete a unified chat session.
+
+        Request JSON: { "project": "..." }  (optional; omit for global)
+        """
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        scope = project if project else _UNIFIED_GLOBAL_SCOPE
+        data_dir = Path(app.config.get("DATA_DIR", "data"))
+        deleted = _delete_session(data_dir, scope, session_id)
+        _UNIFIED_STOP_EVENTS.pop(session_id, None)
+        return jsonify({"deleted": deleted, "session_id": session_id})
+
+    @app.route("/api/unified-chat/<session_id>/last", methods=["DELETE"])
+    def rollback_unified_chat(session_id):
+        """Roll back the last user+assistant exchange.
+
+        Request JSON: { "project": "..." }  (optional; omit for global)
+        """
+        data = request.get_json(force=True) or {}
+        project = (data.get("project") or "").strip()
+        scope = project if project else _UNIFIED_GLOBAL_SCOPE
+        data_dir = Path(app.config.get("DATA_DIR", "data"))
+        history = _load_session(data_dir, scope, session_id)
+
+        turns_removed = 0
+        while history and history[-1]["role"] == "assistant":
+            history.pop()
+            turns_removed += 1
+        while history and history[-1]["role"] == "user":
+            history.pop()
+            turns_removed += 1
+
+        _save_session(data_dir, scope, session_id, history)
+        return jsonify({
+            "rolled_back": turns_removed > 0,
+            "turns_removed": turns_removed,
+            "session_id": session_id,
+        })
 
     @app.route("/api/chat", methods=["POST"])
     def chat():

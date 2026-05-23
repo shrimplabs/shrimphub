@@ -442,18 +442,25 @@ def launch_game(project_path: str) -> dict:
                 if len(img_bytes) >= 24 and img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
                     img_w = _struct.unpack('>I', img_bytes[16:20])[0]
                     img_h = _struct.unpack('>I', img_bytes[20:24])[0]
+                    # Use OS-detected window position/size for screencapture coords;
+                    # StateServer PNG gives us the true viewport pixel dimensions
+                    # (may differ when editor viewport != OS window due to DPI or
+                    # a screen-size change saved in project settings).
+                    win_x = _qa_window.get("x", 50)
+                    win_y = _qa_window.get("y", 50)
                     logical_w = _qa_window.get("w", img_w)
                     logical_h = _qa_window.get("h", img_h)
                     pixel_ratio = (img_w / logical_w) if logical_w > 0 else 1.0
                     _qa_window = {
-                        "x": 50, "y": 50,
+                        "x": win_x, "y": win_y,
                         "w": logical_w, "h": logical_h,
                         "viewport_w": img_w, "viewport_h": img_h,
                         "pixel_ratio": pixel_ratio,
                     }
-                    log(f"launch_game: using StateServer bounds {img_w}x{img_h}")
-                    return {"ok": True, "pid": pid, "x": 50, "y": 50, "w": img_w, "h": img_h,
-                            "pixel_ratio": pixel_ratio}
+                    log(f"launch_game: window at ({win_x},{win_y}) size {logical_w}x{logical_h}, "
+                        f"viewport {img_w}x{img_h}, pixel_ratio={pixel_ratio:.2f}")
+                    return {"ok": True, "pid": pid, "x": win_x, "y": win_y,
+                            "w": img_w, "h": img_h, "pixel_ratio": pixel_ratio}
             except Exception as e:
                 log(f"StateServer bounds decode failed: {e}")
 
@@ -563,7 +570,14 @@ def take_screenshot(filename: str) -> dict:
     # StateServer path updates viewport_w/viewport_h above. _qa_window["w"]/["h"]
     # remains logical window points for robust cross-DPI coordinate conversion.
 
-    # Fallback: screencapture
+    # Fallback: screencapture — always re-query live bounds so a screen-size
+    # change in the editor doesn't leave us with stale coordinates.
+    live = qa_get_window_bounds("godot")
+    if live.get("ok"):
+        _qa_window["x"] = live["x"]
+        _qa_window["y"] = live["y"]
+        _qa_window["w"] = live["w"]
+        _qa_window["h"] = live["h"]
     x, y, w, h = _qa_window["x"], _qa_window["y"], _qa_window["w"], _qa_window["h"]
     if not is_macos():
         return {"ok": False, "error": "take_screenshot fallback requires macOS screencapture; use StateServer screenshots on this platform."}

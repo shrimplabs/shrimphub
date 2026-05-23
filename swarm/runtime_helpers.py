@@ -20,7 +20,22 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 def _normalized_report_path(path: str) -> str:
-    return (path or "").strip().replace("\\", "/").lstrip("./")
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    try:
+        from swarm.tools._shared import _project_root
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            root = Path(_project_root()).resolve()
+            resolved = candidate.resolve()
+            if resolved == root:
+                return ""
+            if root in resolved.parents:
+                return resolved.relative_to(root).as_posix()
+    except Exception:
+        pass
+    return raw.replace("\\", "/").lstrip("./")
 
 
 def _normalized_project_file_path(path: str) -> str:

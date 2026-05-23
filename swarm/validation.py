@@ -376,6 +376,7 @@ func _scan(path: String, errors: Array) -> void:
                     pass
 
         # Step 4: Main scene instantiate check
+        main_scene = None
         if not validation_failed:
             main_scene = _get_main_scene(project_path)
             if main_scene:
@@ -428,7 +429,37 @@ func _initialize():
             else:
                 print(f"[PostValidation] No main scene set in project.godot for {project} -- skipping")
 
-        # Step 5: GUT unit tests
+        # Step 5: Editor startup check. This catches errors that appear as soon
+        # as the project opens in the Godot editor, after autoloads and project
+        # settings are initialized.
+        if not validation_failed and main_scene:
+            editor_cmd = f"{_GODOT_CMD} --headless --path . --editor --quit"
+            try:
+                result = subprocess.run(
+                    editor_cmd, shell=True, cwd=project_path,
+                    capture_output=True, text=True, timeout=90,
+                )
+                combined = (result.stdout or "") + (result.stderr or "")
+                bad = [
+                    ln for ln in combined.splitlines()
+                    if ("SCRIPT ERROR:" in ln or "ERROR:" in ln)
+                    and "RID allocations" not in ln
+                    and "PN18TextServer" not in ln
+                    and "TextServer: Primary interface" not in ln
+                ]
+                if result.returncode != 0 or bad:
+                    validation_failed = True
+                    if bad:
+                        error_output = "Godot editor startup errors:\n" + "\n".join(bad)
+                    else:
+                        error_output = f"Godot editor startup failed (exit {result.returncode}):\n{combined[-3000:]}"
+                    print(f"[PostValidation] Editor startup FAILED for {project}")
+                else:
+                    print(f"[PostValidation] Editor startup OK for {project}")
+            except Exception as e:
+                print(f"[PostValidation] Editor startup check error: {e}")
+
+        # Step 6: GUT unit tests
         if not validation_failed and task_type not in ("manager", "project_create", "qa", "hybrid_qa", "art_pass"):
             gut_addon = project_path / "addons" / "gut"
             tests_dir = next(

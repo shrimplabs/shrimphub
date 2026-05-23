@@ -284,6 +284,34 @@ def create_app(
     def serve_dashboard_utils_js():
         return send_from_directory(project_root, "dashboard-utils.js", mimetype="application/javascript")
 
+    @app.route("/dashboard-core.js")
+    def serve_dashboard_core_js():
+        return send_from_directory(project_root, "dashboard-core.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-projects.js")
+    def serve_dashboard_projects_js():
+        return send_from_directory(project_root, "dashboard-projects.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-agents.js")
+    def serve_dashboard_agents_js():
+        return send_from_directory(project_root, "dashboard-agents.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-tasks.js")
+    def serve_dashboard_tasks_js():
+        return send_from_directory(project_root, "dashboard-tasks.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-config.js")
+    def serve_dashboard_config_js():
+        return send_from_directory(project_root, "dashboard-config.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-wizard.js")
+    def serve_dashboard_wizard_js():
+        return send_from_directory(project_root, "dashboard-wizard.js", mimetype="application/javascript")
+
+    @app.route("/dashboard-chat.js")
+    def serve_dashboard_chat_js():
+        return send_from_directory(project_root, "dashboard-chat.js", mimetype="application/javascript")
+
     @app.route("/dashboard.js")
     def serve_dashboard_js():
         return send_from_directory(project_root, "dashboard.js", mimetype="application/javascript")

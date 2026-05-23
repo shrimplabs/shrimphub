@@ -86,10 +86,16 @@ class TestDashboardJsNoLongerDefines:
         content = self._dashboard_js_content()
         assert "function projectLargestFileSize" not in content
 
-    def test_dashboard_js_still_uses_escape_html(self):
-        content = self._dashboard_js_content()
-        # The function must still be called — it's loaded from dashboard-utils.js
-        assert "escapeHtml(" in content
+    def test_dashboard_modules_still_use_escape_html(self):
+        # dashboard.js is now just the init block; escapeHtml calls live in the
+        # split modules. Verify at least one module still calls it.
+        root = Path(__file__).parent.parent
+        all_js = "".join(
+            p.read_text(encoding="utf-8")
+            for p in root.glob("dashboard*.js")
+            if p.name != "dashboard-utils.js"
+        )
+        assert "escapeHtml(" in all_js
 
 
 class TestDashboardHtmlLoadOrder:

@@ -520,6 +520,42 @@ class TestTaskAuthorityGuards:
         assert "QA_REPORT.md" in blocked["error"]
         assert allowed["ok"] is True
 
+    def test_qa_allows_absolute_project_qa_report_path(self):
+        rt.TASK_TYPE = "qa"
+        abs_report = rt.WORKSPACE / rt.PROJECT / "QA_REPORT.md"
+        with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
+            result = rt.execute_tool({"tool": "write_file", "args": {"path": str(abs_report), "content": "ok"}})
+        assert result["ok"] is True
+
+    def test_qa_create_bug_task_uses_qa_tool_not_harness_alias(self):
+        rt.TASK_TYPE = "qa"
+        with patch("swarm.tool_dispatch.qa_create_bug_task", return_value={"ok": True, "task_id": "qa-bug-1"}) as create:
+            result = rt.execute_tool({
+                "tool": "create_bug_task",
+                "args": {
+                    "description": "Player does not spawn",
+                    "evidence_path": "qa_screenshots/spawn.png",
+                    "priority": 95,
+                    "dependencies": ["qa-1"],
+                },
+            })
+        assert result["ok"] is True
+        create.assert_called_once()
+
+    def test_qa_requeue_self_uses_qa_tool_not_harness_alias(self):
+        rt.TASK_TYPE = "qa"
+        with patch("swarm.tool_dispatch.qa_requeue_self", return_value={"ok": True, "task_id": "qa-rerun"}) as requeue:
+            result = rt.execute_tool({"tool": "requeue_self", "args": {"bug_task_ids": ["qa-bug-1"]}})
+        assert result["ok"] is True
+        requeue.assert_called_once_with(["qa-bug-1"])
+
+    def test_harness_launch_game_dispatch_imports_extra_arg_parser(self):
+        rt.TASK_TYPE = "harness_qa"
+        with patch("swarm.tool_dispatch.harness_launch_game", return_value={"ok": True}) as launch:
+            result = rt.execute_tool({"tool": "harness_launch_game", "args": {}})
+        assert result["ok"] is True
+        launch.assert_called_once()
+
     def test_triage_only_allows_triage_report_write(self):
         rt.TASK_TYPE = "triage"
         with patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):

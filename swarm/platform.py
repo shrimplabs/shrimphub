@@ -169,6 +169,37 @@ def godot_binary_available(command: str | None = None) -> bool:
     return shutil.which(candidate) is not None
 
 
+def kill_godot_children(parent_pid: int) -> None:
+    """Kill any Godot processes that are children of parent_pid.
+
+    Called when an agent process is killed so its spawned game windows don't
+    linger as orphans.  Uses pgrep -P on Unix; falls back to a full pkill only
+    if pgrep is unavailable.
+    """
+    if is_windows():
+        # On Windows just let kill_process_tree handle it via TASKKILL /T
+        return
+    try:
+        result = subprocess.run(
+            ["pgrep", "-P", str(parent_pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+        child_pids = [int(p) for p in result.stdout.split() if p.strip().isdigit()]
+        for child_pid in child_pids:
+            # Only kill if the child is actually Godot
+            comm = subprocess.run(
+                ["ps", "-p", str(child_pid), "-o", "comm="],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip().lower()
+            if "godot" in comm:
+                try:
+                    os.kill(child_pid, 9)
+                except ProcessLookupError:
+                    pass
+    except Exception:
+        pass
+
+
 def kill_existing_godot() -> None:
     """Kill any running Godot processes before launching a new QA game instance.
 

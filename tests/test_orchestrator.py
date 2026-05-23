@@ -162,6 +162,30 @@ class TestPostTaskValidation:
         assert failed is True
         assert "get_node_or_null" in error_output
 
+    def test_editor_startup_error_fails_validation_after_main_scene_passes(self, tmp_path):
+        proj_path = self._make_project(tmp_path)
+        (proj_path / "project.godot").write_text(
+            'config_version=5\n\n[application]\nrun/main_scene="res://scenes/main.tscn"\n'
+        )
+        (proj_path / "scenes").mkdir()
+        (proj_path / "scenes" / "main.tscn").write_text("")
+        _insert_task("t1", status="completed", project="myproj")
+
+        ok = MagicMock(returncode=0, stdout="All OK\n", stderr="")
+        editor_error = MagicMock(
+            returncode=0,
+            stdout="ERROR: Editor startup failed loading autoload LevelManager\n",
+            stderr="",
+        )
+
+        with patch("swarm.validation.godot_binary_available", return_value=True), \
+             patch("subprocess.run", side_effect=[ok, ok, ok, ok, editor_error]):
+            failed, error_output = validation._post_task_validation_in_worktree("myproj", "t1")
+
+        assert failed is True
+        assert "Godot editor startup errors" in error_output
+        assert "LevelManager" in error_output
+
     def test_missing_godot_is_controller_blocker_not_project_bug(self, tmp_path):
         proj_path = self._make_project(tmp_path)
         (proj_path / "project.godot").touch()

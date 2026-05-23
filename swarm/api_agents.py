@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from flask import Response, jsonify, request, send_file
 
-from swarm.platform import kill_pid_tree
+from swarm.platform import kill_pid_tree, kill_godot_children
 
 
 def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monitor_tick, monitor_thread, _start_time, config):
@@ -133,6 +133,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             handle = orchestrator._active_handles.get(agent_id)
         if handle:
             try:
+                kill_godot_children(handle["process"].pid)
                 handle["process"].kill()
                 return jsonify({"success": True})
             except Exception as e:

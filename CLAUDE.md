@@ -25,7 +25,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Dep violation checker: monitor kills any agent whose task has unmet dependencies (catches both in-memory and DB-tracked agents after restart)
 - Worktree `.godot` cache seeding: new worktrees copy the `.godot/` directory from the main project so Godot class_name resolution works correctly during validation
 - Integrity diagnostics: real-time task authority validation, orphan detection, live repair in dashboard
-- Manager Chat: conversational interface (`/api/chat`) to control tasks and agents from the dashboard
+- Unified Chat: first-class co-pilot (`/api/unified-chat`) — scope-aware (global or project), persistent sessions, two-tier memory injection, session compaction, emergency stop, and catastrophic action prevention
 - Project Creation Wizard: chat-based new project scaffolding (`/api/wizard/plan`, `/api/wizard/create`)
 - RAG backend: optional ChromaDB vector search for agent code context
 - Task auto-chaining: tasks created within a project are chained to the project HEAD to prevent floating chains
@@ -417,9 +417,13 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 - `GET /api/agents/<id>/stream` -- SSE live log stream
 - `POST /api/agents/<id>/kill`
 
-### Manager Chat
-- `POST /api/chat` -- conversational control of tasks/agents (create, kill, query state, toggle auto-mode)
-- `POST /api/project-chat` -- project-scoped conversational control
+### Unified Chat
+- `POST /api/unified-chat` -- unified co-pilot: `{message, session_id, project?}`; `project` omitted = global scope; returns `{reply, session_id, tool_calls, scope}`
+- `POST /api/unified-chat/<session_id>/stop` -- emergency stop for active tool loop
+- `DELETE /api/unified-chat/<session_id>` -- delete session `{project?}`
+- `DELETE /api/unified-chat/<session_id>/last` -- roll back last exchange `{project?}`
+- `POST /api/chat` -- legacy manager chat (kept for backward compat)
+- `POST /api/project-chat` -- legacy project-scoped conversational control (kept for backward compat)
 - `POST /api/create-project-tasks` -- create tasks from a project overview via LLM
 
 ### Project Creation Wizard
@@ -447,6 +451,9 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 - `GET /api/dependencies/integrity` -- live integrity report (orphans, dep violations, state ownership)
 - `POST /api/dependencies/integrity` -- trigger integrity repair actions
 - `GET /api/task-lookup/<task_id>` -- resolve task by partial ID or description match
+- `POST /api/dependencies/bulk` -- apply N add/remove dep ops atomically; cycle-checks before each add; body: `{ops: [{action: "add"|"remove", task_id, dep_id}]}`; returns `{applied, skipped, errors}`
+- `GET /api/dependencies/subgraph?root=<id>&direction=upstream|downstream|both&depth=<n>` -- BFS from a task; returns reachable tasks and edges up to `depth` hops
+- `GET /api/dependencies/critical-path?project=<name>` -- longest pending chain (blocking bottleneck); returns ordered list of task IDs + total length
 
 ## Known Test Failures
 
@@ -729,16 +736,25 @@ for proj in config.get("managed_projects", []):
 
 This ensures all managed projects always appear in the dashboard after a restart, even if they were never explicitly added via the API.
 
-## Manager Chat
+## Unified Chat
 
-`POST /api/chat` accepts a conversational message and returns an action response. The manager agent (`prompts/manager.yaml`) can:
-- Create, kill, reset, and query tasks
-- Toggle auto-mode and spawn agents
-- Answer questions about current system state
+`POST /api/unified-chat` is the primary dashboard chat interface. It supports two scopes:
+- **Global** (no `project` field): full swarm context — all tasks, agents, projects
+- **Project** (`project: "my-project"`): project-scoped tools including file read/write and git commit
 
-`POST /api/project-chat` scopes the conversation to a single project.
+Sessions are persisted at `data/chat_sessions/_global/<id>.jsonl` (global) or `data/chat_sessions/<project>/<id>.jsonl` (project scope). 7-day TTL.
 
-`_build_state_snapshot()` in `api_chat.py` assembles a full snapshot of tasks, agents, and projects to give the chat LLM context.
+**Two-tier memory** is injected into every session:
+- Swarm-level: `data/SWARM_KNOWLEDGE.md` (write via `write_swarm_memory` tool)
+- Project-level: `data/project_knowledge/<project>.md` (write via `write_project_memory` tool)
+
+**Catastrophic action prevention**: `delete_task` and `kill_agent` require a confirm token. Destructive shell patterns (`rm -rf`, `DROP TABLE`, etc.) are hard-blocked server-side.
+
+**Session compaction**: conversations exceeding ~80k estimated tokens are automatically summarized (middle messages replaced by a summary, system prompt + last 4 messages preserved).
+
+**Emergency stop**: `POST /api/unified-chat/<session_id>/stop` sets a threading.Event that halts the tool loop between tool calls. Escape key triggers this from the dashboard.
+
+`_build_state_snapshot()` in `api_chat.py` assembles a full snapshot of tasks, agents, and projects for the global scope system prompt.
 
 ## Project Creation Wizard
 

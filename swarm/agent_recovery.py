@@ -468,19 +468,34 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
     orig_desc_capped = orig_desc[:2000] + ("\n[... description truncated ...]" if len(orig_desc) > 2000 else "")
 
-    recovery_desc = (
-        f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
-        f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-        f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
-        f"YOUR JOB:\n"
-        f"1. Read the failure history above and understand what went wrong.\n"
-        f"2. Inspect the codebase to understand the current state.\n"
-        f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
-        f"   Do NOT just document the failure. The project is incomplete without this work.\n"
-        f"4. Avoid the mistakes from previous attempts (described in failure history above).\n"
-        f"5. Validate, commit, and push when done.\n\n"
-        f"{note}"
-    )
+    if orig_type in {"qa", "harness_qa", "hybrid_qa"}:
+        recovery_desc = (
+            f"RECOVERY TASK: Complete the QA run that failed {attempts} times.\n\n"
+            f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
+            f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
+            f"YOUR JOB:\n"
+            f"1. Read the failure history above and understand what went wrong.\n"
+            f"2. Re-run the QA investigation using the available QA tools.\n"
+            f"3. If you confirm project bugs, create bug tasks with clear reproduction steps and evidence.\n"
+            f"4. If bug-task creation is unavailable, write QA_REPORT.md with the confirmed findings and finish.\n"
+            f"5. Do NOT implement project code fixes, patch gameplay files, or commit code from this QA recovery task.\n"
+            f"6. Kill any launched game process before finishing.\n\n"
+            f"{note}"
+        )
+    else:
+        recovery_desc = (
+            f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
+            f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
+            f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
+            f"YOUR JOB:\n"
+            f"1. Read the failure history above and understand what went wrong.\n"
+            f"2. Inspect the codebase to understand the current state.\n"
+            f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
+            f"   Do NOT just document the failure. The project is incomplete without this work.\n"
+            f"4. Avoid the mistakes from previous attempts (described in failure history above).\n"
+            f"5. Validate, commit, and push when done.\n\n"
+            f"{note}"
+        )
 
     recovery_meta: dict = {
         "is_review_task": True,

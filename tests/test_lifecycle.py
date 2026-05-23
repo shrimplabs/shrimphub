@@ -460,6 +460,23 @@ class TestRecoveryPrompt:
         assert "BEGIN-MARKER" in meta["error_log_excerpt"]
         assert "END-MARKER" in meta["error_log_excerpt"]
 
+    def test_qa_recovery_prompt_does_not_ask_for_code_fixes(self, isolated_orc):
+        failed_task = _seed_task(task_id="qa-failed", max_attempts=1)
+        db.task_update("qa-failed", {"status": "failed", "type": "qa"})
+
+        lifecycle._spawn_review_task(db.task_get("qa-failed"), attempts=1, last_output="create_bug_task failed")
+
+        recovery_tasks = [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_recovery_task")
+        ]
+        assert len(recovery_tasks) == 1
+        desc = recovery_tasks[0]["description"]
+        assert "Complete the QA run" in desc
+        assert "create bug tasks" in desc
+        assert "Do NOT implement project code fixes" in desc
+        assert "ACTUALLY COMPLETE the original task" not in desc
+
     def test_recovery_task_becomes_project_head_when_failed_task_was_head(self, isolated_orc):
         failed_task = _seed_task(task_id="f-head", max_attempts=1, project="head-proj")
         db.project_upsert({"name": "head-proj", "status": "active", "head_task_id": "f-head"})
