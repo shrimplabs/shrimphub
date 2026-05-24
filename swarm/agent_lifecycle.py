@@ -519,6 +519,12 @@ def check_agent_status() -> List[threading.Thread]:
         finish_threads.append(t)
 
     for agent_id, exit_code, data in finished:
+        # Kill any Godot game processes the agent may have launched but not cleaned
+        # up (e.g. when the agent crashed before calling kill_game()).
+        try:
+            kill_godot_children(data["process"].pid)
+        except Exception:
+            pass
         # Remove from active handles immediately -- the process has exited, so the
         # concurrency slot is free.  _finish_agent() (which runs Godot validation
         # and can block for up to ~5 minutes) is offloaded to a daemon thread so

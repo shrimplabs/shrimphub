@@ -34,20 +34,20 @@
 ## Usage: add as a child node of the root game scene (e.g. Main).
 
 extends Node
-class_name StateServer
 
 const DEFAULT_PORT := 11009
 
-## Maximum JSON payload size in bytes before truncation (64 KB default).
-## This keeps packets within the TCP stream buffer limit (65536 bytes).
-const MAX_JSON_SIZE := 65536
+## Maximum JSON payload size in bytes before truncation (1 MB default).
+## Screenshots bypass this limit and are sent directly.
+const MAX_JSON_SIZE := 1048576
 
 var _port: int = DEFAULT_PORT
 var _server: TCPServer = null
 var _peers: Array[StreamPeerTCP] = []
+## Peers currently being handled by an async _dispatch coroutine (held alive until done)
+var _async_peers: Array[StreamPeerTCP] = []
 
 ## Pending screenshot_b64 capture (resolved after frame_post_draw)
-var _pending_b64_peer: StreamPeerTCP = null
 
 ## Signal emitted when a tile is cleared (tile_type: int, points: int)
 ## tile_type uses TileType enum values (0-4 for elements, 10-13 for special)
@@ -79,7 +79,6 @@ func _exit_tree() -> void:
 		if is_instance_valid(peer):
 			peer.disconnect_from_host()
 	_peers.clear()
-	_pending_b64_peer = null
 	
 	# Stop the server
 	if _server:
@@ -122,6 +121,8 @@ func _process(_delta: float) -> void:
 
 
 func _dispatch(peer: StreamPeerTCP, raw: String) -> void:
+	# Hold a strong reference so the peer isn't dropped while async work runs
+	_async_peers.append(peer)
 	var data: Dictionary = {}
 	var trimmed = raw.strip_edges()
 	if trimmed.begins_with("{"):
@@ -135,42 +136,120 @@ func _dispatch(peer: StreamPeerTCP, raw: String) -> void:
 			_send_json(peer, _get_state())
 			peer.disconnect_from_host()
 		"screenshot_b64", "screenshot_base64":
-			if _pending_b64_peer != null:
-				_send_json(peer, {"error": "screenshot already in progress"})
-				peer.disconnect_from_host()
-			else:
-				_pending_b64_peer = peer
-				RenderingServer.frame_post_draw.connect(_on_frame_post_draw, CONNECT_ONE_SHOT)
+			# Grab viewport image directly — don't wait for frame_post_draw which
+			# doesn't fire reliably on macOS when the window is in the background.
+			await _handle_screenshot_b64(peer)
 		"input":
-			_handle_input(peer, data)
+			await _handle_input(peer, data)
 		"press_button":
 			_handle_press_button(peer, data)
+		"play_macro":
+			# Execute a timed sequence of input actions server-side with no round-trips.
+			# {"command":"play_macro","actions":[{"type":"hold","action":"move_right","duration":2.0},{"type":"wait","seconds":0.5},...]}
+			await _handle_play_macro(peer, data)
 		"a11y_tree":
 			_handle_a11y_tree(peer)
 		_:
 			_send_json(peer, {"error": "unknown command: " + command})
 			peer.disconnect_from_host()
 
+	# Release the async hold
+	_async_peers.erase(peer)
 
-func _on_frame_post_draw() -> void:
-	var peer = _pending_b64_peer
-	_pending_b64_peer = null
-	if peer == null or not is_instance_valid(peer):
-		return
+
+func _handle_screenshot_b64(peer: StreamPeerTCP) -> void:
+	# Wait one frame so the viewport texture is populated, then grab it directly.
+	# Using process_frame instead of frame_post_draw — the latter doesn't fire
+	# reliably on macOS when the window is in the background.
+	RenderingServer.force_draw(false)
+	await get_tree().process_frame
 	var viewport = get_viewport()
 	if viewport == null:
 		_send_json(peer, {"error": "no viewport"})
 		peer.disconnect_from_host()
 		return
 	var image = viewport.get_texture().get_image()
-	if image == null:
+	if image == null or image.is_empty():
+		# Fallback: try forcing another draw and waiting one more frame
+		RenderingServer.force_draw(false)
+		await get_tree().process_frame
+		image = viewport.get_texture().get_image()
+	if image == null or image.is_empty():
 		_send_json(peer, {"error": "could not get image from viewport"})
 		peer.disconnect_from_host()
 		return
 	var png_bytes = image.save_png_to_buffer()
 	var b64 = Marshalls.raw_to_base64(png_bytes)
-	_send_json(peer, {"image_base64": b64})
+	# Send directly (bypass _send_json truncation — screenshots are legitimately large)
+	var json_str = JSON.stringify({"image_base64": b64})
+	peer.put_data((json_str + "\n").to_utf8_buffer())
 	peer.disconnect_from_host()
+
+
+func _handle_play_macro(peer: StreamPeerTCP, data: Dictionary) -> void:
+	# Execute a sequence of input actions with delays, entirely server-side.
+	var actions = data.get("actions", [])
+	_send_ok(peer)
+	for act in actions:
+		var atype = str(act.get("type", ""))
+		match atype:
+			"wait":
+				await get_tree().create_timer(float(act.get("seconds", 0.1))).timeout
+			"hold":
+				var action = str(act.get("action", "ui_accept"))
+				var dur = float(act.get("duration", 0.5))
+				var pe = InputEventAction.new()
+				pe.action = action; pe.pressed = true
+				Input.parse_input_event(pe)
+				await get_tree().create_timer(dur).timeout
+				var re = InputEventAction.new()
+				re.action = action; re.pressed = false
+				Input.parse_input_event(re)
+			"key":
+				var kc = _key_name_to_keycode(str(act.get("key", "")).to_upper())
+				var dur = float(act.get("duration", 0.1))
+				if kc != KEY_NONE:
+					var kd = InputEventKey.new()
+					kd.keycode = kc; kd.pressed = true; kd.echo = false
+					Input.parse_input_event(kd)
+					await get_tree().create_timer(dur).timeout
+					var ku = InputEventKey.new()
+					ku.keycode = kc; ku.pressed = false; ku.echo = false
+					Input.parse_input_event(ku)
+			"key_combo":
+				var keys_raw = act.get("keys", [])
+				var kcs := []
+				for k in keys_raw:
+					var kc = _key_name_to_keycode(str(k).to_upper())
+					if kc != KEY_NONE: kcs.append(kc)
+				for kc in kcs:
+					var kd = InputEventKey.new()
+					kd.keycode = kc; kd.pressed = true; kd.echo = false
+					Input.parse_input_event(kd)
+				await get_tree().create_timer(0.1).timeout
+				for kc in kcs:
+					var ku = InputEventKey.new()
+					ku.keycode = kc; ku.pressed = false; ku.echo = false
+					Input.parse_input_event(ku)
+			"click":
+				_inject_click(float(act.get("x", 0)), float(act.get("y", 0)))
+			"right_click":
+				var x = float(act.get("x", 0)); var y = float(act.get("y", 0))
+				var viewport := get_viewport(); var pos := Vector2(x, y)
+				_move_mouse(x, y)
+				var de = InputEventMouseButton.new()
+				de.position = pos; de.global_position = pos
+				de.button_index = MOUSE_BUTTON_RIGHT; de.button_mask = MOUSE_BUTTON_MASK_RIGHT; de.pressed = true
+				_push_input_event(viewport, de)
+				var ue = InputEventMouseButton.new()
+				ue.position = pos; ue.global_position = pos
+				ue.button_index = MOUSE_BUTTON_RIGHT; ue.button_mask = 0; ue.pressed = false
+				_push_input_event(viewport, ue)
+			"drag":
+				await _inject_drag(float(act.get("x1",0)), float(act.get("y1",0)), float(act.get("x2",0)), float(act.get("y2",0)), float(act.get("duration",0.3)))
+			"action":
+				var ae = _make_input_event_action(str(act.get("action", "ui_accept")))
+				Input.parse_input_event(ae)
 
 
 func _handle_input(peer: StreamPeerTCP, data: Dictionary) -> void:
@@ -186,10 +265,123 @@ func _handle_input(peer: StreamPeerTCP, data: Dictionary) -> void:
 			var y = float(data.get("y", 0))
 			_inject_click(x, y)
 			_send_ok(peer)
+		"drag":
+			# Drag: {"command":"input","type":"drag","x1":N,"y1":N,"x2":N,"y2":N,"duration":0.3}
+			var x1 = float(data.get("x1", 0))
+			var y1 = float(data.get("y1", 0))
+			var x2 = float(data.get("x2", 0))
+			var y2 = float(data.get("y2", 0))
+			var duration = float(data.get("duration", 0.3))
+			_send_ok(peer)
+			await _inject_drag(x1, y1, x2, y2, duration)
+		"scroll":
+			# Scroll wheel: {"command":"input","type":"scroll","x":N,"y":N,"delta":3}
+			# delta > 0 = scroll up/forward, delta < 0 = scroll down/back
+			var x = float(data.get("x", 0))
+			var y = float(data.get("y", 0))
+			var delta = float(data.get("delta", 3))
+			var viewport := get_viewport()
+			var pos := Vector2(x, y)
+			var scroll_evt := InputEventMouseButton.new()
+			scroll_evt.position = pos
+			scroll_evt.global_position = pos
+			scroll_evt.button_index = MOUSE_BUTTON_WHEEL_UP if delta > 0 else MOUSE_BUTTON_WHEEL_DOWN
+			scroll_evt.pressed = true
+			scroll_evt.factor = abs(delta)
+			_push_input_event(viewport, scroll_evt)
+			_send_ok(peer)
+		"right_click":
+			# Right click: {"command":"input","type":"right_click","x":N,"y":N}
+			var x = float(data.get("x", 0))
+			var y = float(data.get("y", 0))
+			var viewport := get_viewport()
+			var pos := Vector2(x, y)
+			_move_mouse(x, y)
+			var down_evt := InputEventMouseButton.new()
+			down_evt.position = pos
+			down_evt.global_position = pos
+			down_evt.button_index = MOUSE_BUTTON_RIGHT
+			down_evt.button_mask = MOUSE_BUTTON_MASK_RIGHT
+			down_evt.pressed = true
+			_push_input_event(viewport, down_evt)
+			var up_evt := InputEventMouseButton.new()
+			up_evt.position = pos
+			up_evt.global_position = pos
+			up_evt.button_index = MOUSE_BUTTON_RIGHT
+			up_evt.button_mask = 0
+			up_evt.pressed = false
+			_push_input_event(viewport, up_evt)
+			_send_ok(peer)
+		"double_click":
+			# Double click: {"command":"input","type":"double_click","x":N,"y":N}
+			var x = float(data.get("x", 0))
+			var y = float(data.get("y", 0))
+			_inject_click(x, y)
+			await get_tree().create_timer(0.1).timeout
+			_inject_click(x, y)
+			_send_ok(peer)
+		"key_combo":
+			# Simultaneous keys: {"command":"input","type":"key_combo","keys":["shift","w"]}
+			# Presses all keys simultaneously, holds 0.1s, releases all.
+			var keys_raw = data.get("keys", [])
+			var keycodes := []
+			for k in keys_raw:
+				var kc = _key_name_to_keycode(str(k).to_upper())
+				if kc != KEY_NONE:
+					keycodes.append(kc)
+			_send_ok(peer)
+			for kc in keycodes:
+				var kdown = InputEventKey.new()
+				kdown.keycode = kc
+				kdown.pressed = true
+				kdown.echo = false
+				Input.parse_input_event(kdown)
+			await get_tree().create_timer(0.1).timeout
+			for kc in keycodes:
+				var kup = InputEventKey.new()
+				kup.keycode = kc
+				kup.pressed = false
+				kup.echo = false
+				Input.parse_input_event(kup)
 		"action":
 			var action = str(data.get("action", "ui_accept"))
 			Input.parse_input_event(_make_input_event_action(action))
 			_send_ok(peer)
+		"hold":
+			# Hold an action for N seconds: {"command":"input","type":"hold","action":"move_right","duration":2.0}
+			var action = str(data.get("action", "ui_accept"))
+			var duration = float(data.get("duration", 0.5))
+			_send_ok(peer)
+			var press_evt = InputEventAction.new()
+			press_evt.action = action
+			press_evt.pressed = true
+			Input.parse_input_event(press_evt)
+			await get_tree().create_timer(duration).timeout
+			var release_evt = InputEventAction.new()
+			release_evt.action = action
+			release_evt.pressed = false
+			Input.parse_input_event(release_evt)
+		"key":
+			# Physical key by name: {"command":"input","type":"key","key":"w","duration":2.0}
+			var key_name = str(data.get("key", "")).to_upper()
+			var duration = float(data.get("duration", 0.1))
+			var keycode = _key_name_to_keycode(key_name)
+			if keycode == KEY_NONE:
+				_send_json(peer, {"error": "unknown key: " + key_name})
+				peer.disconnect_from_host()
+				return
+			_send_ok(peer)
+			var kdown = InputEventKey.new()
+			kdown.keycode = keycode
+			kdown.pressed = true
+			kdown.echo = false
+			Input.parse_input_event(kdown)
+			await get_tree().create_timer(duration).timeout
+			var kup = InputEventKey.new()
+			kup.keycode = keycode
+			kup.pressed = false
+			kup.echo = false
+			Input.parse_input_event(kup)
 		"type":
 			# Legacy bare {"command":"input"} \u2014 treat as action ui_accept
 			Input.parse_input_event(_make_input_event_action("ui_accept"))
@@ -256,6 +448,28 @@ func _make_input_event_action(action: String) -> InputEvent:
 	return evt
 
 
+func _key_name_to_keycode(key_name: String) -> Key:
+	# Map common key name strings to Godot Key enum values.
+	var map: Dictionary = {
+		"W": KEY_W, "A": KEY_A, "S": KEY_S, "D": KEY_D,
+		"UP": KEY_UP, "DOWN": KEY_DOWN, "LEFT": KEY_LEFT, "RIGHT": KEY_RIGHT,
+		"SPACE": KEY_SPACE, "ENTER": KEY_ENTER, "RETURN": KEY_ENTER,
+		"ESCAPE": KEY_ESCAPE, "ESC": KEY_ESCAPE,
+		"SHIFT": KEY_SHIFT, "CTRL": KEY_CTRL, "ALT": KEY_ALT,
+		"TAB": KEY_TAB, "BACKSPACE": KEY_BACKSPACE,
+		"Q": KEY_Q, "E": KEY_E, "R": KEY_R, "F": KEY_F,
+		"G": KEY_G, "H": KEY_H, "I": KEY_I, "J": KEY_J,
+		"K": KEY_K, "L": KEY_L, "M": KEY_M, "N": KEY_N,
+		"O": KEY_O, "P": KEY_P, "T": KEY_T, "U": KEY_U,
+		"V": KEY_V, "X": KEY_X, "Y": KEY_Y, "Z": KEY_Z,
+		"1": KEY_1, "2": KEY_2, "3": KEY_3, "4": KEY_4, "5": KEY_5,
+		"6": KEY_6, "7": KEY_7, "8": KEY_8, "9": KEY_9, "0": KEY_0,
+		"F1": KEY_F1, "F2": KEY_F2, "F3": KEY_F3, "F4": KEY_F4,
+		"F5": KEY_F5, "F6": KEY_F6, "F7": KEY_F7, "F8": KEY_F8,
+	}
+	return map.get(key_name, KEY_NONE)
+
+
 func _inject_click(x: float, y: float) -> void:
 	var viewport := get_viewport()
 	var pos := Vector2(x, y)
@@ -273,6 +487,41 @@ func _inject_click(x: float, y: float) -> void:
 	var up_evt := InputEventMouseButton.new()
 	up_evt.position = pos
 	up_evt.global_position = pos
+	up_evt.button_index = MOUSE_BUTTON_LEFT
+	up_evt.button_mask = 0
+	up_evt.pressed = false
+	_push_input_event(viewport, up_evt)
+
+
+func _inject_drag(x1: float, y1: float, x2: float, y2: float, duration: float) -> void:
+	var viewport := get_viewport()
+	var p1 := Vector2(x1, y1)
+	var p2 := Vector2(x2, y2)
+	_move_mouse(x1, y1)
+	var down_evt := InputEventMouseButton.new()
+	down_evt.position = p1
+	down_evt.global_position = p1
+	down_evt.button_index = MOUSE_BUTTON_LEFT
+	down_evt.button_mask = MOUSE_BUTTON_MASK_LEFT
+	down_evt.pressed = true
+	_push_input_event(viewport, down_evt)
+	# Interpolate mouse movement across duration
+	var steps: int = max(1, int(duration * 30.0))
+	for i in range(1, steps + 1):
+		var t = float(i) / float(steps)
+		var mx = lerp(x1, x2, t)
+		var my = lerp(y1, y2, t)
+		_move_mouse(mx, my)
+		var move_evt := InputEventMouseMotion.new()
+		move_evt.position = Vector2(mx, my)
+		move_evt.global_position = Vector2(mx, my)
+		move_evt.button_mask = MOUSE_BUTTON_MASK_LEFT
+		_push_input_event(viewport, move_evt)
+		await get_tree().process_frame
+	_move_mouse(x2, y2)
+	var up_evt := InputEventMouseButton.new()
+	up_evt.position = p2
+	up_evt.global_position = p2
 	up_evt.button_index = MOUSE_BUTTON_LEFT
 	up_evt.button_mask = 0
 	up_evt.pressed = false
@@ -353,9 +602,14 @@ func _get_state() -> Dictionary:
 	# Walk scene tree — full hierarchy (names, paths, types, visibility, positions, qa_labels)
 	state["scene_tree"] = _export_node(get_tree().root)
 
-	# Let parent implement get_game_state() for domain-specific state
-	if get_parent() and get_parent().has_method("get_game_state"):
-		state["game_state"] = get_parent().get_game_state()
+	# Find the main scene node and call get_game_state() on it.
+	# StateServer is an autoload so get_parent() is the Window root, not Main.
+	# Traverse root children to find the first node with get_game_state().
+	state["game_state"] = {}
+	for child in get_tree().root.get_children():
+		if child != self and child.has_method("get_game_state"):
+			state["game_state"] = child.get_game_state()
+			break
 
 	return state
 

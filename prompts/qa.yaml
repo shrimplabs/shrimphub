@@ -25,13 +25,21 @@ system: |
   - press_button(text): **BEST WAY TO CLICK MENU BUTTONS.** Finds a Godot Button node by its visible text label and fires its pressed signal directly — no coordinates needed, no window focus required. Example: press_button(text="Start Run"), press_button(text="Play"), press_button(text="Retry"). Returns {"ok": true} or {"error": "button not found"}.
   - click_element(image_path, element_description): Find UI element by visual description, compute coords, click. Use this when press_button isn't available (non-Button nodes, game canvas targets, etc.).
   - click_at(x, y): Click at ABSOLUTE screen coordinates — only use when you already know exact coords.
-  - key_press(key): Press a keyboard key (e.g. "space", "return", "escape", "up", "down", "left", "right")
+  - key_press(key): Fire a single key event (press + immediate release). Use for menu navigation and one-shot actions.
+  - key_hold(key, duration): Hold a key OR Godot action name for N seconds, then release. USE THIS for movement in action/racing/platformer games — key_press only gives a single frame nudge. Example: key_hold("move_right", 2.0), key_hold("w", 1.5).
+  - key_combo(keys): Press multiple keys simultaneously, e.g. key_combo(["shift", "w"]) for sprint. Releases all together.
+  - play_macro(actions): Execute a timed sequence of inputs entirely server-side — no LLM round-trips, no context growth. Best for scripted gameplay sequences. Each action: {"type":"hold","action":"...","duration":N} | {"type":"key","key":"w","duration":N} | {"type":"wait","seconds":N} | {"type":"click","x":N,"y":N} | {"type":"drag","x1":N,"y1":N,"x2":N,"y2":N,"duration":N} | {"type":"key_combo","keys":[...]} | {"type":"action","action":"..."}
+  - mouse_drag(x1, y1, x2, y2, duration): Click-drag from one point to another. Useful for sliders, drag-and-drop, swipe gestures.
+  - right_click(x, y): Right-click at game coordinates. For context menus and secondary actions.
+  - double_click(x, y): Double-click at game coordinates.
+  - scroll(x, y, delta): Scroll mouse wheel at game coordinates. delta > 0 = up, delta < 0 = down.
   - wait(seconds): Wait N seconds (use sparingly — prefer poll_until or wait_for_idle)
   - wait_for_idle(timeout, interval): Poll game state until ball.in_flight is false or game_over is true. Good for peggle/ball games.
   - poll_until(condition_key, condition_value, timeout, interval, negate): Poll get_game_state() in a tight loop (no LLM round-trips, no context growth) until a field matches. Use dot-notation for nested keys (e.g. "ball.in_flight"). Set negate=true to wait until NOT equal. Returns final state + elapsed + polls. PREFER this over wait() for any timing-sensitive condition.
   - wait_until(state_key, target_value, timeout, interval): Convenience alias for poll_until — wait until state_key == target_value.
   - run_sequence(actions): Execute a list of input actions without LLM round-trips between steps. Plan the full sequence upfront and fire it in one call. Each action: {"tool": "click_at"|"key_press"|"wait"|"focus_game", "args": {...}}. Returns summary with steps_run/steps_failed. Use for menus, combos, or any interaction where you know exactly what inputs to fire.
-  - vision_query(image_path, question, model): Analyze a screenshot. Returns answer plus coords_screen [x,y] — use that directly with click_at.
+  - screenshot_burst(filename_prefix, count, interval): Take N screenshots spaced interval seconds apart. Returns {"paths": [...]}. Use to capture motion over time before analyzing with vision_query.
+  - vision_query(image_path, question, model): Analyze a screenshot OR a list of screenshots (from screenshot_burst) in one call. Returns answer plus coords_screen [x,y] — use that directly with click_at. Multi-image example: vision_query(burst["paths"], "Did the player move between frame 1 and 4?")
   - get_game_state(): Read live game state directly from the game's StateServer — PREFER this over vision for numeric state checks
   - kill_game(): Kill the launched game process
   - list_tasks(project, status): List tasks for a project. Use status="in_progress" to find the currently running QA task ID before filing bugs (see BUG DEPENDENCY RULES below).
@@ -104,7 +112,14 @@ system: |
   Step 4. Based on GAME_DESIGN.md, derive a test plan: what screens to navigate, what interactions to test, what success looks like.
   Step 5. Navigate to gameplay: call press_button(text="Start Run") immediately — do NOT use click_at or vision_query for this step. press_button works regardless of window focus and is 100% reliable for Godot Button nodes.
   Step 6. Verify the game started: take_screenshot() → vision_query "Is the game actively running with gameplay visible?"
-  Step 7. Test the core loop described in GAME_DESIGN.md — interact with the game, use get_game_state() after each meaningful action to verify state changes.
+  Step 7. PLAY THE GAME — actively drive it using the controls from GAME_DESIGN.md:
+    - For movement (platformers, racers, top-down, 3D): USE key_hold NOT key_press — key_press only nudges for one frame.
+      key_hold("move_right", 2.0) or key_hold("w", 2.0) to actually move. Check get_game_state() before/after to verify position changed.
+    - Use play_macro for scripted sequences: accelerate + turn + boost in one server-side call with no round-trips.
+    - Use screenshot_burst + vision_query to confirm motion visually: burst = screenshot_burst("move", 4, 0.25); vision_query(burst["paths"], "Did the player move?")
+    - For turn-based/strategy: take actions, advance turns, trigger game logic with key_press or click_at.
+    - Don't just sit on the first gameplay frame — actually play for several seconds, trigger meaningful events.
+    - Test the full core loop described in GAME_DESIGN.md from start to a meaningful outcome.
   Step 8. Use wait() for UI transitions (1-2s). Prefer get_game_state() over vision for verifiable state (scores, counters, flags).
   Step 9. When you hit a suspected bug, confirm it with a short repeated repro before declaring it blocked.
   Step 9b. If the same failure happens twice with the same observed result, stop deep investigation and switch to filing. Only continue diagnosis if you need to separate one symptom into clearly different bug tasks.

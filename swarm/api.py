@@ -371,6 +371,7 @@ def create_app(
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
     _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
+    _orphan_godot_sweep_counter = [0]    # incremented each cycle; orphan Godot sweep runs every 60 cycles (~5 min)
     # Persist last run time across restarts via a small state file
     _audit_learnings_state_file = data_dir / "audit_learnings_last_run.txt"
     try:
@@ -427,6 +428,74 @@ def create_app(
 
         return pruned
 
+    def _sweep_orphaned_godot_processes() -> None:
+        """Kill Godot processes listening on the StateServer port range (11009-11049)
+        that are not children of any active agent process.
+
+        These accumulate when agents crash before calling kill_game(), leaving
+        Godot instances holding ports and preventing future agents from launching.
+        """
+        import subprocess as _sp
+        try:
+            lsof = _sp.run(
+                ["lsof", "-i", ":11009-11209", "-t"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return
+
+        godot_pids = set()
+        for pid_str in lsof.stdout.strip().splitlines():
+            pid_str = pid_str.strip()
+            if not pid_str.isdigit():
+                continue
+            pid = int(pid_str)
+            try:
+                comm = _sp.run(
+                    ["ps", "-p", str(pid), "-o", "comm="],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout.strip().lower()
+                if "godot" in comm:
+                    godot_pids.add(pid)
+            except Exception:
+                pass
+
+        if not godot_pids:
+            return
+
+        # Collect PIDs of active agent processes
+        from swarm.agent_lifecycle import _active_handles, _handle_lock
+        active_agent_pids = set()
+        with _handle_lock:
+            for data in _active_handles.values():
+                try:
+                    active_agent_pids.add(data["process"].pid)
+                except Exception:
+                    pass
+
+        # Find children of active agents
+        active_children: set = set()
+        for agent_pid in active_agent_pids:
+            try:
+                children = _sp.run(
+                    ["pgrep", "-P", str(agent_pid)],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for cpid_str in children.stdout.split():
+                    if cpid_str.strip().isdigit():
+                        active_children.add(int(cpid_str.strip()))
+            except Exception:
+                pass
+
+        orphans = godot_pids - active_children
+        for pid in orphans:
+            try:
+                import os as _os
+                _os.kill(pid, 9)
+                print(f"[Monitor] Swept orphaned Godot PID {pid} from StateServer port range")
+            except Exception:
+                pass
+
     def _monitor():
         while True:
             try:
@@ -459,6 +528,17 @@ def create_app(
                             print(f"[Monitor] Ghost dep sweep pruned {len(_sweep_pruned)} stale edge(s): {_sweep_pruned}")
                     except Exception as _sweep_err:
                         print(f"[Monitor] Ghost dep sweep error: {_sweep_err}")
+
+                # Orphaned Godot sweep: kill any Godot process on the StateServer
+                # port range (11009-11049) that is not a child of an active agent.
+                # These pile up when agents crash before calling kill_game().
+                _orphan_godot_sweep_counter[0] += 1
+                if _orphan_godot_sweep_counter[0] >= 10:
+                    _orphan_godot_sweep_counter[0] = 0
+                    try:
+                        _sweep_orphaned_godot_processes()
+                    except Exception as _godot_sweep_err:
+                        print(f"[Monitor] Orphan Godot sweep error: {_godot_sweep_err}")
 
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
@@ -633,6 +713,16 @@ def create_app(
     if config.get("disable_monitor", False):
         monitor_thread = SimpleNamespace(is_alive=lambda: False)
     else:
+        # Startup ghost dep sweep: clear any deps pointing to tasks that completed
+        # and were archived before this restart. Runs once immediately so tasks are
+        # never stuck waiting for the periodic 20-cycle sweep after a restart.
+        try:
+            _startup_pruned = _sweep_ghost_deps(db, data_dir)
+            if _startup_pruned:
+                print(f"[Startup] Ghost dep sweep cleared {len(_startup_pruned)} stale edge(s): {_startup_pruned}")
+        except Exception as _startup_sweep_err:
+            print(f"[Startup] Ghost dep sweep error: {_startup_sweep_err}")
+
         monitor_thread = threading.Thread(target=_monitor, daemon=True)
         monitor_thread.start()
 

@@ -311,7 +311,7 @@ def _resolve_image_coords_from_model(raw_x: int, raw_y: int, img_w: int, img_h: 
 # Port allocation
 # ---------------------------------------------------------------------------
 
-def _find_free_port_pair(base: int = 11009, max_range: int = 40) -> tuple:
+def _find_free_port_pair(base: int = 11009, max_range: int = 200) -> tuple:
     """Find two consecutive free ports (state_port, harness_port = state_port+1).
 
     Scans even offsets so pairs never overlap with other pair allocations.
@@ -342,7 +342,7 @@ def _state_server_send(command: dict, port: int = None, timeout: float = 5.0) ->
     import json as _json
     if port is None:
         port = _state_port
-    recv_timeout = 10.0 if command.get("command", "") in ("screenshot_b64", "screenshot_base64") else timeout
+    recv_timeout = 30.0 if command.get("command", "") in ("screenshot_b64", "screenshot_base64") else timeout
     try:
         with _socket.create_connection(("127.0.0.1", port), timeout=timeout) as sock:
             sock.sendall((_json.dumps(command) + "\n").encode())
@@ -376,45 +376,29 @@ def launch_game(project_path: str) -> dict:
     _state_port, _harness_port = _find_free_port_pair()
     log(f"launch_game: allocated ports state={_state_port} harness={_harness_port}")
 
-    # Kill any stale Godot process already holding our assigned ports.
-    # Only kill if the process is actually Godot — don't touch unrelated services.
-    for _port in (_state_port, _harness_port):
-        try:
-            _lsof = subprocess.run(
-                ["lsof", "-ti", f":{_port}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            for _pid_str in _lsof.stdout.strip().splitlines():
-                _pid = int(_pid_str.strip())
-                _comm = subprocess.run(
-                    ["ps", "-p", str(_pid), "-o", "comm="],
-                    capture_output=True, text=True, timeout=5,
-                ).stdout.strip().lower()
-                if "godot" in _comm:
-                    subprocess.run(["kill", "-9", str(_pid)], capture_output=True)
-                    log(f"launch_game: killed stale Godot PID {_pid} holding port {_port}")
-        except Exception:
-            pass
-    _time.sleep(1)
+    # _find_free_port_pair() already skips busy ports, so the allocated pair is
+    # guaranteed free — no need to kill anything here. Killing by port would
+    # destroy OTHER agents' games running on nearby ports (e.g. harness runner).
 
     godot_bin = resolve_godot_binary()
     if not godot_binary_available(godot_bin):
         return {"ok": False, "error": f"Godot binary not found at {godot_bin}"}
 
     try:
-        # Always run headless — screenshots come from StateServer.screenshot_b64,
-        # clicks go through StateServer press_button/input commands.
-        # Windowed mode causes Godot to open the editor instead of the game
-        # when there are script errors, which is never what we want for QA.
+        # Run without --headless so Metal/GPU rendering is active and the viewport
+        # texture is populated. StateServer.screenshot_b64 requires a rendered frame —
+        # headless mode skips rendering so get_image() always returns null.
+        # The game window may briefly appear on screen; this is expected.
+        # Clicks go through StateServer press_button/input commands (no window focus needed).
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--headless", "--path", project_path, "--",
+            [godot_bin, "--path", project_path, "--",
              "--state-port", str(_state_port),
              "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         pid = _qa_game_process.pid
-        log(f"Launched Godot headless PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
+        log(f"Launched Godot PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
         _time.sleep(6)
 
         if _qa_game_process.poll() is not None:
@@ -424,7 +408,7 @@ def launch_game(project_path: str) -> dict:
         # including the pixel_ratio, which is the authoritative source for
         # coordinate normalisation (works even when screencapture permissions
         # are not granted).
-        state_resp = _state_server_send({"command": "screenshot_b64"}, timeout=15.0)
+        state_resp = _state_server_send({"command": "screenshot_b64"}, timeout=30.0)
         if "image_base64" in state_resp:
             import base64 as _b64
             import struct as _struct
@@ -537,7 +521,7 @@ def take_screenshot(filename: str) -> dict:
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Try StateServer screenshot (no window focus needed)
-    resp = _state_server_send({"command": "screenshot_b64"})
+    resp = _state_server_send({"command": "screenshot_b64"}, timeout=30.0)
     if "image_base64" in resp:
         try:
             img_bytes = _base64.b64decode(resp["image_base64"])
@@ -591,6 +575,32 @@ def take_screenshot(filename: str) -> dict:
                 "window_x": x, "window_y": y, "w": w, "h": h}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def screenshot_burst(filename_prefix: str, count: int = 4, interval: float = 0.25) -> dict:
+    """Take a rapid burst of screenshots to capture motion or state changes over time.
+    Returns a list of paths that can be passed individually to vision_query.
+
+    Args:
+        filename_prefix: base name, e.g. "driving" → driving_0.png, driving_1.png, ...
+        count: number of frames to capture (default 4)
+        interval: seconds between frames (default 0.25s = 4fps)
+
+    Example: capture 6 frames over 1.5s to verify the car is moving:
+        burst = screenshot_burst("car_move", count=6, interval=0.25)
+        vision_query(burst["paths"][0], "Where is the car?")
+        vision_query(burst["paths"][-1], "Has the car moved compared to the first frame?")
+    """
+    import time as _t
+    paths = []
+    for i in range(int(count)):
+        fname = f"{filename_prefix}_{i}"
+        result = take_screenshot(fname)
+        if result.get("ok"):
+            paths.append(result["path"])
+        if i < int(count) - 1:
+            _t.sleep(float(interval))
+    return {"ok": bool(paths), "paths": paths, "count": len(paths)}
 
 
 def _qa_click_viewport(vx: float, vy: float) -> dict:
@@ -941,15 +951,27 @@ def click_element(image_path: str, element_description: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def vision_query(image_path: str, question: str, model_tier: str = "fast", timeout: int = 30) -> dict:
-    """Send a screenshot to the configured vision model and return the analysis.
+def vision_query(image_path, question: str, model_tier: str = "fast", timeout: int = 120) -> dict:
+    """Send one or more screenshots to the configured vision model and return the analysis.
 
-    timeout: seconds before giving up on the VLM call (default 30).
+    image_path: a single path string, OR a list of paths (e.g. from screenshot_burst).
+      When a list is passed, all images are sent in one call so the model can reason
+      across frames — useful for motion detection, before/after comparisons, etc.
+
+    timeout: seconds before giving up on the VLM call (default 120).
     Returns {"ok": False, "error": "vision_query timed out after Xs"} on timeout.
+
+    Multi-image example:
+        burst = screenshot_burst("drive", count=4, interval=0.25)
+        vision_query(burst["paths"], "Did the car move between frame 1 and frame 4?")
     """
     import concurrent.futures
     import re
     global _qa_window
+
+    # Normalise image_path to a list
+    image_paths = image_path if isinstance(image_path, list) else [image_path]
+    primary_image = image_paths[0] if image_paths else ""
 
     def _run():
         try:
@@ -966,13 +988,16 @@ def vision_query(image_path: str, question: str, model_tier: str = "fast", timeo
                 from swarm.agent_runtime import mcp_call_tool
                 server = provider.get("mcp_server", "minimax")
                 tool = provider.get("mcp_tool", "understand_image")
-                result = mcp_call_tool(server, tool, {"image_source": image_path, "prompt": question})
+                result = mcp_call_tool(server, tool, {"image_source": primary_image, "prompt": question})
                 answer = result.get("content", str(result))
                 log(f"vision_query/mcp/{model_tier}: {str(answer)[:80]}")
                 return {"ok": True, "answer": answer, "provider": provider_name}
 
-            from swarm.vision import call_vision
-            answer = call_vision(image_path, question, provider_name, cfg)
+            from swarm.vision import call_vision, call_vision_multi
+            if len(image_paths) > 1:
+                answer = call_vision_multi(image_paths, question, provider_name, cfg)
+            else:
+                answer = call_vision(primary_image, question, provider_name, cfg)
             log(f"vision_query/{model_tier}: {answer[:80]}")
 
             out = {"ok": True, "answer": answer, "provider": provider_name}
@@ -984,7 +1009,7 @@ def vision_query(image_path: str, question: str, model_tier: str = "fast", timeo
                 import struct as _struct
                 img_w, img_h = iw, ih
                 try:
-                    with open(image_path, "rb") as _f:
+                    with open(primary_image, "rb") as _f:
                         _hdr = _f.read(24)
                         if len(_hdr) >= 24 and _hdr[:8] == b'\x89PNG\r\n\x1a\n':
                             img_w = _struct.unpack('>I', _hdr[16:20])[0]
@@ -1534,6 +1559,116 @@ def move_mouse(x: int, y: int) -> dict:
 def key_press(key: str) -> dict:
     """Press a keyboard key / Godot action."""
     return qa_key_press(key)
+
+
+def key_hold(key: str, duration: float = 1.0) -> dict:
+    """Hold a key or Godot action for `duration` seconds, then release.
+    Use this instead of key_press for movement keys in action/racing games
+    where the character only moves while the key is held down.
+    Example: key_hold("w", 2.0) to accelerate forward for 2 seconds."""
+    import time as _time
+    resp = _state_server_send({"command": "input", "type": "hold", "action": key, "duration": duration},
+                              timeout=duration + 5.0)
+    if resp.get("ok"):
+        log(f"StateServer hold '{key}' for {duration}s")
+        return {"ok": True, "source": "state_server"}
+    # Fallback: rapid-fire key_press for the duration (simulates a held key)
+    log(f"StateServer hold failed ({resp.get('error')}), falling back to repeated key_press for {duration}s")
+    interval = 0.05
+    end = _time.time() + duration
+    count = 0
+    while _time.time() < end:
+        qa_key_press(key)
+        _time.sleep(interval)
+        count += 1
+    log(f"key_hold fallback: fired {count} key_press events over {duration}s")
+    return {"ok": True, "source": "key_press_fallback", "presses": count}
+
+
+def mouse_drag(x1: int, y1: int, x2: int, y2: int, duration: float = 0.3) -> dict:
+    """Click-drag from (x1,y1) to (x2,y2) over `duration` seconds.
+    Sends mousedown at start, interpolates mouse movement, mouseup at end.
+    Useful for sliders, drag-and-drop, and swipe gestures."""
+    resp = _state_server_send({
+        "command": "input", "type": "drag",
+        "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+        "duration": duration
+    })
+    if resp.get("ok"):
+        log(f"StateServer drag ({x1},{y1})->({x2},{y2}) over {duration}s")
+        return {"ok": True, "source": "state_server"}
+    return {"ok": False, "error": resp.get("error", "drag not supported")}
+
+
+def right_click(x: int, y: int) -> dict:
+    """Right-click at absolute game coordinates. Useful for context menus and secondary actions."""
+    resp = _state_server_send({"command": "input", "type": "right_click", "x": x, "y": y})
+    if resp.get("ok"):
+        log(f"StateServer right_click ({x},{y})")
+        return {"ok": True, "source": "state_server"}
+    return {"ok": False, "error": resp.get("error", "right_click not supported")}
+
+
+def double_click(x: int, y: int) -> dict:
+    """Double-click at absolute game coordinates."""
+    resp = _state_server_send({"command": "input", "type": "double_click", "x": x, "y": y})
+    if resp.get("ok"):
+        log(f"StateServer double_click ({x},{y})")
+        return {"ok": True, "source": "state_server"}
+    return {"ok": False, "error": resp.get("error", "double_click not supported")}
+
+
+def scroll(x: int, y: int, delta: float = 3.0) -> dict:
+    """Scroll the mouse wheel at game coordinates.
+    delta > 0 = scroll up/forward, delta < 0 = scroll down/back.
+    Useful for inventory screens, maps, skill trees, and scrollable menus."""
+    resp = _state_server_send({"command": "input", "type": "scroll", "x": x, "y": y, "delta": delta})
+    if resp.get("ok"):
+        log(f"StateServer scroll ({x},{y}) delta={delta}")
+        return {"ok": True, "source": "state_server"}
+    return {"ok": False, "error": resp.get("error", "scroll not supported")}
+
+
+def key_combo(keys: list) -> dict:
+    """Press multiple keys simultaneously (e.g. Shift+W for sprint, Ctrl+Z for undo).
+    keys: list of key name strings, e.g. ['shift', 'w'] or ['ctrl', 'z'].
+    All keys are pressed at once, held briefly, then released together."""
+    resp = _state_server_send({"command": "input", "type": "key_combo", "keys": keys})
+    if resp.get("ok"):
+        log(f"StateServer key_combo {keys}")
+        return {"ok": True, "source": "state_server"}
+    return {"ok": False, "error": resp.get("error", "key_combo not supported")}
+
+
+def play_macro(actions: list) -> dict:
+    """Execute a timed sequence of input actions entirely server-side with no LLM round-trips.
+    Use this to play out a scripted interaction over time — the StateServer runs the full
+    sequence end-to-end and returns when done.
+
+    Each action is a dict with a 'type' key:
+      {"type": "hold",      "action": "move_right", "duration": 2.0}  # hold a Godot action
+      {"type": "key",       "key": "w",             "duration": 1.5}  # hold a physical key
+      {"type": "key_combo", "keys": ["shift", "w"]}                   # simultaneous keys
+      {"type": "click",     "x": 400, "y": 300}                       # left click
+      {"type": "right_click","x": 400, "y": 300}                      # right click
+      {"type": "drag",      "x1":100,"y1":200,"x2":300,"y2":200,"duration":0.3}
+      {"type": "action",    "action": "ui_accept"}                     # one-shot Godot action
+      {"type": "wait",      "seconds": 0.5}                            # pause
+
+    Example — drive a car forward, turn right, boost:
+      play_macro([
+        {"type": "hold",  "action": "move_forward", "duration": 2.0},
+        {"type": "wait",  "seconds": 0.2},
+        {"type": "hold",  "action": "turn_right",   "duration": 1.0},
+        {"type": "action","action": "boost"},
+        {"type": "wait",  "seconds": 0.5},
+      ])
+    """
+    resp = _state_server_send({"command": "play_macro", "actions": actions})
+    if resp.get("ok"):
+        log(f"StateServer play_macro: {len(actions)} actions")
+        return {"ok": True, "source": "state_server", "actions": len(actions)}
+    return {"ok": False, "error": resp.get("error", "play_macro not supported")}
 
 
 def wait(seconds: float) -> dict:

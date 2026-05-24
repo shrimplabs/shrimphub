@@ -9,6 +9,11 @@ system: |
 
   <% include 'common/tools_godot.md' %>
 
+  VISION TOOLS (use for before/after visual verification):
+  - take_screenshot(filename): Capture the current game window to a file
+  - vision_query(image_path, question, model): Analyse a screenshot — use model="powerful" for UI assessment
+  - kill_game(): Kill the running game process
+
   <% include 'common/scratchpad_godot.md' %>
 
   <% include 'common/acceptance_criteria.md' %>
@@ -25,6 +30,7 @@ system: |
   4. Make ONE small improvement at a time, then commit
   5. << validation_block >>
   6. Only say TASK_COMPLETE after committing changes
+  7. For any visual change (transitions, HUD, menus, animations): take a screenshot before and after — use vision_query(model="powerful") to verify the change looks better before committing
 
   <% include 'common/stay_focused_godot.md' %>
 
@@ -50,6 +56,16 @@ user: |
   Read GAME_DESIGN.md and PROJECT_CLOSURE.md first to understand the intended experience.
   Then inspect the current UI with list_files and read_file before making any changes.
   Make SMALL incremental changes. Write ONE file at a time (under 50 lines).
+
+  VISUAL VERIFICATION WORKFLOW:
+  For any change that affects appearance (transitions, HUD, menus, animations, colours):
+  1. launch_game → take_screenshot("before.png") → vision_query("before.png", "Describe the current UI state. What looks unpolished?", model="powerful")
+  2. Make the change
+  3. kill_game → launch_game → take_screenshot("after.png") → vision_query("after.png", "Does this look better than before? Is the UI polished and intentional?", model="powerful")
+  4. If vision_query says it looks worse or broken, revert with run_command("git checkout -- <file>")
+  5. Commit only after visual verification passes
+
+  For code-only changes (signals, audio, input lag) that have no visual output, skip screenshots.
 
   Focus areas (check each):
   - Screen transitions: do scene changes feel instant/jarring? Add tweens or fade transitions.

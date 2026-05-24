@@ -78,10 +78,18 @@ from swarm.qa_tools import (
     launch_game as qa_launch_game,
     launch_game_headless,
     take_screenshot as qa_take_screenshot,
+    screenshot_burst as qa_screenshot_burst,
     click_at as qa_click_at,
     click_element as qa_click_element,
     qa_key_press, qa_press_button, qa_wait,
     qa_wait_for_idle, qa_poll_until, qa_wait_until, qa_run_sequence,
+    key_hold as qa_key_hold,
+    play_macro as qa_play_macro,
+    mouse_drag as qa_mouse_drag,
+    right_click as qa_right_click,
+    double_click as qa_double_click,
+    scroll as qa_scroll,
+    key_combo as qa_key_combo,
     kill_game as qa_kill_game,
     qa_create_bug_task, qa_requeue_self,
     get_game_state as qa_get_game_state,
@@ -373,7 +381,7 @@ def execute_tool(tool_call: dict) -> dict:
 # Handlers are module-level functions taking (args, workspace, project).
 # Availability (task_types, godot_only) is declared on the ToolSpec.
 
-_QA_TYPES = {"qa", "art_pass", "hybrid_qa"}
+_QA_TYPES = {"qa", "art_pass", "hybrid_qa", "polish"}
 _HARNESS_TYPES = {"harness_qa", "hybrid_qa"}
 
 
@@ -462,16 +470,24 @@ def _populate_registry():
     _reg("focus_game",      lambda a, ws, p: qa_focus_game(),                                            task_types=_QA_TYPES)
     _reg("position_window", lambda a, ws, p: qa_position_window(),                                       task_types=_QA_TYPES)
     _reg("get_window_bounds",lambda a, ws, p: qa_get_window_bounds(a.get("process_name", "Godot_4")),    task_types=_QA_TYPES)
-    _reg("take_screenshot", lambda a, ws, p: qa_take_screenshot(a.get("filename", "/tmp/qa_screenshot.png")), task_types=_QA_TYPES)
-    _reg("click_at",        lambda a, ws, p: qa_click_at(a.get("x", 0), a.get("y", 0)),                  task_types=_QA_TYPES)
-    _reg("click_element",   lambda a, ws, p: qa_click_element(a.get("image_path", ""), a.get("element_description", "")), task_types=_QA_TYPES)
-    _reg("key_press",       lambda a, ws, p: qa_key_press(a.get("key", "")),                             task_types=_QA_TYPES)
-    _reg("press_button",    lambda a, ws, p: qa_press_button(a.get("text", "")),                          task_types=_QA_TYPES)
-    _reg("vision_query",    lambda a, ws, p: qa_vision_query(a.get("image_path", ""), a.get("question", ""), a.get("model", "fast")), task_types=_QA_TYPES)
-    _reg("wait_for_idle",   lambda a, ws, p: qa_wait_for_idle(a.get("timeout", 10.0), a.get("interval", 0.5)), task_types=_QA_TYPES)
-    _reg("poll_until",      lambda a, ws, p: qa_poll_until(a.get("condition_key", ""), a.get("condition_value"), a.get("timeout", 10.0), a.get("interval", 0.1), a.get("negate", False)), task_types=_QA_TYPES)
-    _reg("wait_until",      lambda a, ws, p: qa_wait_until(a.get("state_key", ""), a.get("target_value"), a.get("timeout", 10.0), a.get("interval", 0.1)), task_types=_QA_TYPES)
-    _reg("run_sequence",    lambda a, ws, p: qa_run_sequence(a.get("actions", [])),                       task_types=_QA_TYPES)
+    _reg("take_screenshot",   lambda a, ws, p: qa_take_screenshot(a.get("filename", "/tmp/qa_screenshot.png")), task_types=_QA_TYPES)
+    _reg("screenshot_burst",  lambda a, ws, p: qa_screenshot_burst(a.get("filename_prefix", "burst"), a.get("count", 4), a.get("interval", 0.25)), task_types=_QA_TYPES)
+    _reg("click_at",          lambda a, ws, p: qa_click_at(a.get("x", 0), a.get("y", 0)),                  task_types=_QA_TYPES)
+    _reg("click_element",     lambda a, ws, p: qa_click_element(a.get("image_path", ""), a.get("element_description", "")), task_types=_QA_TYPES)
+    _reg("key_press",         lambda a, ws, p: qa_key_press(a.get("key", "")),                             task_types=_QA_TYPES)
+    _reg("key_hold",          lambda a, ws, p: qa_key_hold(a.get("key", ""), a.get("duration", 1.0)),      task_types=_QA_TYPES)
+    _reg("key_combo",         lambda a, ws, p: qa_key_combo(a.get("keys", [])),                            task_types=_QA_TYPES)
+    _reg("play_macro",        lambda a, ws, p: qa_play_macro(a.get("actions", [])),                        task_types=_QA_TYPES)
+    _reg("mouse_drag",        lambda a, ws, p: qa_mouse_drag(a.get("x1", 0), a.get("y1", 0), a.get("x2", 0), a.get("y2", 0), a.get("duration", 0.3)), task_types=_QA_TYPES)
+    _reg("right_click",       lambda a, ws, p: qa_right_click(a.get("x", 0), a.get("y", 0)),              task_types=_QA_TYPES)
+    _reg("double_click",      lambda a, ws, p: qa_double_click(a.get("x", 0), a.get("y", 0)),             task_types=_QA_TYPES)
+    _reg("scroll",            lambda a, ws, p: qa_scroll(a.get("x", 0), a.get("y", 0), a.get("delta", 3.0)), task_types=_QA_TYPES)
+    _reg("press_button",      lambda a, ws, p: qa_press_button(a.get("text", "")),                         task_types=_QA_TYPES)
+    _reg("vision_query",      lambda a, ws, p: qa_vision_query(a.get("image_path", ""), a.get("question", ""), a.get("model", "fast")), task_types=_QA_TYPES)
+    _reg("wait_for_idle",     lambda a, ws, p: qa_wait_for_idle(a.get("timeout", 10.0), a.get("interval", 0.5)), task_types=_QA_TYPES)
+    _reg("poll_until",        lambda a, ws, p: qa_poll_until(a.get("condition_key", ""), a.get("condition_value"), a.get("timeout", 10.0), a.get("interval", 0.1), a.get("negate", False)), task_types=_QA_TYPES)
+    _reg("wait_until",        lambda a, ws, p: qa_wait_until(a.get("state_key", ""), a.get("target_value"), a.get("timeout", 10.0), a.get("interval", 0.1)), task_types=_QA_TYPES)
+    _reg("run_sequence",      lambda a, ws, p: qa_run_sequence(a.get("actions", [])),                      task_types=_QA_TYPES)
     _reg("create_bug_task", lambda a, ws, p: qa_create_bug_task(a.get("description", ""), a.get("evidence_path", ""), a.get("priority", 80), a.get("dependencies", None)), task_types=_QA_TYPES)
     _reg("requeue_self",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                  task_types=_QA_TYPES)
 
