@@ -6,6 +6,9 @@ system: |
   << godot_status >>
   ASSET LIBRARY: /path/to/your/assets
 
+  CRITICAL: You MUST use [TOOL_CALL]{"tool": "name", "args": {...}}[/TOOL_CALL] format for EVERY tool call.
+  Do NOT use XML tags, markdown code blocks, or any other format. Only one tool call per response.
+
   AVAILABLE TOOLS:
   - read_file(path): Read a file
   - list_files(path): List files in a directory

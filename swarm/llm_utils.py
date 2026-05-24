@@ -170,20 +170,45 @@ def parse_tool_calls(text: str) -> list:
             tool_calls.append(parsed)
         pos = end + len("[/TOOL_CALL]")
 
-    # <tool_call>...</tool_call>
+    # <tool_call>...</tool_call>  OR  <minimax:tool_call>...</minimax:tool_call>
     pos = 0
-    while True:
-        start = text.find("<tool_call>", pos)
-        if start == -1:
-            break
-        start += len("<tool_call>")
-        end = text.find("</tool_call>", start)
-        if end == -1:
-            break
-        parsed = _try_parse(text[start:end].strip())
-        if parsed:
-            tool_calls.append(parsed)
-        pos = end + len("</tool_call>")
+    for open_tag, close_tag in [("<tool_call>", "</tool_call>"), ("<minimax:tool_call>", "</minimax:tool_call>")]:
+        pos = 0
+        while True:
+            start = text.find(open_tag, pos)
+            if start == -1:
+                break
+            start += len(open_tag)
+            end = text.find(close_tag, start)
+            if end == -1:
+                break
+            block = text[start:end].strip()
+            # Try JSON parse first
+            parsed = _try_parse(block)
+            if parsed:
+                tool_calls.append(parsed)
+            else:
+                # MiniMax native format: funcName(key="val", ...) lines separated by "- "
+                import re as _re_mm
+                for line in _re_mm.split(r'\n-\s+|\n', block):
+                    line = line.strip().lstrip('- ').strip()
+                    if not line:
+                        continue
+                    m = _re_mm.match(r'(\w+)\((.*)\)$', line, _re_mm.DOTALL)
+                    if not m:
+                        continue
+                    tool_name = m.group(1)
+                    args_str = m.group(2).strip()
+                    args = {}
+                    # Parse key=value or key="value" pairs
+                    for kv in _re_mm.finditer(r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|\S+)', args_str):
+                        k, v = kv.group(1), kv.group(2)
+                        try:
+                            args[k] = json.loads(v)
+                        except Exception:
+                            args[k] = v.strip('"')
+                    tool_calls.append({"tool": tool_name, "args": args})
+            pos = end + len(close_tag)
 
     # <tool name="...">...</tool> (Minimax XML fallback)
     import re as _re

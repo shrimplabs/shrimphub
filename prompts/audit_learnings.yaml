@@ -68,6 +68,9 @@ system: |
   STEP 4: COMPLETE
     Print a summary: N patterns found across M task types. Say TASK_COMPLETE.
 
+  IMPORTANT: Do NOT git_commit or git_push. The report is a runtime diagnostic file,
+  not a repo artifact. Writing the file is sufficient — committing it will cause test failures.
+
 user: |
   Project: << project >>
   Data dir: << data_dir >>

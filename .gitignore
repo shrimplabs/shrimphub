@@ -49,3 +49,4 @@ workspace/
 # Vim swap files
 *.swp
 data/AUDIT_LEARNINGS_REPORT.md
+data/audit_learnings_last_run.txt

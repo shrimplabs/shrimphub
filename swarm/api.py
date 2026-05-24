@@ -371,7 +371,12 @@ def create_app(
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
     _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
-    _audit_learnings_last_run = [0.0]    # timestamp of last audit_learnings spawn
+    # Persist last run time across restarts via a small state file
+    _audit_learnings_state_file = data_dir / "audit_learnings_last_run.txt"
+    try:
+        _audit_learnings_last_run = [float(_audit_learnings_state_file.read_text().strip())]
+    except Exception:
+        _audit_learnings_last_run = [0.0]
 
     def _is_transient_monitor_db_error(exc: Exception) -> bool:
         """Tests and startup can swap DBs while an old daemon monitor is winding down."""
@@ -606,6 +611,10 @@ def create_app(
                                 "max_attempts": 2,
                             })
                             _audit_learnings_last_run[0] = time.time()
+                            try:
+                                _audit_learnings_state_file.write_text(str(_audit_learnings_last_run[0]))
+                            except Exception:
+                                pass
                             print(f"[Monitor] Spawned daily audit_learnings task {_al_id}")
                     except Exception as _ale:
                         print(f"[Monitor] Daily audit_learnings spawn error: {_ale}")
