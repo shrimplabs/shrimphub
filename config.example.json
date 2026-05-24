@@ -1,11 +1,33 @@
 {
   "workspace": "~/workspace",
-  "max_lines": 5000,
   "max_active_agents": 3,
+  "max_lines": 5000,
   "agent_timeout": 7200,
+  "llm_provider": "minimax",
+  "llm_providers": {
+    "minimax": {
+      "base_url": "https://api.minimax.io/anthropic/v1",
+      "model": "MiniMax-M2.7"
+    },
+    "claude": {
+      "model": "claude-sonnet-4-6"
+    },
+    "openrouter": {
+      "model": "anthropic/claude-3.5-sonnet"
+    }
+  },
   "godot_path": "",
-  "minimax_base_url": "https://api.minimax.io/anthropic/v1",
   "managed_projects": [],
   "paused_projects": [],
-  "disable_remote_repo": true
+  "lock_project": false,
+  "task_selection_strategy": "refactor_first",
+  "qa_max_cycles": 3,
+  "thinking_task_types": [],
+  "thinking_task_budget": 10000,
+  "vision_provider": "minimax-mcp",
+  "fallback_providers": [],
+  "disable_remote_repo": true,
+  "login_required": false,
+  "meta_investigation": true,
+  "auto_replan_projects": []
 }

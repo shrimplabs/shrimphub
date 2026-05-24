@@ -88,13 +88,12 @@ On Windows, prefer the `_console.exe` binary for controller automation and headl
 - [Controller Delegation Model](docs/controller_delegation_model.md) — contract for helper delegation, child-task delegation, file-scope safety, and parent lifecycle semantics
 - [Legacy Project Migration Guide](docs/legacy_project_migration_guide.md) — step-by-step process for normalizing older projects whose historical/live state predates current controller invariants
 - [Optional RAG Integration](docs/rag.md) — configuration notes for the opt-in documentation retrieval tool
-- [Agent-Ops Helper Docs](docs/agent-ops/SKILLS.md) — optional AI-agent operation recipes, separate from normal user-facing setup
-- [Open-Source Checklist](docs/open_source_checklist.md) — concrete pre-release OSS work items and doc-audit targets
+- [Open-Source Checklist](docs/open_source_checklist.md) — pre-release OSS work items and doc-audit targets
 - [Release Checklist](docs/release_checklist.md) — pre-publish source hygiene and validation checklist
 
 ## Configuration
 
-Create `config.json` in the project root (gitignored). All fields are optional.
+Create `config.json` in the project root (gitignored). All fields are optional. `config.example.json` contains the full list of supported options with inline comments.
 
 ```json
 {
@@ -102,13 +101,8 @@ Create `config.json` in the project root (gitignored). All fields are optional.
   "managed_projects": ["project-a", "project-b"],
   "paused_projects": [],
   "max_active_agents": 3,
-  "max_lines": 5000,
-  "lock_project": false,
-  "agent_timeout": 7200,
-  "quota_limit_percent": 90,
   "llm_provider": "minimax",
-  "task_selection_strategy": "priority",
-  "mcp_servers": {}
+  "task_selection_strategy": "priority"
 }
 ```
 
@@ -123,15 +117,13 @@ Create `config.json` in the project root (gitignored). All fields are optional.
 | `agent_timeout` | `7200` | Wall-clock seconds before an agent is considered hung (safety net — the loop limit in agent_runtime is the primary governor) |
 | `quota_limit_percent` | `90` | Stop spawning when API quota exceeds this % |
 | `llm_provider` | `"minimax"` | Active LLM provider (see below) |
-| `task_selection_strategy` | `"priority"` | How to pick the next task |
+| `task_selection_strategy` | `"refactor_first"` | How to pick the next task |
 | `qa_max_cycles` | `3` | Max times a QA agent may requeue itself before writing a final report and stopping |
+| `login_required` | `false` | Set `true` to enable session authentication |
+| `disable_remote_repo` | `true` | Set `false` to enable Gitea repo provisioning in the project wizard |
+| `meta_investigation` | `true` | Fire an out-of-band LLM investigator when the same error repeats 3+ times |
 
 > **Note:** `managed_projects` and other settings can be updated live via `POST /api/managed-projects` without restarting the server. Changes persist to `config.json` automatically.
->
-> **Optional remote repo provisioning:** the controller can create/push new project
-> repos if you configure `gitea_host`, `gitea_org`, `gitea_user`, and
-> `gitea_pass`, but these are not required for local use and are omitted from
-> the default example config on purpose.
 
 ## Security
 
@@ -210,12 +202,19 @@ POST to `/api/provider`:
 
 ## Task Types
 
-| Type | Priority | Description |
-|------|----------|-------------|
+| Type | Default Priority | Description |
+|------|-----------------|-------------|
 | `refactor` | 100 | Split oversized files to under `max_lines` |
 | `bug` | 80 | Find and fix bugs |
+| `qa` | 75 | Vision-capable QA agent: launch game, screenshot, verify |
+| `harness_qa` | 75 | Deterministic checkpoint QA using `TestHarness` |
 | `feature` | 50 | Implement new features |
 | `polish` | 50 | Improve existing UI/code |
+| `art_pass` | 50 | Replace placeholder assets, improve visuals |
+| `research` | 50 | Read-only investigation, produces findings in task history |
+| `plan` | 50 | Read-only planner — write-blocked; creates tasks as its deliverable |
+| `project_plan` | 50 | Godot sprint planner — reads GAME_DESIGN.md, creates a full DAG |
+| `audit` | 50 | Code quality audit across a project |
 
 ### Task format
 
