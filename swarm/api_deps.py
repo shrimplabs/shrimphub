@@ -9,6 +9,7 @@ from swarm.maintenance import file_locks as file_lock_cleanup
 from swarm.maintenance.project_heads import get_project_head
 from swarm.task_mutations import cancel_task_with_metadata, replace_task_dependencies
 from swarm.integrity import is_valid_project_head
+from swarm.orchestrator import _is_expansion_blocked
 
 
 def _dot_quote(value: str) -> str:
@@ -450,6 +451,68 @@ def _audit_findings(db, active_tasks, completed_ids, project=None, project_regis
                 "dead_dependencies": dead,
             })
 
+    # Detect expansion-gated repair deadlock: a stalled/frozen project has pending
+    # bug/closure-repair tasks whose dep chain passes through an expansion-blocked
+    # feature task, so the repairs that would clear the stall can never run.
+    repair_path_blocked = []
+    if project_registry is not None:
+        proj_rows = {}
+        for p in {t.get("project") for t in all_active if t.get("project")}:
+            proj_obj = project_registry.get(p)
+            if proj_obj is None:
+                continue
+            # project_registry.get() may return a Project dataclass or a dict
+            proj_rows[p] = proj_obj.to_dict() if hasattr(proj_obj, "to_dict") else proj_obj
+    else:
+        proj_rows = {}
+    if proj_rows:
+        tasks_by_project: dict = {}
+        for t in all_active:
+            tasks_by_project.setdefault(t.get("project") or "", []).append(t)
+
+        for proj_name, proj_row in proj_rows.items():
+            closure_status = (proj_row.get("closure_status") or "").strip().lower()
+            if closure_status not in {"frozen", "stalled"}:
+                continue
+            open_regressions = int(proj_row.get("open_regression_count") or 0)
+            if open_regressions == 0:
+                continue
+
+            proj_tasks = tasks_by_project.get(proj_name, [])
+            proj_by_id = {t["id"]: t for t in proj_tasks}
+
+            # Find pending repair tasks (bug type or closure_repair metadata, not already runnable)
+            repair_candidates = [
+                t for t in proj_tasks
+                if t.get("status") == "pending"
+                and (
+                    (t.get("type") or "").lower() == "bug"
+                    or (t.get("metadata") or {}).get("is_closure_repair_task")
+                )
+            ]
+
+            for repair_task in repair_candidates:
+                # Walk deps one level — if any direct dep is expansion-blocked, flag it
+                blocking_via = []
+                for dep_id in _norm_deps(repair_task.get("dependencies")):
+                    dep = proj_by_id.get(dep_id)
+                    if dep is None:
+                        continue
+                    if dep.get("status") != "pending":
+                        continue
+                    if _is_expansion_blocked(dep, proj_rows):
+                        blocking_via.append(dep_id)
+                if blocking_via:
+                    repair_path_blocked.append({
+                        "project": proj_name,
+                        "repair_task_id": repair_task["id"],
+                        "blocked_by_expansion_gated": blocking_via,
+                        "suggestion": (
+                            f"Remove dep on expansion-blocked task(s) so repair can run: "
+                            f"DELETE /api/tasks/{repair_task['id']}/dependencies/<dep_id>"
+                        ),
+                    })
+
     return {
         "stale_heads": stale_heads,
         "stale_plans": stale_plans,
@@ -458,6 +521,7 @@ def _audit_findings(db, active_tasks, completed_ids, project=None, project_regis
         "dead_blockers": dead_blockers,
         "recursive_recovery": recursive_recovery,
         "continuity_gaps": continuity_gaps,
+        "repair_path_blocked": repair_path_blocked,
     }
 
 
@@ -469,6 +533,7 @@ def _split_integrity_findings(findings):
         "dead_blockers": findings.get("dead_blockers", []),
         "recursive_recovery": findings.get("recursive_recovery", []),
         "continuity_gaps": findings.get("continuity_gaps", []),
+        "repair_path_blocked": findings.get("repair_path_blocked", []),
     }
     archival = {
         "stale_plans": findings.get("stale_plans", []),
