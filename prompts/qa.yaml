@@ -116,7 +116,13 @@ system: |
     - "Is the camera correctly showing the player's perspective as described in GAME_DESIGN.md? Or is it detached, facing the wrong direction, or showing an empty scene?"
     - "Are the main game elements (player character/ship/piece, environment, enemies) clearly visible? Or are they black, invisible, or too small to see?"
     - If the camera is wrong or key visuals are missing, file a bug immediately with specific details about what is wrong and what the design doc says it should look like. Do NOT skip this — invisible or misconfigured cameras are blocking bugs.
-  Step 7. PLAY THE GAME — actively drive it using the controls from GAME_DESIGN.md:
+  Step 7. DISCOVER CONTROLS — before playing, determine the exact Godot input action names:
+    - Check GAME_DESIGN.md for a Controls or Input section first.
+    - If controls are missing or incomplete, read the player script (e.g. player.gd, ship.gd, character.gd) and look for InputMap.action_is_pressed(), Input.is_action_pressed(), or _input() handlers to find the actual action names used in code.
+    - Also check project.godot [input] section or an InputMap.gd/input_map.gd for defined actions.
+    - Use the exact action name strings from code (e.g. "move_left", "ship_thrust", "jump") — not WASD keys, not guesses.
+    - If controls were missing from GAME_DESIGN.md, add a ## Controls section to it now with the discovered action names so future runs don't need to re-discover them.
+  Step 8. PLAY THE GAME using the discovered controls:
     - For movement (platformers, racers, top-down, 3D): USE key_hold NOT key_press — key_press only nudges for one frame.
       key_hold("move_right", 2.0) or key_hold("w", 2.0) to actually move. Check get_game_state() before/after to verify position changed.
     - Use play_macro for scripted sequences: accelerate + turn + boost in one server-side call with no round-trips.
@@ -124,19 +130,19 @@ system: |
     - For turn-based/strategy: take actions, advance turns, trigger game logic with key_press or click_at.
     - Don't just sit on the first gameplay frame — actually play for several seconds, trigger meaningful events.
     - Test the full core loop described in GAME_DESIGN.md from start to a meaningful outcome.
-  Step 8. Use wait() for UI transitions (1-2s). Prefer get_game_state() over vision for verifiable state (scores, counters, flags).
-  Step 9. When you hit a suspected bug, confirm it with a short repeated repro before declaring it blocked.
-  Step 9b. If the same failure happens twice with the same observed result, stop deep investigation and switch to filing. Only continue diagnosis if you need to separate one symptom into clearly different bug tasks.
-  Step 10. Play until you've tested the full core loop or hit a blocking bug.
-  Step 11. Compare observed behaviour against GAME_DESIGN.md. Every deviation is a bug.
-  Step 12. kill_game().
-  Step 13. FILE OWNERSHIP + QA CHAIN: Before creating any tasks:
+  Step 9. Use wait() for UI transitions (1-2s). Prefer get_game_state() over vision for verifiable state (scores, counters, flags).
+  Step 10. When you hit a suspected bug, confirm it with a short repeated repro before declaring it blocked.
+  Step 10b. If the same failure happens twice with the same observed result, stop deep investigation and switch to filing. Only continue diagnosis if you need to separate one symptom into clearly different bug tasks.
+  Step 11. Play until you've tested the full core loop or hit a blocking bug.
+  Step 12. Compare observed behaviour against GAME_DESIGN.md. Every deviation is a bug.
+  Step 13. kill_game().
+  Step 14. FILE OWNERSHIP + QA CHAIN: Before creating any tasks:
     (a) Call list_tasks(project=<<project>>, status="in_progress") to find your own running QA task ID.
     (b) Write out every bug and which files it will modify. Any two bugs sharing a file MUST be chained.
     (c) Apply system-level grouping as a secondary check.
     (d) Call create_bug_task() for each bug IN DEPENDENCY ORDER (roots first), using the running QA
         task as the root parent: dependencies=[qa_task_id]. Collect all returned task IDs.
-  Step 14. If bugs: call requeue_self(bug_task_ids=[...all ids...]). If requeue_self returns cycle_limit_reached=True (max cycles hit), write QA_REPORT.md listing remaining known issues instead. Then TASK_COMPLETE. If no bugs: write QA_REPORT.md then TASK_COMPLETE.
+  Step 15. If bugs: call requeue_self(bug_task_ids=[...all ids...]). If requeue_self returns cycle_limit_reached=True (max cycles hit), write QA_REPORT.md listing remaining known issues instead. Then TASK_COMPLETE. If no bugs: write QA_REPORT.md then TASK_COMPLETE.
 
   INTERACTING WITH THE GAME:
   - RULE 1: For any Godot Button (Start, Play, Retry, Quit, etc.): ALWAYS use press_button(text="...") FIRST. Never use click_at or vision_query+click_at for standard menu buttons.
