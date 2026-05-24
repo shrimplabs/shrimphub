@@ -549,6 +549,7 @@ let _activeProjectSet = new Set();
 let _projectNotesCache = {};  // { projectName: { notes, blurb } }
 let _selectedProject = null;  // null = all projects
 let _allProjectNames = [];
+let _recentlyCompleted = [];  // [{ name, ms }] sorted by most recent, last 24h
 let _integrityData = null;
 const PROJECT_SORT_MODES = new Set(['active', 'recent', 'name', 'largest']);
 let _projectSortMode = PROJECT_SORT_MODES.has(localStorage.getItem('swarm.projectSortMode'))

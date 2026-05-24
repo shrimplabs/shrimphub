@@ -256,12 +256,38 @@ function renderSidebar(projectNames, projectTaskCounts) {
         return `<div class="sidebar-section-label">${text}${extra}</div>`;
     }
 
+    // Recently completed: projects with agent completions in last 24h, not currently live
+    const liveSet = new Set(live);
+    const recentDone = (_recentlyCompleted || []).filter(r => !liveSet.has(r.name));
+
+    function timeAgo(ms) {
+        const diff = Date.now() - ms;
+        if (diff < 60000) return 'just now';
+        if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+        return Math.floor(diff / 3600000) + 'h ago';
+    }
+
+    function recentItem(r) {
+        const isSelected = _selectedProject === r.name;
+        const count = projectTaskCounts[r.name] || 0;
+        return `<div class="sidebar-item ${isSelected ? 'active' : ''}" data-project="${escapeHtml(r.name)}"
+                     onclick="selectSidebarProject('${escapeHtml(r.name).replace(/'/g, "\\'")}')">
+            <span class="sidebar-item-name">${escapeHtml(r.name)}</span>
+            <span style="font-size:10px;color:var(--text-faint);margin-left:auto;white-space:nowrap">${timeAgo(r.ms)}</span>
+            ${count > 0 ? `<span class="sidebar-item-count" style="margin-left:4px">${count}</span>` : ''}
+        </div>`;
+    }
+
     let html = `<div class="sidebar-item ${_selectedProject === null ? 'active' : ''}"
                      onclick="selectSidebarProject(null)">
         <span class="sidebar-item-name">All Projects</span>
         ${allCount > 0 ? `<span class="sidebar-item-count">${allCount}</span>` : ''}
     </div>`;
 
+    if (recentDone.length) {
+        html += sectionLabel('✓ Recently Done');
+        html += recentDone.map(r => recentItem(r)).join('');
+    }
     if (live.length) {
         html += sectionLabel('● Live');
         html += live.map(n => sidebarItem(n, projectTaskCounts[n] || 0)).join('');

@@ -246,6 +246,22 @@ async function loadData() {
         const visibleProjects = getVisibleProjectEntries(sortedProjects, activityMap);
         const sidebarProjectNames = sortedProjects.map(([name]) => name);
         _allProjectNames = sidebarProjectNames;
+
+        // Recently completed: projects with an agent completed in the last 24h,
+        // sorted by most recent completion, capped at 8, excluding currently live projects.
+        const recentCompletionMap = {};
+        for (const a of historyAgentsList) {
+            if (a.status !== 'completed' || !a.project || !a.completed_at) continue;
+            const ms = new Date(a.completed_at).getTime();
+            if (!Number.isFinite(ms) || ms <= 0) continue;
+            if (Date.now() - ms > 24 * 60 * 60 * 1000) continue;
+            recentCompletionMap[a.project] = Math.max(recentCompletionMap[a.project] || 0, ms);
+        }
+        const recentlyCompleted = Object.entries(recentCompletionMap)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([name, ms]) => ({ name, ms }));
+        _recentlyCompleted = recentlyCompleted;
         renderSidebar(sidebarProjectNames, _sidebarTaskCounts);
         applyProjectFilter();
         updateProjectSortControls(visibleProjects.length, sortedProjects.length);
