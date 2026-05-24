@@ -48,3 +48,4 @@ workspace/
 
 # Vim swap files
 *.swp
+data/AUDIT_LEARNINGS_REPORT.md
