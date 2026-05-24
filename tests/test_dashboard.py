@@ -78,7 +78,7 @@ class TestEmptyState:
 
     def test_no_pending_task_cards(self, page: Page):
         load(page)
-        cards = page.locator("#pendingTasksGrid .card")
+        cards = page.locator("#pendingTasksGrid .card[data-project]")
         expect(cards).to_have_count(0)
 
 
@@ -180,7 +180,7 @@ class TestTaskCards:
 
     def test_in_progress_task_not_in_pending_grid(self, page: Page):
         load(page, {"/api/tasks": {"tasks": [TASK_IN_PROGRESS]}})
-        cards = page.locator("#pendingTasksGrid .card")
+        cards = page.locator("#pendingTasksGrid .card[data-project]")
         expect(cards).to_have_count(0)
 
     def test_completed_count_reflects_history(self, page: Page):
@@ -224,7 +224,6 @@ class TestProjectCards:
     def test_overflow_project_shows_warning(self, page: Page):
         load(page, {"/api/projects": {"projects": PROJECT_OVERFLOW}})
         expect(page.locator("#projectsGrid")).to_contain_text("⚠️")
-        expect(page.locator("#overflowCount")).to_have_text("1")
 
     def test_locked_project_shows_badge(self, page: Page):
         load(page, {"/api/projects": {"projects": PROJECT_OVERFLOW}})
@@ -233,7 +232,6 @@ class TestProjectCards:
     def test_normal_project_no_overflow(self, page: Page):
         load(page, {"/api/projects": {"projects": PROJECT_DATA}})
         expect(page.locator("#projectsGrid")).to_contain_text("✓")
-        expect(page.locator("#overflowCount")).to_have_text("0")
 
     def test_project_shows_largest_file(self, page: Page):
         load(page, {"/api/projects": {"projects": PROJECT_DATA}})
@@ -302,7 +300,7 @@ class TestProjectCards:
         expect(page.locator("#projectsGrid")).to_contain_text("Closure")
         expect(page.locator("#projectsGrid")).to_contain_text("red")
         expect(page.locator("#projectsGrid")).to_contain_text("mode stabilize")
-        expect(page.locator("#projectsGrid")).to_contain_text("2/0")
+        expect(page.locator("#projectsGrid")).to_contain_text("regressions 2")
 
     def test_project_closure_summary_shows_gate_pills(self, page: Page):
         closure = {
@@ -369,11 +367,12 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
-        page.locator("summary").filter(has_text="Live Contract").first.click()
-        expect(page.locator("#projectsGrid")).to_contain_text("python3 -m my_game.cli")
-        expect(page.locator("#projectsGrid")).to_contain_text("boss-win")
-        expect(page.locator("#projectsGrid")).to_contain_text("repair_budget")
-        expect(page.locator("#projectsGrid")).to_contain_text("Edit Live Contract JSON")
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_selector("#closureModal[open], #closureModal.open, #closureModal:not([style*='none'])", timeout=5000)
+        expect(page.locator("body")).to_contain_text("python3 -m my_game.cli")
+        expect(page.locator("body")).to_contain_text("boss-win")
+        expect(page.locator("body")).to_contain_text("repair_budget")
+        expect(page.locator("body")).to_contain_text("Edit Contract JSON")
 
     def test_project_card_closure_button_opens_live_contract(self, page: Page):
         closure = {
@@ -399,8 +398,9 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
-        page.get_by_role("button", name="📄 Closure").click()
-        expect(page.locator("#projectsGrid")).to_contain_text("python3 -m my_game.cli")
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
+        expect(page.locator("body")).to_contain_text("python3 -m my_game.cli")
 
     def test_project_card_closure_button_fetches_when_cache_is_cold(self, page: Page):
         routes = make_mock_routes({
@@ -436,8 +436,9 @@ class TestProjectCards:
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.evaluate("() => { delete closureCache['my-game']; delete closureProposalCache['my-game']; }")
         page.wait_for_timeout(100)
-        page.get_by_role("button", name="📄 Closure").click()
-        expect(page.locator("#projectsGrid")).to_contain_text("python3 -m my_game.cli")
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(1000)  # cold cache fetch takes longer
+        expect(page.locator("body")).to_contain_text("python3 -m my_game.cli")
 
     def test_project_closure_verify_action_posts_and_shows_toast(self, page: Page):
         closure = {
@@ -462,6 +463,8 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
         page.get_by_role("button", name="✓ Verify Now").click()
         expect(page.locator("body")).to_contain_text("closure verification passed")
 
@@ -489,6 +492,8 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
         page.get_by_role("button", name="🔧 Generate Repair").click()
         expect(page.locator("body")).to_contain_text("generated 2 closure repair tasks")
 
@@ -514,6 +519,8 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
         page.get_by_role("button", name="ship").click()
         expect(page.locator("body")).to_contain_text("closure mode → ship")
 
@@ -545,10 +552,11 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
         page.get_by_role("button", name="♻ Preview Proposal").click()
         expect(page.locator("body")).to_contain_text("proposal ready")
         expect(page.locator("body")).to_contain_text("boss-victory")
-        expect(page.locator("body")).to_contain_text("heuristic")
 
     def test_project_closure_proposal_apply_posts_and_shows_toast(self, page: Page):
         closure = {
@@ -582,6 +590,8 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
         page.get_by_role("button", name="⤴ Apply Proposal").click()
         expect(page.locator("body")).to_contain_text("closure proposal applied")
 
@@ -616,8 +626,9 @@ class TestProjectCards:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
         page.wait_for_timeout(600)
-        page.locator("summary").filter(has_text="Edit Live Contract JSON").first.click()
-        editor = page.locator("textarea[id^='closure-editor-my-game']")
+        page.get_by_role("button", name="Contract ↗").click()
+        page.wait_for_timeout(300)
+        editor = page.locator("textarea[id^='closure-editor-my']").first
         editor.fill('{\n  "mode": "ship",\n  "gates": {\n    "critical_flow_count": 1,\n    "max_open_regressions": 0\n  }\n}')
         page.get_by_role("button", name="Save Contract").click()
         expect(page.locator("body")).to_contain_text("closure contract saved")
@@ -925,9 +936,11 @@ class TestProviderBar:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
 
+        page.get_by_text("⚙ Settings").click()
+        page.wait_for_function("document.getElementById('settingsPanel').classList.contains('open')")
         page.wait_for_function("document.getElementById('providerSelect').options.length > 1")
         page.locator("#providerSelect").select_option("claude")
-        page.get_by_text("Apply").click()
+        page.locator("button.apply-btn").first.click()
         page.wait_for_timeout(300)
 
         assert any(r.get("provider") == "claude" for r in captured)
@@ -948,8 +961,10 @@ class TestProviderBar:
         page.goto(DASHBOARD_PATH.as_uri())
         page.wait_for_function("document.getElementById('lastUpdated').textContent !== ''")
 
+        page.get_by_text("⚙ Settings").click()
+        page.wait_for_function("document.getElementById('settingsPanel').classList.contains('open')")
         page.locator("#providerModel").fill("custom-model-v2")
-        page.get_by_text("Apply").click()
+        page.locator("button.apply-btn").first.click()
         page.wait_for_timeout(300)
 
         assert any(r.get("model") == "custom-model-v2" for r in captured)

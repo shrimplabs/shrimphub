@@ -171,11 +171,13 @@ def setup_routes(page, routes: dict):
             if path in routes:
                 body = routes[path]
             else:
-                # Prefix match for sub-paths (e.g. /api/projects/my-game/health)
-                body = next(
-                    (v for k, v in routes.items() if path.startswith(k) and k != "/"),
-                    {"ok": True},
-                )
+                # Longest-prefix match for sub-paths (e.g. /api/projects/my-game/health
+                # must not match /api/projects before /api/projects/my-game/health)
+                candidates = [(k, v) for k, v in routes.items() if path.startswith(k) and k != "/"]
+                if candidates:
+                    body = max(candidates, key=lambda kv: len(kv[0]))[1]
+                else:
+                    body = {"ok": True}
 
             # For mutations default to a generic success body unless overridden
             if route.request.method in ("POST", "PUT", "DELETE") and path not in routes:
@@ -217,7 +219,7 @@ def page():
     """
     pw = sync_playwright().start()
     browser = pw.chromium.launch(headless=True)
-    context = browser.new_context()
+    context = browser.new_context(viewport={"width": 1280, "height": 1024})
     page = context.new_page()
 
     yield page
