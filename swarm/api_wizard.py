@@ -89,6 +89,15 @@ Write the document in this exact format:
 ## Overview
 [2-4 sentences describing the game, core loop, and what makes it fun]
 
+## Controls
+[List every player input and what it does. Be specific so QA and art agents know how to play.
+Example format:
+- Arrow keys / WASD — move player
+- Space — jump / confirm
+- Left click — shoot / interact
+- Escape — pause menu
+For non-game projects, replace this section with ## Usage and describe how to run and use the project.]
+
 ## Core Mechanics
 [Bullet list of the fundamental systems: movement, economy, combat, win/lose conditions, etc.]
 

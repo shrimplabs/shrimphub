@@ -31,6 +31,15 @@ system: |
   STEP 1: UNDERSTAND THE VISION
     Read GAME_DESIGN.md to understand what the finished game should look and feel like.
 
+    GAME_DESIGN.md MUST contain a "## Controls" section (for games) or "## Usage" section
+    (for non-game projects). If it is missing, ADD IT NOW before proceeding:
+    - For games: list every player input (keyboard keys, mouse actions) and what they do.
+      Example: "Arrow keys / WASD — move player", "Space — jump", "Click — shoot"
+    - For non-game projects: describe how to run, configure, and use the project.
+      Example: "Run: python main.py --input file.csv", "Config: edit config.json"
+    Use patch_file to add the section if absent. This is required so QA and art agents
+    know how to interact with the project during testing.
+
     Also check for CONFORMANCE_REPORT.md — if it exists, read it. It lists missing,
     partial, and diverged requirements from the previous sprint's design audit. Use it
     as your primary input for identifying what this sprint must address. MISSING and

@@ -19,6 +19,52 @@ async function runIntegrityRepair(kind, projectName = null) {
     if (window.SwarmDepsIntegrityUI) return window.SwarmDepsIntegrityUI.runIntegrityRepair(kind, projectName);
 }
 
+async function spawnArtSprint(event, name) {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '⏳ Queuing…';
+    try {
+        const res = await fetch(`${API}/api/tasks/batch`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                project: name,
+                chain_to_head: true,
+                tasks: [
+                    {
+                        type: 'art_pass',
+                        description: `Art pass for ${name}. Assess current visual state with a screenshot, find and integrate relevant assets to improve appearance. Focus on placeholder sprites, missing icons, UI elements that look unfinished.`,
+                        priority: 70
+                    },
+                    {
+                        type: 'polish',
+                        description: `Polish pass for ${name}. After art pass: check screen transitions, button feedback, menu flow, HUD clarity, audio cues, game feel. Take before/after screenshots for any visual change.`,
+                        priority: 70,
+                        depends_on: [0]
+                    },
+                    {
+                        type: 'qa',
+                        description: `QA pass for ${name}. After art and polish: launch the game, read GAME_DESIGN.md, test all critical flows, verify the game is playable end-to-end. File bug tasks for any deviations.`,
+                        priority: 75,
+                        depends_on: [1]
+                    }
+                ]
+            })
+        });
+        const data = await res.json();
+        if (data.created === 3) {
+            showToast(`🎨 Art sprint queued for <strong>${escapeHtml(name)}</strong> — art → polish → QA`, '#3fb950');
+        } else {
+            showToast(`Art sprint: ${escapeHtml(data.error || 'unexpected response')}`, '#f85149');
+        }
+    } catch(e) {
+        showToast('Network error queuing art sprint', '#f85149');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🎨 Art Sprint';
+    }
+}
+
 async function repairProject(event, name) {
     event.stopPropagation();
     const btn = event.target;
@@ -730,6 +776,10 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         style="background:transparent;color:#a371f7;border:1px solid #a371f7;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
         title="Spawn a project_plan agent to analyse the codebase and generate new tasks">🗺 Re-plan</button>`;
 
+    const artSprintBtn = `<button onclick="spawnArtSprint(event,'${escapeHtml(name)}')"
+        style="background:transparent;color:#f0883e;border:1px solid #f0883e;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
+        title="Queue an art pass → polish → QA chain for this project">🎨 Art Sprint</button>`;
+
     const isAutoReplan = _autoReplanProjects.has(name);
     const autoReplanBtn = `<button onclick="toggleAutoReplan(event,'${escapeHtml(name)}')"
         style="background:transparent;color:${isAutoReplan ? '#a371f7' : '#8b949e'};border:1px solid ${isAutoReplan ? '#a371f7' : '#30363d'};border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
@@ -757,6 +807,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     ${pauseBtn}
                     ${repairBtns}
                     ${replanBtn}
+                    ${artSprintBtn}
                     ${autoReplanBtn}
                     <span class="status ${data.status}" style="margin-left:4px">${data.status}</span>
                 </div>

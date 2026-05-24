@@ -312,7 +312,7 @@ def register_routes(app, task_source, db, workspace):
         data = request.json or {}
         task_list = data.get("tasks", [])
         chain = data.get("chain", False)
-        chain_to_head = data.get("chain_to_head", False)
+        chain_to_head = data.get("chain_to_head", True)
         default_project = data.get("project", "")
         if not isinstance(task_list, list) or not task_list:
             return jsonify({"error": "Expected {tasks: [...]}"}), 400
