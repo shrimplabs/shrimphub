@@ -508,6 +508,77 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                 "metadata": {"wizard_created": True, "project_head_id": head_id},
                 "created": datetime.now().isoformat(),
             })
+        # Inject mandatory sprint-close sequence: art_pass → qa → audit.
+        # Find leaf tasks (nothing depends on them) so the close chain runs after
+        # all planned work is done.
+        if project_type == "godot" and pending_batch:
+            all_ids = {t["id"] for t in pending_batch}
+            depended_on = {d for t in pending_batch for d in t["dependencies"]}
+            leaf_ids = sorted(all_ids - depended_on)  # tasks nobody depends on
+
+            now_hex = _uuid.uuid4().hex[:4]
+            art_id  = f"{project_name}-art-{now_hex}"
+            pol_id  = f"{project_name}-pol-{now_hex}"
+            qa_id   = f"{project_name}-qa-{now_hex}"
+            aud_id  = f"{project_name}-audit-{now_hex}"
+            has_harness = (project_path / "autoload" / "test_harness.gd").exists()
+            qa_type = "harness_qa" if has_harness else "qa"
+
+            pending_batch += [
+                {
+                    "id": art_id,
+                    "project": project_name,
+                    "type": "art_pass",
+                    "priority": 60,
+                    "description": "Art pass: ensure all game entities are visible on screen, sprites/textures are attached to core objects, main menu text is readable, and no placeholder ColorRect or empty Node2D remains. Fix any invisible or geometry-only elements per GAME_DESIGN.md.",
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "dependencies": leaf_ids,
+                    "metadata": {"wizard_created": True},
+                    "created": datetime.now().isoformat(),
+                },
+                {
+                    "id": pol_id,
+                    "project": project_name,
+                    "type": "polish",
+                    "priority": 60,
+                    "description": "UI/UX polish: ensure screen transitions are smooth, buttons give feedback, menu flow is navigable, HUD is readable, and game feel is responsive. Fix any remaining visual gaps encountered. Per GAME_DESIGN.md.",
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "dependencies": [art_id],
+                    "metadata": {"wizard_created": True},
+                    "created": datetime.now().isoformat(),
+                },
+                {
+                    "id": qa_id,
+                    "project": project_name,
+                    "type": qa_type,
+                    "priority": 75,
+                    "description": "Sprint gate QA: launch the game, verify CF-1 Boot and CF-2 Visual Presence flows from PROJECT_CLOSURE.md pass. Verify the core gameplay loop is functional. File bug tasks for any regressions found.",
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "dependencies": [pol_id],
+                    "metadata": {"wizard_created": True},
+                    "created": datetime.now().isoformat(),
+                },
+                {
+                    "id": aud_id,
+                    "project": project_name,
+                    "type": "audit",
+                    "priority": 70,
+                    "description": "Design conformance audit: compare the codebase against GAME_DESIGN.md, write CONFORMANCE_REPORT.md listing all missing/partial/diverged requirements, then spawn the next sprint planner.",
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "dependencies": [qa_id],
+                    "metadata": {"wizard_created": True},
+                    "created": datetime.now().isoformat(),
+                },
+            ]
+
         created = []
         for task in anchor_project_batch_roots(pending_batch, head_id):
             try:
@@ -538,7 +609,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
             return jsonify({"error": "Project creation validation failed", "details": validation_errors}), 400
 
         return jsonify({"project": project_name, "tasks_created": len(created),
-                        "task_ids": task_ids, "git_log": git_log, "gitea_url": gitea_url})
+                        "task_ids": [t["id"] for t in created], "git_log": git_log, "gitea_url": gitea_url})
 def _copy_tree(src: Path, dst: Path):
     if not src.exists():
         return

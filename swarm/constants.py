@@ -12,7 +12,6 @@ MAX_LINES: int = 5000
 AGENT_TIMEOUT: int = 7200
 QUOTA_LIMIT_PERCENT: float = 90.0
 QA_AUTO_THRESHOLD: int = 8
-AUDIT_AUTO_THRESHOLD: int = 20
 IGNORE_DIRS: set = {"addons", ".git", ".godot"}
 MINIMAX_BASE_URL: str = "https://api.minimax.io/anthropic/v1"
 LLM_PROVIDER: str = "minimax"

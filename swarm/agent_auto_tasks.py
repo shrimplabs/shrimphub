@@ -7,7 +7,6 @@ auto-spawn behaviours:
 1. auto_spawn_integration_task  -- wire newly added Godot systems into the game
 2. auto_handle_sprint_qa        -- mark sprint QA complete for auto-replan projects
 3. auto_spawn_qa_task           -- periodic QA trigger for non-sprint Godot projects
-4. auto_spawn_audit_task        -- periodic audit trigger for all project types
 
 Each function accepts the values it needs as arguments so it can be called
 from _finish_agent without the extracted module needing to hold global state.
@@ -163,8 +162,11 @@ def auto_spawn_qa_task(
     db = _db()
     qa_completion_counter[project] = qa_completion_counter.get(project, 0) + 1
     existing = db.task_get_by_project(project)
+    # Suppress if the full sprint-close sequence is already in the pipeline.
+    # Check QA specifically — if QA is queued, art_pass and polish must already be there too.
     has_qa = any(
-        t.get("type") in ("qa", "harness_qa", "hybrid_qa") and t.get("status") in ("pending", "in_progress")
+        t.get("type") in ("qa", "harness_qa", "hybrid_qa")
+        and t.get("status") in ("pending", "in_progress", "failed")
         for t in existing
     )
     open_nonqa = [
@@ -185,24 +187,72 @@ def auto_spawn_qa_task(
     tc = _task_chains()
     has_harness = (project_path / "autoload" / "test_harness.gd").exists()
     qa_type = "harness_qa" if has_harness else "qa"
-    qa_id = f"qa-auto-{project}-{int(time.time())}"
+    now = int(time.time())
     qa_reason = (
         f"after {qa_auto_threshold} completions"
         if threshold_due else
         "because the Godot project queue is empty"
     )
+
+    # If no art_pass is already queued, insert one before the polish + QA tasks.
+    # Art pass must always precede polish and QA so visual gaps are fixed first.
+    has_art_pass = any(
+        t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress")
+        for t in existing
+    )
+    has_polish = any(
+        t.get("type") == "polish" and t.get("status") in ("pending", "in_progress")
+        for t in existing
+    )
+    upstream_id = task_id  # chain builds: triggering task → art_pass → polish → qa
+    if not has_art_pass:
+        art_id = f"art-auto-{project}-{now}"
+        art_deps = tc.append_project_head(
+            db, project, [task_id], task_id=art_id, ensure_head=True
+        )
+        db.task_upsert({
+            "id": art_id,
+            "project": project,
+            "type": "art_pass",
+            "description": f"Auto art pass: ensure game entities are visible on screen, sprites/textures are attached, and no placeholder geometry remains before QA ({qa_reason})",
+            "priority": 60,
+            "status": "pending",
+            "dependencies": art_deps,
+            "metadata": {"auto_spawned": True},
+            "attempts": 0,
+            "max_attempts": 2,
+        })
+        upstream_id = art_id
+        print(f"[Swarm] Auto-spawned art_pass task {art_id} for {project} before QA")
+
+    if not has_polish:
+        pol_id = f"pol-auto-{project}-{now}"
+        pol_deps = tc.append_project_head(
+            db, project, [upstream_id], task_id=pol_id, ensure_head=True
+        )
+        db.task_upsert({
+            "id": pol_id,
+            "project": project,
+            "type": "polish",
+            "description": f"Auto UI/UX polish: ensure screen transitions, button feedback, menu flow, HUD clarity, and game feel are correct before QA ({qa_reason})",
+            "priority": 60,
+            "status": "pending",
+            "dependencies": pol_deps,
+            "metadata": {"auto_spawned": True},
+            "attempts": 0,
+            "max_attempts": 2,
+        })
+        upstream_id = pol_id
+        print(f"[Swarm] Auto-spawned polish task {pol_id} for {project} before QA")
+
+    qa_id = f"qa-auto-{project}-{now}"
     qa_desc = (
         f"Auto harness QA: run synchronous checkpoint tests against the game logic ({qa_reason})"
         if has_harness else
         f"Auto QA: playtest and verify core game loop is functional after recent changes ({qa_reason})"
     )
-    sprint_task_ids = [
-        t["id"] for t in existing
-        if t.get("status") in ("pending", "in_progress")
-        and t.get("type") not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager")
-    ]
     qa_deps = tc.append_project_head(
-        db, project, sprint_task_ids, task_id=qa_id, ensure_head=True
+        db, project, [upstream_id], task_id=qa_id, ensure_head=True
     )
     db.task_upsert({
         "id": qa_id,
@@ -219,56 +269,3 @@ def auto_spawn_qa_task(
     print(f"[Swarm] Auto-spawned {qa_type} task {qa_id} for {project} {qa_reason} (deps: {len(qa_deps)} task(s))")
 
 
-# ---------------------------------------------------------------------------
-# 4. Auto-audit
-# ---------------------------------------------------------------------------
-
-def auto_spawn_audit_task(
-    project: str,
-    task_id: str,
-    task_type_finished: str,
-    audit_completion_counter: dict,
-    audit_auto_threshold: int,
-    validation_failed: bool,
-    spawned_continuation: bool,
-    is_recovery_task: bool,
-) -> None:
-    """Increment audit counter and auto-spawn an audit task when the threshold is reached."""
-    _skip = {"qa", "harness_qa", "hybrid_qa", "audit", "manager", "project_create", "project_plan"}
-    if validation_failed or spawned_continuation or is_recovery_task:
-        return
-    if task_type_finished in _skip:
-        return
-
-    db = _db()
-    tc = _task_chains()
-    audit_completion_counter[project] = audit_completion_counter.get(project, 0) + 1
-    if audit_completion_counter[project] < audit_auto_threshold:
-        return
-
-    audit_completion_counter[project] = 0
-    existing = db.task_get_by_project(project)
-    has_audit = any(
-        t.get("type") == "audit" and t.get("status") in ("pending", "in_progress")
-        for t in existing
-    )
-    if has_audit:
-        return
-
-    audit_id = f"audit-auto-{project}-{int(time.time())}"
-    audit_deps = tc.append_project_head(
-        db, project, [task_id], task_id=audit_id, ensure_head=True
-    )
-    db.task_upsert({
-        "id": audit_id,
-        "project": project,
-        "type": "audit",
-        "description": "Auto audit: verify recently completed tasks are genuinely implemented in the repo",
-        "priority": 70,
-        "status": "pending",
-        "dependencies": audit_deps,
-        "metadata": {},
-        "attempts": 0,
-        "max_attempts": 2,
-    })
-    print(f"[Swarm] Auto-spawned audit task {audit_id} for {project} after {audit_auto_threshold} completions (deps: {len(audit_deps)})")

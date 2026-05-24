@@ -434,7 +434,6 @@ def _phase_post_completion_pipeline(
         auto_spawn_integration_task,
         auto_handle_sprint_qa,
         auto_spawn_qa_task,
-        auto_spawn_audit_task,
     )
 
     # Learnings extraction: fire-and-forget, doesn't block reaping.
@@ -538,16 +537,6 @@ def _phase_post_completion_pipeline(
         is_recovery_task=is_recovery_task,
     )
 
-    auto_spawn_audit_task(
-        project=project,
-        task_id=task_id,
-        task_type_finished=task_type_finished,
-        audit_completion_counter=al._audit_completion_counter,
-        audit_auto_threshold=al.AUDIT_AUTO_THRESHOLD,
-        validation_failed=validation_failed_after_completion,
-        spawned_continuation=spawned_continuation,
-        is_recovery_task=is_recovery_task,
-    )
 
 
 # ---------------------------------------------------------------------------

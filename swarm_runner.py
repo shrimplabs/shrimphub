@@ -899,27 +899,6 @@ def generate_task_script(task: dict) -> str:
     managed_projects_list = ", ".join(
         _config.get("managed_projects", [project])
     ) or project
-    manager_system, manager_user = _load_prompt(
-        "manager", managed_projects=managed_projects_list, workspace=str(WORKSPACE),
-        data_dir=str(DATA_DIR),
-    )
-
-    # ---- Project creator prompt ----
-    _gut_source = _config.get("gut_source", str(Path(__file__).parent / "templates" / "godot" / "addons" / "gut"))
-    _autoload_source = str(Path(__file__).parent / "templates" / "godot" / "autoload")
-    project_create_system, project_create_user = _load_prompt(
-        "project_create",
-        description=description,
-        workspace=str(WORKSPACE),
-        gitea_host=_config.get("gitea_host", ""),
-        gitea_org=_config.get("gitea_org", ""),
-        gitea_user=_config.get("gitea_user", ""),
-        gitea_pass=_config.get("gitea_pass", ""),
-        gut_source=_gut_source,
-        autoload_source=_autoload_source,
-        icon_svg_source=_config.get("icon_svg_source", str(Path(__file__).parent / "templates" / "godot" / "icon.svg")),
-    )
-
     # ---- Harness QA prompts ----
     harness_qa_system, harness_qa_user = _load_prompt(
         "harness_qa",
@@ -1028,10 +1007,10 @@ rt.PYTHON_PLAN_SYSTEM       = {repr(python_plan_system)}
 rt.PYTHON_PLAN_USER         = {repr(python_plan_user)}
 rt.PLAN_SYSTEM              = {repr(plan_system)}
 rt.PLAN_USER                = {repr(plan_user)}
-rt.MANAGER_SYSTEM           = {repr(manager_system)}
-rt.MANAGER_USER             = {repr(manager_user)}
-rt.PROJECT_CREATE_SYSTEM    = {repr(project_create_system)}
-rt.PROJECT_CREATE_USER      = {repr(project_create_user)}
+rt.MANAGER_SYSTEM           = ""
+rt.MANAGER_USER             = ""
+rt.PROJECT_CREATE_SYSTEM    = ""
+rt.PROJECT_CREATE_USER      = ""
 rt.QA_SYSTEM                = {repr(qa_system)}
 rt.QA_USER                  = {repr(qa_user)}
 rt.HYBRID_QA_SYSTEM         = {repr(hybrid_qa_system)}

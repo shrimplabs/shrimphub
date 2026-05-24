@@ -78,3 +78,41 @@ ARCH GOTCHA: never do `import swarm.tools.core as _core` inside a function in sw
 
 ### BROADCAST LOG:
 The broadcast log (git_log_read from orchestrator or _agent_broadcast) may not be accurate — always verify tool availability with a direct Python import test before trusting any broadcast claim about which module owns a function.
+
+---
+## Daily Audit Learnings Report (2026-05-24)
+
+Audit of 253 learning files across 67 projects — grouped by task type.
+Report at: `data/AUDIT_LEARNINGS_REPORT.md`
+
+### Top patterns by category:
+
+**BUG tasks (highest volume)**
+- Godot 4 API gotchas: `.has()` is Dictionary-only, `null > 0.0` always false, `get_viewport().set_input_as_handled()` only correct API
+- GUT signal tests: Use `.bind()` method callbacks, never lambdas
+- Lock conflict halt: Stop immediately on "locked by another task", don't retry
+- Three-stage validation: script parse → scene load → game launch catches issues before wasted loops
+
+**FEATURE tasks**
+- Scene nesting: 3-step pattern for adding child scenes (uid, ExtResource, node)
+- Private method workaround: thin public wrapper instead of making private public
+- `call_deferred` + `await get_tree().process_frame` for input/toggle test patterns
+
+**REFACTOR tasks (most failures)**
+- Missing re-exports after split are a silent import hang — always verify re-export blocks after module extraction
+- Ruff `--fix` silently breaks import chains — always run tests after `--fix`
+- `_shared.py` is the neutral hub for circular deps
+- `write_file` requires `broadcast_write()` first — use `run_command` heredoc for concurrent edits
+- Check `git remote get-url origin` before `git push` to avoid silent failures
+
+**AUDIT tasks**
+- Use targeted `grep` searches before scanning all files
+- `run_command` uses `command:` key (NOT `cmd:`)
+- Read `project.godot` early to get autoloads list
+
+### Highest-value patterns (loop-count reduction):
+1. Three-stage validation (script → scene → game launch)
+2. Lock conflict halt immediately
+3. `_shared.py` neutral hub eliminates circular import failures
+4. GUT `.bind()` pattern eliminates lambda-signal test failures
+5. Godot 4 API specificity (`null > 0.0`, `.has()`, `set_input_as_handled()`)

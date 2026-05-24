@@ -44,7 +44,6 @@ from swarm.agent_auto_tasks import (  # noqa: F401
     auto_spawn_integration_task,
     auto_handle_sprint_qa,
     auto_spawn_qa_task,
-    auto_spawn_audit_task,
 )
 from swarm.agent_finish import (  # noqa: F401
     _AgentLogSnapshot,
@@ -141,16 +140,14 @@ _handle_lock = threading.Lock()
 _finishing_agents: Set[str] = set()
 _finishing_lock = threading.Lock()
 
-# Auto-QA/Audit counters
+# Auto-QA counters
 _qa_completion_counter: Dict[str, int] = {}
 _projects_sprint_qa_done: Set[str] = set()
-_audit_completion_counter: Dict[str, int] = {}
 
 # Config constants (set from constants module)
 MAX_ACTIVE_AGENTS: int = 5
 AGENT_TIMEOUT: float = 0
 QA_AUTO_THRESHOLD: int = 10
-AUDIT_AUTO_THRESHOLD: int = 15
 
 
 def configure(
@@ -164,7 +161,6 @@ def configure(
     max_active_agents: int = 5,
     agent_timeout: float = 0,
     qa_auto_threshold: int = 10,
-    audit_auto_threshold: int = 15,
     project_registry=None,
     **_kwargs,
 ):
@@ -181,12 +177,11 @@ def configure(
         max_active_agents: Maximum number of concurrent agents.
         agent_timeout: Timeout in seconds for agent execution (0 = no timeout).
         qa_auto_threshold: Number of completed tasks before auto-spawning QA.
-        audit_auto_threshold: Number of completed tasks before auto-spawning audit.
         project_registry: Project registry instance for releasing file locks on agent exit.
     """
     global WORKSPACE, DATA_DIR, USE_WORKTREES, _configured
     global WEBHOOK_URL, AUTO_REPLAN_PROJECTS, PAUSED_PROJECTS, LOCK_PROJECT
-    global MAX_ACTIVE_AGENTS, AGENT_TIMEOUT, QA_AUTO_THRESHOLD, AUDIT_AUTO_THRESHOLD
+    global MAX_ACTIVE_AGENTS, AGENT_TIMEOUT, QA_AUTO_THRESHOLD
     global _project_registry
 
     WORKSPACE = workspace
@@ -200,7 +195,6 @@ def configure(
     MAX_ACTIVE_AGENTS = max_active_agents
     AGENT_TIMEOUT = agent_timeout
     QA_AUTO_THRESHOLD = qa_auto_threshold
-    AUDIT_AUTO_THRESHOLD = audit_auto_threshold
     if project_registry is not None:
         _project_registry = project_registry
 

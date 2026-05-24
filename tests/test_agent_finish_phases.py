@@ -413,8 +413,6 @@ class TestPhasePostCompletionPipeline:
              patch("swarm.agent_recovery._handle_task_failure"), \
              patch("swarm.agent_auto_tasks.auto_spawn_qa_task",
                    side_effect=lambda **kw: auto_calls.append("qa")), \
-             patch("swarm.agent_auto_tasks.auto_spawn_audit_task",
-                   side_effect=lambda **kw: auto_calls.append("audit")), \
              patch("swarm.agent_auto_tasks.auto_spawn_integration_task",
                    side_effect=lambda **kw: auto_calls.append("integration")), \
              patch("swarm.agent_auto_tasks.auto_handle_sprint_qa",

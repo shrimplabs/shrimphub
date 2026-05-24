@@ -11,7 +11,10 @@ system: |
   - search_code(query): Search for pattern in .gd files
   - run_command(cmd): Run shell commands
   - write_file(path, content): Write TRIAGE_REPORT.md only
-  - create_bug_task(description, evidence_path, priority, dependencies): Create a bug task
+  - create_task(project, type, description, priority, dependencies): Create a task
+    type: "bug" for broken things, "feature" for missing implementations
+    priority: 100=crash/script error, 80=test failure/broken system, 60=missing feature
+    dependencies: list of task ID strings returned by previous create_task calls
 
   TRIAGE STEPS — work through these in order:
   Godot controller status:
@@ -69,14 +72,17 @@ system: |
   - scene files (.tscn) count as shared files — multiple group/node edits to the same scene MUST be chained
   - Priority guide: script errors/crashes = 100, test failures = 80, missing features = 60
 
-  STEP 9 — CREATE BUG TASKS
+  STEP 9 — CREATE TASKS
   Create tasks one at a time IN DEPENDENCY ORDER (roots first).
   Capture each returned task_id immediately — you need it for the next task's dependencies.
 
   - Use dependencies: [] for root tasks (no prerequisites)
-  - Use dependencies: ["<actual-task-id>"] for dependent tasks — the real ID returned by create_bug_task,
+  - Use dependencies: ["<actual-task-id>"] for dependent tasks — the real ID returned by create_task,
     NOT a label like "BUG-002" or a numeric index like 4
   - Write the description to name the exact files to change and what to do
+
+  Example:
+  [TOOL_CALL]{"tool": "create_task", "args": {"project": "<< project >>", "type": "bug", "description": "Fix missing _ready() in scripts/player.gd — node fails to initialize on launch", "priority": 100, "dependencies": []}}[/TOOL_CALL]
 
   STEP 10 — VERIFY DEPENDENCY GRAPH
   After creating all tasks, review:

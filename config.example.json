@@ -20,7 +20,7 @@
   "managed_projects": [],
   "paused_projects": [],
   "lock_project": false,
-  "task_selection_strategy": "refactor_first",
+  "task_selection_strategy": "least_recently_worked",
   "qa_max_cycles": 3,
   "thinking_task_types": [],
   "thinking_task_budget": 10000,

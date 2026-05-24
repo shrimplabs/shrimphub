@@ -371,6 +371,7 @@ def create_app(
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
     _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
+    _audit_learnings_last_run = [0.0]    # timestamp of last audit_learnings spawn
 
     def _is_transient_monitor_db_error(exc: Exception) -> bool:
         """Tests and startup can swap DBs while an old daemon monitor is winding down."""
@@ -573,6 +574,42 @@ def create_app(
                                     print(f"[Auto] Spawned project_plan task {_plan_id} for {_proj} (chained after project head)")
                             except Exception as _e:
                                 print(f"[Auto] Error in auto-replan for {_proj}: {_e}")
+
+                # Daily audit_learnings: surface swarm health patterns across all projects.
+                # Runs at most once every 24 hours; writes AUDIT_LEARNINGS_REPORT.md.
+                _AUDIT_LEARNINGS_INTERVAL = 86400  # 24 hours
+                if time.time() - _audit_learnings_last_run[0] >= _AUDIT_LEARNINGS_INTERVAL:
+                    try:
+                        _al_pending = any(
+                            t.get("type") == "audit_learnings"
+                            and t.get("status") in ("pending", "in_progress")
+                            for t in db.task_get_by_status("pending") + db.task_get_by_status("in_progress")
+                        )
+                        if not _al_pending:
+                            _al_id = f"audit-learnings-{int(time.time())}"
+                            db.task_upsert({
+                                "id": _al_id,
+                                "project": "swarm-controller",
+                                "type": "audit_learnings",
+                                "description": (
+                                    "Daily swarm health audit: scan all learnings under data/learnings/ "
+                                    "across all projects and task types. Identify recurring patterns "
+                                    "grouped by task type (not cross-type, to avoid poisoning). "
+                                    "Write a diagnostic report to data/AUDIT_LEARNINGS_REPORT.md — "
+                                    "do NOT create tasks automatically."
+                                ),
+                                "priority": 50,
+                                "status": "pending",
+                                "dependencies": [],
+                                "metadata": {"auto_spawned": True},
+                                "attempts": 0,
+                                "max_attempts": 2,
+                            })
+                            _audit_learnings_last_run[0] = time.time()
+                            print(f"[Monitor] Spawned daily audit_learnings task {_al_id}")
+                    except Exception as _ale:
+                        print(f"[Monitor] Daily audit_learnings spawn error: {_ale}")
+
             except Exception as exc:
                 if _is_transient_monitor_db_error(exc):
                     time.sleep(0.25)

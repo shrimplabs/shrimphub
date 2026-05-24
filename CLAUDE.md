@@ -244,7 +244,7 @@ Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`.
 | `llm_provider` | `"minimax"` | Active provider |
 | `llm_providers` | `{}` | Per-provider overrides (model, base_url, etc.) |
 | `mcp_servers` | `{}` | MCP server definitions |
-| `task_selection_strategy` | `"refactor_first"` | Task picker |
+| `task_selection_strategy` | `"least_recently_worked"` | Task picker |
 | `auto_replan_projects` | `[]` | Projects that auto-spawn `project_plan` when task queue empties |
 | `qa_max_cycles` | `3` | Max times a QA agent may requeue itself before stopping |
 | `meta_investigation` | `true` | **EXPERIMENT** -- fires an out-of-band LLM investigator when the same error repeats 3+ times; injects a hint into the agent context. Set `false` to disable. |

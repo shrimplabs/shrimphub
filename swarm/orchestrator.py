@@ -38,7 +38,7 @@ from swarm.godot_bootstrap import GUT_VERSION
 from swarm.task_chains import chain_to_project_head
 from swarm.constants import (
     MAX_ACTIVE_AGENTS, MAX_LINES, AGENT_TIMEOUT, QUOTA_LIMIT_PERCENT,
-    QA_AUTO_THRESHOLD, AUDIT_AUTO_THRESHOLD, IGNORE_DIRS, IGNORE_EXTENSIONS,
+    QA_AUTO_THRESHOLD, IGNORE_DIRS, IGNORE_EXTENSIONS,
     MAX_TOOL_LOOPS, API_PORT, QA_MAX_CYCLES,
 )
 from swarm.integrity import can_task_accept_agent
@@ -58,7 +58,7 @@ IGNORE_EXTENSIONS: set = set()
 MANAGED_PROJECTS: list = []
 PAUSED_PROJECTS: list = []
 AUTO_REPLAN_PROJECTS: list = []  # projects that auto-get a project_plan when they run out of tasks
-TASK_SELECTION_STRATEGY: str = "priority"
+TASK_SELECTION_STRATEGY: str = "least_recently_worked"
 WEBHOOK_URL: str = ""
 LLM_PROVIDER: str = "minimax"
 MINIMAX_API_KEY: str = ""
@@ -89,9 +89,6 @@ _qa_completion_counter: Dict[str, int] = {}
 # Sprint cycle: tracks which auto_replan projects have completed QA since their last sprint.
 # Sprint flow: queue empty → QA → bugs fixed → queue empty → planner → next sprint
 _projects_sprint_qa_done: set = set()
-
-# Auto-audit: track completed tasks per project since last audit spawn
-_audit_completion_counter: Dict[str, int] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +290,6 @@ agent_lifecycle.configure(
     max_active_agents=MAX_ACTIVE_AGENTS,
     agent_timeout=AGENT_TIMEOUT,
     qa_auto_threshold=QA_AUTO_THRESHOLD,
-    audit_auto_threshold=AUDIT_AUTO_THRESHOLD,
 )
 
 def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[List[str], List[str]]:
