@@ -25,6 +25,8 @@ from swarm.task_chains import anchor_project_batch_roots, chain_to_project_head,
 
 
 
+from swarm.llm_utils import parse_tool_calls as _parse_tool_calls
+
 from swarm.api_wizard import (
     _append_project_design_phase,
     _bootstrap_godot_project_support,
@@ -308,6 +310,7 @@ _DEBUG_BLOCKED_COMMANDS = frozenset([
 _DEBUG_TOOLS_DESCRIPTION = """\
 You have access to the following tools. Call them using JSON blocks:
 [TOOL_CALL]{"tool": "...", "args": {...}}[/TOOL_CALL]
+IMPORTANT: The closing tag MUST include the forward slash: [/TOOL_CALL]. Never use [TOOL_CALL] as a closing tag.
 
 File/shell tools (paths relative to project root):
 - read_file(path) — read a file
@@ -575,21 +578,15 @@ def _run_debug_tool_loop(
 
     for _ in range(max_rounds):
         response_text = _chat_call_llm(system_prompt, messages, config)
-        # Parse tool calls
-        pattern = r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]'
-        raw_calls = _re.findall(pattern, response_text, _re.DOTALL)
-        if not raw_calls:
+        parsed_calls = _parse_tool_calls(response_text)
+        if not parsed_calls:
             return response_text, tool_calls_log
 
         # Execute each tool call and collect results
         tool_results = []
-        for raw in raw_calls:
-            try:
-                call = json.loads(raw.strip())
-                tool = call.get("tool", "")
-                args = call.get("args", {})
-            except json.JSONDecodeError:
-                tool, args = "unknown", {}
+        for call in parsed_calls:
+            tool = call.get("tool", "unknown")
+            args = call.get("args", {})
 
             result = _execute_debug_tool(tool, args, project_root, project=project, db=db)
             tool_calls_log.append({"tool": tool, "args": args, "result": result})
@@ -780,8 +777,13 @@ TOOL USAGE:
 {context}"""
 
 _UNIFIED_TOOLS_DESCRIPTION = """\
-You have access to the following tools. Call them using JSON blocks:
-[TOOL_CALL]{"tool": "...", "args": {...}}[/TOOL_CALL]
+You have access to the following tools. Call them using strict JSON blocks — args MUST be a JSON object with quoted keys and JSON values, never CLI flags:
+[TOOL_CALL]{"tool": "tool_name", "args": {"key": "value", "num": 50, "list": []}}[/TOOL_CALL]
+
+Example — create a QA task:
+[TOOL_CALL]{"tool": "create_task", "args": {"project": "my-project", "type": "qa", "description": "Run QA checks", "priority": 75, "dependencies": []}}[/TOOL_CALL]
+
+IMPORTANT: args must be a JSON object. Never use --flag style. The closing tag must be [/TOOL_CALL] with a forward slash.
 
 File/shell tools (paths relative to project root — only available in project scope):
 - read_file(path) — read a file
@@ -1155,21 +1157,16 @@ def _run_unified_tool_loop(
             break
 
         response_text = _chat_call_llm(system_prompt, messages, config)
-        pattern = r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]'
-        raw_calls = _re.findall(pattern, response_text, _re.DOTALL)
-        if not raw_calls:
+        parsed_calls = _parse_tool_calls(response_text)
+        if not parsed_calls:
             return response_text, tool_calls_log
 
         tool_results = []
-        for raw in raw_calls:
+        for call in parsed_calls:
             if stop_event and stop_event.is_set():
                 break
-            try:
-                call = json.loads(raw.strip())
-                tool = call.get("tool", "")
-                args = call.get("args", {})
-            except json.JSONDecodeError:
-                tool, args = "unknown", {}
+            tool = call.get("tool", "unknown")
+            args = call.get("args", {})
 
             result, _ = _execute_unified_tool(
                 tool, args, scope, workspace, data_dir, db, config

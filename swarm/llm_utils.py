@@ -121,8 +121,20 @@ def parse_tool_calls(text: str) -> list:
         # e.g. {"tool": "x", "args": {\n--command "echo hi"\n}}
         sanitized = _re2.sub(r'--(\w+)\s+"([^"]*)"', r'"\1": "\2"', sanitized)
         sanitized = _re2.sub(r"--(\w+)\s+'([^']*)'", r'"\1": "\2"', sanitized)
-        # Also handle --key value (unquoted) → "key": "value"
+        # Handle --key [...] (JSON array value, keep as-is)
+        sanitized = _re2.sub(r'--(\w+)\s+(\[.*?\])', r'"\1": \2', sanitized)
+        # Handle --key {...} (JSON object value, keep as-is)
+        sanitized = _re2.sub(r'--(\w+)\s+(\{.*?\})', r'"\1": \2', sanitized)
+        # Handle --key number → "key": number
+        sanitized = _re2.sub(r'--(\w+)\s+(\d+(?:\.\d+)?)\b', r'"\1": \2', sanitized)
+        # Handle --key true/false/null
+        sanitized = _re2.sub(r'--(\w+)\s+(true|false|null)\b', r'"\1": \2', sanitized)
+        # Handle remaining --key value (unquoted string) → "key": "value"
         sanitized = _re2.sub(r'--(\w+)\s+(\S+)', r'"\1": "\2"', sanitized)
+        # Fix missing commas between "key": value pairs on adjacent lines
+        sanitized = _re2.sub(r'(":\s*(?:"[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\}))\s*\n(\s*")', r'\1,\n\2', sanitized)
+        # Remove trailing commas before closing braces/brackets
+        sanitized = _re2.sub(r',(\s*[}\]])', r'\1', sanitized)
         for candidate in ([sanitized, json_str] if sanitized != json_str else [json_str]):
             try:
                 return json.loads(candidate)

@@ -1170,6 +1170,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             "input": total_input_tokens,
             "output": total_output_tokens,
             "total": total_input_tokens + total_output_tokens,
+            "loop_count": tool_loop_count,
         }
         token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
         token_file.write_text(json.dumps(token_data))

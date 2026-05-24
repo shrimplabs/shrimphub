@@ -68,6 +68,107 @@ _PLAN_SYSTEM = (
     "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
 )
 
+_GAME_DESIGN_SYSTEM = (
+    "You are a senior game designer writing structured design documents for autonomous AI agents. "
+    "You output ONLY valid markdown — no JSON, no explanation outside the markdown."
+)
+
+_GAME_DESIGN_PROMPT_TEMPLATE = """\
+Write a structured Game Design Document for the following Godot 4 game.
+
+Project name: {project_name}
+Concept: {description}
+
+The document will be used by autonomous AI agents to implement the game. Every user story must have \
+specific, testable acceptance criteria so an agent can verify completion without ambiguity.
+
+Write the document in this exact format:
+
+# {project_name} — Game Design Document
+
+## Overview
+[2-4 sentences describing the game, core loop, and what makes it fun]
+
+## Core Mechanics
+[Bullet list of the fundamental systems: movement, economy, combat, win/lose conditions, etc.]
+
+## Non-Goals
+[Bullet list of things explicitly OUT of scope for this build]
+
+## User Stories
+
+### US-001: [Title]
+[1-2 sentence description of the feature]
+
+**Acceptance Criteria:**
+- [Specific, testable criterion — what the agent can verify by running the game or tests]
+- [Another criterion]
+- [...]
+
+### US-002: [Title]
+[...]
+
+[Continue for all user stories — one per major system or feature]
+
+---
+
+Rules:
+- Write one user story per major system (board/grid, faction definitions, economy, spawning, combat, AI, win/lose, UI polish)
+- Each user story must have 4-7 acceptance criteria
+- Acceptance criteria must be specific and testable: "Left-click selects a unit and highlights it in yellow" not "unit selection works"
+- Non-goals must be concrete: "No multiplayer", "No sound effects", "No save/load"
+- Do not include implementation details (no GDScript, no file names)
+- Output ONLY the markdown document, nothing else
+
+Here are the planned tasks for reference (use these to inform the user stories):
+{task_list}
+"""
+
+_CLOSURE_SPEC_TEMPLATE = """\
+# {project_name} Closure Contract
+
+## Summary
+
+- source: wizard
+- profile: godot
+- mode: stabilize
+
+## Boot
+
+- command: `godot --headless --path . --quit`
+- ready_check.type: `command`
+- ready_check.command: `godot --headless --path . --quit`
+
+## Verification
+
+- unit_test_command: `godot --headless --path . --script res://addons/gut/gut_cmdln.gd -- -gdir=res://test -ginclude_subdirs -gexit`
+- smoke_checks:
+  - `boot` (command) -> `godot --headless --path . --quit`
+
+## Critical Flows
+
+{critical_flows}
+
+## Gates
+
+- boot_ok: `False`
+- tests_ok: `False`
+- critical_flow_count: `1`
+- max_open_regressions: `0`
+
+## Autonomy
+
+- repair_budget: `8`
+- stall_threshold: `3`
+- feature_freeze_on_red: `True`
+
+## Assumptions
+
+- GUT test framework installed at addons/gut/.
+- Headless Godot boot validation proves the project loads without immediate script errors.
+- Unit test command runs all tests under res://test/ recursively.
+"""
+
 _PLAN_PROMPT_TEMPLATE = """\
 Plan the full implementation of this project as a comprehensive, atomic list of tasks for autonomous AI agents.
 
@@ -328,13 +429,17 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
         if not tasks_in:
             return jsonify({"error": "at least one task required"}), 400
 
-        # Build a project notes artifact from notes + task titles and store it in project metadata.
-        task_titles = "\n".join(f"- {t.get('description','').split(chr(10))[0]}" for t in tasks_in)
-        notes_title = "Game Design" if project_type == "godot" else "Project Brief"
-        game_design_notes = f"# {project_name} — {notes_title}\n\n"
-        if notes:
-            game_design_notes += f"{notes}\n\n"
-        game_design_notes += f"## Planned Features\n{task_titles}\n"
+        # Build structured design doc and closure spec for Godot projects.
+        if project_type == "godot":
+            game_design_notes = _generate_game_design_doc(project_name, notes, tasks_in, config)
+            closure_spec = _generate_closure_spec(project_name, tasks_in)
+        else:
+            task_titles = "\n".join(f"- {t.get('description','').split(chr(10))[0]}" for t in tasks_in)
+            game_design_notes = f"# {project_name} — Project Brief\n\n"
+            if notes:
+                game_design_notes += f"{notes}\n\n"
+            game_design_notes += f"## Planned Features\n{task_titles}\n"
+            closure_spec = None
 
         workspace = Path(config.get("workspace", "."))
         project_path = workspace / project_name
@@ -345,6 +450,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                 project_type,
                 game_design_notes,
                 config,
+                closure_spec=closure_spec,
             )
         except Exception as e:
             return jsonify({"error": f"Project scaffold failed: {e}"}), 400
@@ -555,6 +661,41 @@ def _project_brief_filename(project_type: str) -> str:
     return "GAME_DESIGN.md"
 
 
+def _generate_game_design_doc(project_name: str, description: str, tasks: list, config: dict) -> str:
+    """Generate a structured GAME_DESIGN.md with user stories and acceptance criteria."""
+    task_list = "\n".join(
+        f"- {t.get('description', '').split(chr(10))[0]}" for t in tasks
+    )
+    prompt = _GAME_DESIGN_PROMPT_TEMPLATE.format(
+        project_name=project_name,
+        description=description,
+        task_list=task_list,
+    )
+    try:
+        return _llm_call(prompt, _GAME_DESIGN_SYSTEM, config).strip()
+    except Exception as e:
+        print(f"[Wizard] game design doc generation failed: {e}")
+        # Fallback to minimal doc
+        return f"# {project_name} — Game Design Document\n\n{description}\n\n## Planned Features\n{task_list}\n"
+
+
+def _generate_closure_spec(project_name: str, tasks: list) -> str:
+    """Generate a PROJECT_CLOSURE.md from the task list."""
+    # Pick the last 3 tasks (likely polish/integration) as critical flows
+    feature_tasks = [t for t in tasks if t.get("type") in ("feature", "polish")]
+    sample = feature_tasks[-3:] if len(feature_tasks) >= 3 else tasks[-3:]
+    flows = []
+    for i, t in enumerate(sample):
+        desc = t.get("description", "").split("\n")[0][:80]
+        tid = f"critical-flow-{i+1}"
+        flows.append(f"- `{tid}`: {desc}")
+    critical_flows = "\n".join(flows) if flows else "- `boot`: Project boots without errors"
+    return _CLOSURE_SPEC_TEMPLATE.format(
+        project_name=project_name,
+        critical_flows=critical_flows,
+    )
+
+
 def _python_project_chat_prompt(existing_projects: list[str]) -> str:
     return f"""You are a senior software project designer. Your job is to gather requirements through iterative questions, then produce a structured PRD that swarm agents will use to build a Python software project.
 
@@ -679,6 +820,11 @@ def _chat_call_llm(system_prompt, messages, config, fmt_override=None):
     except Exception:
         provider_name = config.get("llm_provider", "minimax")
         providers     = {}
+
+    # Allow a dedicated chat provider (defaults to main provider)
+    chat_provider_name = config.get("chat_provider", provider_name)
+    if chat_provider_name in providers:
+        provider_name = chat_provider_name
 
     provider = providers.get(provider_name, {})
     base_url    = provider.get("base_url", "https://api.minimax.io/anthropic/v1")
@@ -1163,7 +1309,7 @@ def _project_creation_validation_errors(project_path: Path, created_tasks, allow
     )
 
 
-def _scaffold_project_repo(project_name, project_path: Path, project_type: str, overview_text: str, config):
+def _scaffold_project_repo(project_name, project_path: Path, project_type: str, overview_text: str, config, closure_spec: str | None = None):
     project_type = _normalize_project_type(project_type)
     git_log = []
     gitea_host = config.get("gitea_host", "")
@@ -1221,8 +1367,15 @@ def _scaffold_project_repo(project_name, project_path: Path, project_type: str, 
         add_files.append("pyproject.toml")
     if overview_text:
         brief_file = _project_brief_filename(project_type)
-        (project_path / brief_file).write_text(f"# {project_name}\n\n{overview_text}\n")
+        # If the text already starts with a markdown heading, write as-is; otherwise wrap it.
+        if overview_text.startswith("#"):
+            (project_path / brief_file).write_text(overview_text + "\n")
+        else:
+            (project_path / brief_file).write_text(f"# {project_name}\n\n{overview_text}\n")
         add_files.append(brief_file)
+    if closure_spec:
+        (project_path / "PROJECT_CLOSURE.md").write_text(closure_spec)
+        add_files.append("PROJECT_CLOSURE.md")
     if project_type == "godot":
         add_files.extend(["addons", "autoload", "check_scripts.gd", "project.godot", "scenes", "scripts", "test"])
 

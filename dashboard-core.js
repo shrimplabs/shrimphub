@@ -12,18 +12,25 @@ function initTheme() {
 
 function applyTheme(theme) {
     document.body.setAttribute('data-theme', theme);
-    const btn = document.getElementById('themeToggleBtn');
-    if (btn) btn.textContent = THEME_LABELS[theme] || '🎨';
     localStorage.setItem('swarm-theme', theme);
+    // Sync settings panel theme buttons if panel has been rendered
+    if (typeof _updateSettingsThemeBtns === 'function') _updateSettingsThemeBtns();
 }
 
 // Debug mode — shows internal panels (429 pressure chart, etc.)
 let _debugMode = localStorage.getItem('swarm-debug') === '1';
 function _applyDebugMode() {
     const panel = document.getElementById('rlHistoryPanel');
-    const btn = document.getElementById('debugModeBtn');
     if (panel) panel.style.display = _debugMode ? '' : 'none';
-    if (btn) btn.style.color = _debugMode ? '#f0883e' : '#484f58';
+    document.querySelectorAll('.debug-only').forEach(el => {
+        el.style.display = _debugMode ? '' : 'none';
+    });
+    // Update settings panel debug button
+    const settingsBtn = document.getElementById('debugModeBtnSettings');
+    if (settingsBtn) {
+        settingsBtn.textContent = _debugMode ? '🐛 Debug: On' : '🐛 Debug: Off';
+        settingsBtn.classList.toggle('active', _debugMode);
+    }
 }
 function toggleDebugMode() {
     _debugMode = !_debugMode;
@@ -37,6 +44,28 @@ function cycleTheme() {
     const idx = THEMES.indexOf(current);
     const next = THEMES[(idx + 1) % THEMES.length];
     applyTheme(next);
+}
+
+/* ─── Settings panel ─────────────────────────────────────────────── */
+function openSettingsPanel() {
+    document.getElementById('settingsPanel').classList.add('open');
+    document.getElementById('settingsBackdrop').classList.add('open');
+    _updateSettingsThemeBtns();
+    _applyDebugMode(); // sync debug button state
+}
+function closeSettingsPanel() {
+    document.getElementById('settingsPanel').classList.remove('open');
+    document.getElementById('settingsBackdrop').classList.remove('open');
+}
+function setTheme(theme) {
+    applyTheme(theme); // reuse existing applyTheme which persists + updates body attr
+    _updateSettingsThemeBtns();
+}
+function _updateSettingsThemeBtns() {
+    const current = document.body.getAttribute('data-theme') || 'cyberpunk';
+    document.querySelectorAll('.settings-theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.themeVal === current);
+    });
 }
 
 // Apply before first paint
@@ -89,15 +118,13 @@ async function loadData() {
         // Summary
         const projectList = projects.projects || {};
         _projectList = projectList; // make available to Add Task modal
-        let overflow = 0;
-        for (const [name, data] of Object.entries(projectList)) {
-            const files = data.files || {};
-            if (Object.values(files).some(l => l > maxLines)) overflow++;
-        }
-        
+
         const allTasks = tasks.tasks || [];
-        const active = allTasks.filter(t => t.status === 'in_progress').length;
         const pending = allTasks.filter(t => t.status === 'pending').length;
+        const recoveringCount = allTasks.filter(t =>
+            (t.status === 'pending' || t.status === 'in_progress') &&
+            t.metadata && t.metadata.is_recovery_task
+        ).length;
 
         const allAgents = agentsData.agents || [];
         const activeAgents = allAgents.filter(a => a.status === 'active');
@@ -105,15 +132,25 @@ async function loadData() {
 
         // Count completed agents from history in the last 24 hours
         const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const cutoff1h = Date.now() - 60 * 60 * 1000;
         const historyAgentsList = historyData.agents || [];
         const completedToday = historyAgentsList.filter(a => {
             if (a.status !== 'completed') return false;
             const t = a.completed_at ? new Date(a.completed_at).getTime() : 0;
             return t > cutoff;
         }).length;
+        // Agents completed in the last hour (throughput rate)
+        const completedLastHour = historyAgentsList.filter(a => {
+            if (a.status !== 'completed') return false;
+            const t = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+            return t > cutoff1h;
+        }).length;
 
         const totalTokenCount = activeAgents.reduce((sum, a) => sum + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
-        const totalTokensLabel = totalTokenCount > 0 ? `${(totalTokenCount/1000).toFixed(1)}k` : '0';
+        const totalTokensLabel = totalTokenCount >= 1e9 ? (totalTokenCount/1e9).toFixed(1)+'B'
+            : totalTokenCount >= 1e6 ? (totalTokenCount/1e6).toFixed(1)+'M'
+            : totalTokenCount >= 1e3 ? (totalTokenCount/1e3).toFixed(1)+'k'
+            : totalTokenCount > 0 ? String(totalTokenCount) : '0';
 
         // Build project-level token totals and active-project set from active agents
         _projectTokenMap = {};
@@ -130,15 +167,14 @@ async function loadData() {
         document.getElementById('activeTasks').textContent = activeAgents.length;
         document.getElementById('pendingTasks').textContent = pending;
         document.getElementById('completedTasks').textContent = completedToday;
-        document.getElementById('overflowCount').textContent = overflow;
 
-        // Count active sub-tasks (in_progress with parent_task_id)
-        const activeSubTasks = allTasks.filter(t => 
-            t.status === 'in_progress' && 
-            t.metadata && 
-            t.metadata.parent_task_id
-        ).length;
-        document.getElementById('activeSubTasks').textContent = activeSubTasks;
+        // Recovery tasks — red pill when non-zero
+        const recoveringEl = document.getElementById('recoveringCount');
+        recoveringEl.textContent = recoveringCount;
+        recoveringEl.closest('.stat-pill').classList.toggle('stat-pill-failed-active', recoveringCount > 0);
+
+        // Agents/hr throughput
+        document.getElementById('agentsPerHour').textContent = completedLastHour;
         document.getElementById('totalTokens').textContent = totalTokensLabel;
 
         // Agents Grid (from agents.json) — active first, then recent
@@ -154,40 +190,13 @@ async function loadData() {
             agentsGrid.innerHTML = '<div class="card"><div class="stat">No agents yet</div></div>';
         }
         
-        // Pending tasks - sort and group by parent hierarchy
+        // Pending tasks - sorted by priority, flat grid
         const pendingGrid = document.getElementById('pendingTasksGrid');
         const pendingTasks = allTasks.filter(t => t.status === 'pending');
-        
-        // Build parent->children map
-        const childrenMap = {};
-        const parentIds = new Set();
-        
-        pendingTasks.forEach(t => {
-            if (t.metadata && t.metadata.parent_task_id) {
-                const pid = t.metadata.parent_task_id;
-                if (!childrenMap[pid]) childrenMap[pid] = [];
-                childrenMap[pid].push(t);
-                parentIds.add(pid);
-            }
-        });
-        
-        // Sort children by task_depth then by creation order
-        Object.values(childrenMap).forEach(children => {
-            children.sort((a, b) => {
-                const depthA = (a.metadata && a.metadata.task_depth) || 0;
-                const depthB = (b.metadata && b.metadata.task_depth) || 0;
-                if (depthA !== depthB) return depthA - depthB;
-                return (a.created_at || '').localeCompare(b.created_at || '');
-            });
-        });
-        
-        // Parents first (those with children shown first), then render with hierarchy
-        const parents = pendingTasks.filter(t => !t.metadata || !t.metadata.parent_task_id);
-        parents.sort((a, b) => (b.priority || 50) - (a.priority || 50));
-        
-        pendingGrid.innerHTML = parents.map(t => 
-            renderTaskWithChildren(t, childrenMap)
-        ).join('');
+        pendingTasks.sort((a, b) => (b.priority || 50) - (a.priority || 50));
+        pendingGrid.innerHTML = pendingTasks.length
+            ? pendingTasks.map(t => createTaskCard(t, false, false, '', false)).join('')
+            : '<div class="card" style="color:var(--text-faint);font-size:13px">No pending tasks</div>';
         
         // Projects
         const projectsGrid = document.getElementById('projectsGrid');
@@ -251,21 +260,20 @@ async function loadData() {
             loadProjectNotes(name, id);
         });
 
-        // Fetch health and closure for visible projects, then re-render with full data.
-        // Awaited so callers (e.g. openProjectClosure) see the final DOM state.
-        await Promise.all(visibleProjects.map(([name]) => Promise.all([
-            fetchProjectHealth(name),
-            fetchProjectClosure(name),
-        ])));
-        projectsGrid.innerHTML = visibleProjects
-            .map(([name, data]) => createProjectCard(name, data, projectAnyTaskCount[name] || 0, velocityMap[name] || null))
-            .join('');
+        // Fetch health and closure per-project and update each card in-place to avoid full re-render flicker.
+        await Promise.all(visibleProjects.map(async ([name, data]) => {
+            await Promise.all([fetchProjectHealth(name), fetchProjectClosure(name)]);
+            const safeName = name.replace(/[^a-z0-9]/gi, '_');
+            const cardEl = document.getElementById(`project-card-${safeName}`);
+            if (!cardEl) return;
+            const newHtml = createProjectCard(name, data, projectAnyTaskCount[name] || 0, velocityMap[name] || null);
+            const tmp = document.createElement('div');
+            tmp.innerHTML = newHtml;
+            const newCard = tmp.firstElementChild;
+            if (newCard) cardEl.replaceWith(newCard);
+            loadProjectNotes(name, `notes-${safeName}`);
+        }));
         applyProjectFilter();
-        // Re-load notes after re-render
-        visibleProjects.forEach(([name]) => {
-            const id = `notes-${name.replace(/[^a-z0-9]/gi, '_')}`;
-            loadProjectNotes(name, id);
-        });
 
         const historyAgents = historyData.agents || [];
         const historyGrid = document.getElementById('historyGrid');

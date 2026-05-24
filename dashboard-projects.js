@@ -317,19 +317,33 @@ async function killAgent(agentId, event) {
 }
 
 async function killAllAgents() {
-    if (!confirm('Kill all running agents?')) return;
+    if (!confirm('Kill all running agents and disable auto mode?')) return;
     const btn = document.getElementById('killAllBtn');
     btn.disabled = true;
-    btn.textContent = '⏹ Killing…';
+    btn.textContent = '⏹ Stopping…';
     try {
+        // Turn off auto mode first so nothing respawns
+        await fetch(API + '/api/auto-mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: false})
+        });
+        autoEnabled = false;
+        autoSuspended = false;
+        updateAutoBtn();
+
+        // Kill all active agents
         const res = await fetch(API + '/api/agents');
         const data = await res.json();
         const active = (data.agents || []).filter(a => a.status === 'active');
         await Promise.all(active.map(a =>
             fetch(`${API}/api/agents/${a.id}/kill`, {method: 'POST'})
         ));
+        showToast(`⏹ Emergency stop — auto mode off, ${active.length} agent${active.length === 1 ? '' : 's'} killed`, '#f0883e');
         setTimeout(loadData, 1000);
-    } catch(e) {}
+    } catch(e) {
+        showToast('Kill All failed: ' + e.message, '#f85149');
+    }
     btn.textContent = '⏹ Kill All';
     btn.disabled = false;
 }
@@ -339,7 +353,10 @@ function createAgentCard(agent, taskDesc) {
     const statusLabel = agent.status || "unknown";
     const meta = agent.metadata || {};
     const diffStat = meta.diff_stat ? meta.diff_stat.split('\n').pop() : '';
-    const descSnippet = taskDesc ? escapeHtml(taskDesc.split('\n')[0].slice(0, 100)) : '';
+    const descFull = taskDesc ? taskDesc.trim() : '';
+    const descFirstLine = descFull.split('\n')[0].slice(0, 120);
+    const descTruncated = descFull.length > 120 || descFull.includes('\n');
+    const descId = `agent-desc-${agent.id ? agent.id.slice(0, 8) : Math.random().toString(36).slice(2)}`;
     const totalTokens = (agent.input_tokens || 0) + (agent.output_tokens || 0);
     const loopHtml = isActive && agent.current_loop
         ? `<div class="agent-stat">Loop <strong>${agent.current_loop}/${agent.max_loops || 120}</strong></div>`
@@ -363,13 +380,18 @@ function createAgentCard(agent, taskDesc) {
     const shortId = agent.id ? agent.id.slice(0, 8) : '';
 
     return `
-        <div class="card agent-card" data-project="${escapeHtml(agent.project)}" onclick="showAgentOutput('${agent.id}', '${agent.project}', ${isActive}, '${agent.task_id || ''}')">
+        <div class="card agent-card status-${badgeClass}" data-project="${escapeHtml(agent.project)}" onclick="showAgentOutput('${agent.id}', '${agent.project}', ${isActive}, '${agent.task_id || ''}')">
             <div class="card-header">
                 <span class="project-name">${escapeHtml(agent.project)}</span>
                 <span class="agent-short-id">${shortId}</span>
                 <span class="status ${badgeClass}">${badgeLabel}</span>
             </div>
-            ${descSnippet ? `<div style="font-size:11px;color:#6e7681;margin:4px 0 2px;line-height:1.3">${descSnippet}</div>` : ''}
+            ${descFull ? `
+            <div style="font-size:11px;color:#8b949e;margin:4px 0 2px;line-height:1.4">
+                <span id="${descId}-short">${escapeHtml(descFirstLine)}${descTruncated ? '<span style="color:#6e7681">…</span>' : ''}</span>
+                ${descTruncated ? `<span id="${descId}-full" style="display:none;white-space:pre-wrap">${escapeHtml(descFull)}</span>` : ''}
+                ${descTruncated ? `<button onclick="event.stopPropagation();(function(s,f,b){var show=f.style.display==='none';f.style.display=show?'':'none';s.style.display=show?'none':'';b.textContent=show?'less':'more';})(document.getElementById('${descId}-short'),document.getElementById('${descId}-full'),this)" style="background:none;border:none;color:#58a6ff;font-size:10px;cursor:pointer;padding:0 0 0 4px;vertical-align:baseline">more</button>` : ''}
+            </div>` : ''}
             <div class="agent-meta-row">
                 <div class="agent-stat">Type <strong>${agent.task_type || 'refactor'}</strong></div>
                 <div class="agent-stat">Started <strong>${agent.spawned_at ? new Date(agent.spawned_at).toLocaleTimeString() : '—'}</strong></div>
@@ -524,6 +546,7 @@ let _pausedProjects = new Set();
 let _autoReplanProjects = new Set();
 let _projectTokenMap = {};
 let _activeProjectSet = new Set();
+let _projectNotesCache = {};  // { projectName: { notes, blurb } }
 let _selectedProject = null;  // null = all projects
 let _allProjectNames = [];
 let _integrityData = null;
@@ -706,11 +729,6 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         style="background:transparent;color:#a371f7;border:1px solid #a371f7;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
         title="Spawn a project_plan agent to analyse the codebase and generate new tasks">🗺 Re-plan</button>`;
 
-    const nameJs = escapeHtml(name).replace(/'/g, "\\'");
-    const swarmBtn = `<button onclick="event.stopPropagation();openUnifiedChat('${nameJs}')"
-        style="background:transparent;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
-        title="Open Swarm chat for this project">💬</button>`;
-
     const isAutoReplan = _autoReplanProjects.has(name);
     const autoReplanBtn = `<button onclick="toggleAutoReplan(event,'${escapeHtml(name)}')"
         style="background:transparent;color:${isAutoReplan ? '#a371f7' : '#8b949e'};border:1px solid ${isAutoReplan ? '#a371f7' : '#30363d'};border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
@@ -724,8 +742,9 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
     const isActive = _activeProjectSet.has(name);
     const activeLed = isActive ? '<span class="active-led" title="Agent running"></span>' : '';
 
+    const cachedBlurb = (_projectNotesCache[name] && _projectNotesCache[name].blurb) || '';
     return `
-        <div class="card" data-has-project="${escapeHtml(name)}" style="${isPaused ? 'opacity:0.6' : ''}">
+        <div class="card" id="project-card-${String(name).replace(/[^a-z0-9]/gi, '_')}" data-has-project="${escapeHtml(name)}" style="${isPaused ? 'opacity:0.6' : ''}">
             <div class="card-header">
                 <span class="project-name">
                     ${activeLed}${isLocked ? '<span class="locked-badge"></span>' : ''}${escapeHtml(name)}
@@ -733,7 +752,6 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     ${projectTokensHtml}
                 </span>
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-                    ${swarmBtn}
                     ${closureBtn}
                     ${pauseBtn}
                     ${repairBtns}
@@ -742,7 +760,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     <span class="status ${data.status}" style="margin-left:4px">${data.status}</span>
                 </div>
             </div>
-            <div id="${blurbId}" style="font-size:11px;color:#8b949e;margin:2px 0 6px 0;font-style:italic;min-height:14px"></div>
+            <div id="${blurbId}" style="font-size:11px;color:#8b949e;margin:2px 0 6px 0;font-style:italic;min-height:14px">${escapeHtml(cachedBlurb)}</div>
             <div class="stat">Largest: <span>${escapeHtml(largest[0])}</span>
                 <span style="color: ${isOverflow ? '#f0883e' : '#3fb950'}; margin-left:6px">${largest[1]} lines ${isOverflow ? '⚠️' : '✓'}</span>
             </div>
@@ -769,19 +787,21 @@ async function loadProjectNotes(name, elementId) {
             const data = await res.json();
             const el = document.getElementById(elementId);
             if (el) el.value = data.notes || '';
-            // Populate blurb: prefer first line of notes, fall back to GAME_DESIGN.md concept
-            const blurbEl = document.getElementById(`blurb-${name.replace(/[^a-z0-9]/gi, '_')}`);
-            if (blurbEl) {
-                let blurb = '';
-                if (data.notes) {
-                    const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
-                    blurb = lines[0] || '';
-                }
-                if (!blurb && data.concept) {
-                    blurb = data.concept;
-                }
-                blurbEl.textContent = blurb.length > 150 ? blurb.slice(0, 147) + '…' : blurb;
+            // Compute blurb: prefer first line of notes, fall back to GAME_DESIGN.md concept
+            let blurb = '';
+            if (data.notes) {
+                const lines = data.notes.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+                blurb = lines[0] || '';
             }
+            if (!blurb && data.concept) {
+                blurb = data.concept;
+            }
+            const blurbText = blurb.length > 150 ? blurb.slice(0, 147) + '…' : blurb;
+            // Cache so card re-renders pre-fill the blurb without a fetch
+            _projectNotesCache[name] = { notes: data.notes || '', blurb: blurbText };
+            // Update in-place — avoids flash on card replacement
+            const blurbEl = document.getElementById(`blurb-${name.replace(/[^a-z0-9]/gi, '_')}`);
+            if (blurbEl) blurbEl.textContent = blurbText;
         }
     } catch(e) {}
 }

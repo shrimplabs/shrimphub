@@ -113,12 +113,33 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
         return jsonify({
             "tasks_completed": tasks_completed,
             "tasks_failed": tasks_failed,
-            "avg_attempts_per_task": avg_attempts,
+            "agents_run": num_agents,
             "first_attempt_success_rate": first_try_rate,
-            "validation_bug_rate": val_bug_rate,
+            "total_tokens": total_input_tokens + total_output_tokens,
             "avg_input_tokens": avg_in,
             "avg_output_tokens": avg_out,
             "avg_loops_per_agent": avg_loops,
             "web_search_calls": web_search_calls,
             "knowledge_files_written": knowledge_files_written,
         })
+
+    @app.route("/api/metrics/knowledge-files", methods=["GET"])
+    def get_knowledge_files():
+        """Return list of all AGENT_KNOWLEDGE.md files with their content."""
+        workspace_dir = str(workspace)
+        files = []
+        if os.path.isdir(workspace_dir):
+            try:
+                for root, dirs, filenames in os.walk(workspace_dir):
+                    if "AGENT_KNOWLEDGE.md" in filenames:
+                        path = os.path.join(root, "AGENT_KNOWLEDGE.md")
+                        project = os.path.relpath(root, workspace_dir)
+                        try:
+                            content = open(path).read()
+                        except Exception:
+                            content = "(unreadable)"
+                        files.append({"project": project, "path": path, "content": content})
+            except Exception:
+                pass
+        files.sort(key=lambda f: f["project"])
+        return jsonify({"files": files})

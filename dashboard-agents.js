@@ -180,21 +180,19 @@ async function toggleAuto() {
 
 function updateAutoBtn() {
     const btn = document.getElementById('autoBtn');
+    btn.classList.remove('is-on', 'is-suspended', 'is-off');
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
     if (autoEnabled) {
         btn.textContent = '⟳ Auto: On';
-        btn.style.background = '#1a4a1a';
-        btn.style.color = '#3fb950';
-        btn.style.borderColor = '#3fb950';
+        btn.classList.add('is-on');
     } else if (autoSuspended) {
-        btn.textContent = '⟳ Auto: Paused (quota)';
-        btn.style.background = '#2d1f00';
-        btn.style.color = '#f0883e';
-        btn.style.borderColor = '#f0883e';
+        btn.textContent = '⟳ Auto: Paused';
+        btn.classList.add('is-suspended');
     } else {
         btn.textContent = '⟳ Auto: Off';
-        btn.style.background = '#30363d';
-        btn.style.color = '#58a6ff';
-        btn.style.borderColor = '#58a6ff';
+        btn.classList.add('is-off');
     }
 }
 
@@ -213,16 +211,16 @@ let autoScaleEnabled = false;
 function updateAutoScaleBtn() {
     const btn = document.getElementById('autoScaleBtn');
     if (!btn) return;
+    btn.classList.remove('is-on', 'is-off');
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
     if (autoScaleEnabled) {
         btn.textContent = '⚖ Scale: On';
-        btn.style.background = '#1a3a1f';
-        btn.style.color = '#3fb950';
-        btn.style.borderColor = '#3fb950';
+        btn.classList.add('is-on');
     } else {
         btn.textContent = '⚖ Scale: Off';
-        btn.style.background = '#30363d';
-        btn.style.color = '#3fb950';
-        btn.style.borderColor = '#3fb950';
+        btn.classList.add('is-off');
     }
 }
 

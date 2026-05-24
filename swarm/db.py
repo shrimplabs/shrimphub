@@ -376,6 +376,7 @@ def _evolve_schema(conn: sqlite3.Connection):
     for col, ddl in [
         ("input_tokens",  "ALTER TABLE agents ADD COLUMN input_tokens  INTEGER DEFAULT 0"),
         ("output_tokens", "ALTER TABLE agents ADD COLUMN output_tokens INTEGER DEFAULT 0"),
+        ("loop_count",    "ALTER TABLE agents ADD COLUMN loop_count    INTEGER DEFAULT 0"),
     ]:
         if col not in existing_agents:
             conn.execute(ddl)

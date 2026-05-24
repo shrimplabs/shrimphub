@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShrimpHub Dashboard</title>
-    <link rel="stylesheet" href="/dashboard.css?v=20260522b">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard.css?v=20260523q">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
         window.Module = window.Module || {};
@@ -22,87 +22,30 @@
     </div>
 
     <div id="main-content">
-    <div id="top-toolbar">
-        <span class="timestamp">Last updated: <span id="lastUpdated">-</span></span>
-        <button id="debugModeBtn" onclick="toggleDebugMode()" title="Toggle debug panels">🐛</button>
-        <button id="themeToggleBtn" onclick="cycleTheme()" title="Switch theme"></button>
-    </div>
-
-    <h1>
-        <span class="title-text"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="44" height="44" style="vertical-align:middle;margin-right:6px;margin-bottom:2px"><g fill="none" stroke="#9aa3b2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 4 32 L 12 24"/><path d="M 4 32 L 12 40"/><line x1="10" y1="32" x2="20" y2="22"/><line x1="20" y1="22" x2="32" y2="18"/><line x1="32" y1="18" x2="44" y2="22"/><line x1="44" y1="22" x2="52" y2="32"/><line x1="52" y1="32" x2="44" y2="42"/><line x1="44" y1="42" x2="30" y2="46"/><line x1="44" y1="22" x2="56" y2="10"/></g><g stroke="#0a0a0a" stroke-width="1"><circle cx="10" cy="32" r="2.5" fill="#e8ebf3"/><circle cx="20" cy="22" r="2.5" fill="#e8ebf3"/><circle cx="32" cy="18" r="3.5" fill="#ff5b9c"/><circle cx="44" cy="22" r="2.5" fill="#e8ebf3"/><circle cx="52" cy="32" r="2.5" fill="#e8ebf3"/><circle cx="44" cy="42" r="2.5" fill="#e8ebf3"/><circle cx="30" cy="46" r="2.5" fill="#e8ebf3"/></g></svg>Shrimp<span style="-webkit-text-fill-color:#ff5b9c;color:#ff5b9c">Hub</span></span>
-        <button onclick="openNewProjectModal()" class="btn-chat" title="Describe your project in chat — AI will plan tasks for you">💬 New Project (Chat)</button>
-        <button onclick="openWizard()" class="btn-wizard" title="Fill in a form — AI generates a task plan from your inputs">🧙 New Project (Wizard)</button>
-        <button onclick="openAppendPhaseModal()" class="btn-phase" title="Append a planned task phase to an existing project">➕ Append Phase</button>
-        <button onclick="openInstantModal()" class="btn-instant" title="AI invents and builds a project with zero input from you">⚡ Instant Project</button>
-    </h1>
-    
-    <div class="summary">
-        <div class="summary-item">
-            <div class="value" id="totalProjects">-</div>
-            <div class="label">Projects</div>
+    <div class="dashboard-header">
+        <span class="header-timestamp">Updated: <span id="lastUpdated">-</span></span>
+        <div class="dashboard-title">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="28" height="28" style="flex-shrink:0"><g fill="none" stroke="#9aa3b2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 4 32 L 12 24"/><path d="M 4 32 L 12 40"/><line x1="10" y1="32" x2="20" y2="22"/><line x1="20" y1="22" x2="32" y2="18"/><line x1="32" y1="18" x2="44" y2="22"/><line x1="44" y1="22" x2="52" y2="32"/><line x1="52" y1="32" x2="44" y2="42"/><line x1="44" y1="42" x2="30" y2="46"/><line x1="44" y1="22" x2="56" y2="10"/></g><g stroke="#0a0a0a" stroke-width="1"><circle cx="10" cy="32" r="2.5" fill="#e8ebf3"/><circle cx="20" cy="22" r="2.5" fill="#e8ebf3"/><circle cx="32" cy="18" r="3.5" fill="#ff5b9c"/><circle cx="44" cy="22" r="2.5" fill="#e8ebf3"/><circle cx="52" cy="32" r="2.5" fill="#e8ebf3"/><circle cx="44" cy="42" r="2.5" fill="#e8ebf3"/><circle cx="30" cy="46" r="2.5" fill="#e8ebf3"/></g></svg>
+            <span class="title-text">Shrimp<span style="-webkit-text-fill-color:#ff5b9c;color:#ff5b9c">Hub</span></span>
         </div>
-        <div class="summary-item">
-            <div class="value" id="activeTasks">-</div>
-            <div class="label">Active</div>
+        <div class="stats-strip">
+            <div class="stat-pill"><span class="stat-pill-value" id="totalProjects">-</span><span class="stat-pill-label">projects</span></div>
+            <div class="stat-pill stat-pill-active"><span class="stat-pill-value" id="activeTasks">-</span><span class="stat-pill-label">active</span></div>
+            <div class="stat-pill"><span class="stat-pill-value" id="pendingTasks">-</span><span class="stat-pill-label">pending</span></div>
+            <div class="stat-pill stat-pill-done"><span class="stat-pill-value" id="completedTasks">-</span><span class="stat-pill-label">done 24h</span></div>
+            <div class="stat-pill stat-pill-failed" title="Active recovery tasks — broken chains being repaired"><span class="stat-pill-value" id="recoveringCount">-</span><span class="stat-pill-label">recovering</span></div>
+            <div class="stat-pill"><span class="stat-pill-value" id="agentsPerHour">-</span><span class="stat-pill-label">agents/hr</span></div>
+            <div class="stat-pill stat-pill-tokens" title="Total tokens in use across all active agents right now"><span class="stat-pill-value" id="totalTokens">-</span><span class="stat-pill-label">tokens live</span></div>
         </div>
-        <div class="summary-item">
-            <div class="value" id="pendingTasks">-</div>
-            <div class="label">Pending</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" id="completedTasks">-</div>
-            <div class="label">Completed (24h)</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" id="overflowCount">-</div>
-            <div class="label">Overflow (>5K)</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" id="activeSubTasks">-</div>
-            <div class="label">Active Sub-tasks</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" id="totalTokens">-</div>
-            <div class="label">Total Tokens</div>
+        <div class="header-actions">
+            <button onclick="openNewProjectModal()" class="header-action-btn" title="Describe your project in chat — AI will plan tasks for you">✦ New Project</button>
+            <button onclick="openWizard()" class="header-action-btn" title="Fill in a form — AI generates a task plan from your inputs">🧙 Wizard</button>
+            <button onclick="openAppendPhaseModal()" class="header-action-btn" title="Queue a new batch of tasks after the current ones, with an optional QA gate before they start">➕ Next Phase</button>
+            <button onclick="openInstantModal()" class="header-action-btn header-action-btn--instant" title="AI invents and builds a project with zero input from you">⚡ Instant</button>
+            <button onclick="openSettingsPanel()" class="header-action-btn header-icon-btn" title="Settings">⚙ Settings</button>
         </div>
     </div>
     
-    <div id="metrics-panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <span class="metrics-title">&#x1f4ca Agent Metrics</span>
-            <button class="metrics-refresh" onclick="loadMetrics()">&#x21bb Refresh</button>
-        </div>
-        <div id="metrics-grid"></div>
-    </div>
-
-    <div class="provider-bar" id="providerBar">
-        <label>LLM Provider</label>
-        <select id="providerSelect" onchange="onProviderSelectChange()"></select>
-        <label>Model</label>
-        <input type="text" id="providerModel" placeholder="model name (optional override)">
-        <button onclick="saveProvider()">Apply</button>
-        <span class="provider-key-status" id="providerKeyStatus"></span>
-        <span style="border-left:1px solid #30363d;margin:0 8px;height:20px;display:inline-block;vertical-align:middle"></span>
-        <label>Thinking</label>
-        <button id="thinkingToggle" onclick="toggleThinking()" style="background:transparent;border:1px solid #30363d;border-radius:4px;padding:3px 10px;font-size:12px;color:#8b949e;cursor:pointer">Off</button>
-        <span style="border-left:1px solid #30363d;margin:0 8px;height:20px;display:inline-block;vertical-align:middle"></span>
-        <label>Strategy</label>
-        <select id="strategySelect" onchange="saveStrategy()" style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-size:13px">
-            <option value="priority">priority</option>
-            <option value="refactor_first">refactor_first</option>
-            <option value="round_robin">round_robin</option>
-            <option value="least_recently_worked">least_recently_worked</option>
-            <option value="dependency_aware">dependency_aware</option>
-        </select>
-    </div>
-
-    <div class="quota-bar">
-        <span class="quota-label">MiniMax quota</span>
-        <div class="quota-track"><div class="quota-fill" id="quotaFill"></div></div>
-        <span class="quota-text" id="quotaText">-</span>
-        <span class="quota-reset" id="quotaReset"></span>
-    </div>
-
     <div id="rlHistoryPanel" style="margin:8px 0 4px;padding:10px 14px;background:#0d1117;border:1px solid #21262d;border-radius:6px;display:none">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
             <span style="font-size:11px;font-weight:600;color:#8b949e;letter-spacing:.05em">429 PRESSURE BY HOUR</span>
@@ -110,6 +53,20 @@
         </div>
         <canvas id="rlHistoryChart" height="48" style="width:100%;display:block;cursor:crosshair"></canvas>
         <div id="rlHistoryTooltip" style="font-size:10px;color:#8b949e;margin-top:4px;height:14px"></div>
+    </div>
+
+    <div id="metrics-panel">
+        <div style="margin-bottom:12px">
+            <span class="metrics-title">Agent Metrics</span>
+        </div>
+        <div id="metrics-grid"></div>
+    </div>
+
+    <div class="quota-bar">
+        <span class="quota-label">MiniMax quota</span>
+        <div class="quota-track"><div class="quota-fill" id="quotaFill"></div></div>
+        <span class="quota-text" id="quotaText">-</span>
+        <span class="quota-reset" id="quotaReset"></span>
     </div>
 
     <div id="project-description-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(56,139,253,0.06);border-left:3px solid #58a6ff;border-radius:0 6px 6px 0">
@@ -146,7 +103,7 @@
             <span><span class="deps-legend-swatch deps-legend-failed"></span>failed</span>
             <span class="deps-legend-history">✓ / ✗ = completed / failed (history)</span>
         </div>
-        <div id="integrityPanel" class="integrity-panel">
+        <div id="integrityPanel" class="integrity-panel debug-only">
             <div class="integrity-panel-header">
                 <div>
                     <div class="integrity-panel-title">Integrity</div>
@@ -179,7 +136,7 @@
         <button onclick="exportTasks()" style="font-size:12px;padding:3px 10px;margin-left:6px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer">↓ Export</button>
         <label style="font-size:12px;padding:3px 10px;margin-left:6px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer">↑ Import<input type="file" accept=".yaml,.yml,.json" style="display:none" onchange="importTasks(this)"></label>
     </h2>
-    <div class="grid" id="pendingTasksGrid"></div>
+    <div class="pending-grid" id="pendingTasksGrid"></div>
     
     <h2 style="cursor:pointer" onclick="toggleProjects()">Project Status & Recent Commits <span id="projectsToggle" style="font-size:11px;color:#58a6ff">▲ hide</span></h2>
     <div id="project-focus-banner" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(56,139,253,0.08);border:1px solid rgba(56,139,253,0.2);border-radius:6px">
@@ -470,12 +427,12 @@
     <div class="modal" id="appendPhaseModal" onclick="if(event.target===this)closeAppendPhaseModal()">
         <div class="modal-content" style="max-width:760px">
             <div class="modal-header">
-                <h3>➕ Append Project Phase</h3>
+                <h3>➕ Plan Next Phase</h3>
                 <button class="modal-close" onclick="closeAppendPhaseModal()">×</button>
             </div>
             <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
                 <div style="font-size:12px;color:#8b949e;line-height:1.5">
-                    Adds a new task graph after an existing task. Use the QA checkpoint and manual gate when you want the project to pause for testing before the next phase starts.
+                    Queues a new batch of tasks after the current ones finish. Enable the <strong style="color:#e6edf3">QA gate</strong> to pause and run a full playtest before the phase starts, and the <strong style="color:#e6edf3">manual gate</strong> to hold until you explicitly approve it.
                 </div>
                 <div style="display:flex;gap:12px">
                     <div style="flex:1">
@@ -510,13 +467,13 @@
 ]' style="width:100%;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:8px 10px;font-size:12px;font-family:&quot;JetBrains Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical;box-sizing:border-box"></textarea>
                 </div>
                 <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center">
+                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center" title="Runs a full QA playtest agent before any tasks in this phase start">
                         <input id="appendPhaseQa" type="checkbox" checked>
-                        Add QA checkpoint before phase
+                        QA playtest before phase starts
                     </label>
-                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center">
+                    <label style="font-size:12px;color:#c9d1d9;display:flex;gap:6px;align-items:center" title="Pauses the phase until you manually approve it in the dashboard">
                         <input id="appendPhaseGate" type="checkbox" checked>
-                        Add manual phase gate
+                        Hold for manual approval
                     </label>
                 </div>
                 <div id="appendPhaseError" style="color:#f85149;font-size:12px;display:none;white-space:pre-wrap"></div>
@@ -524,7 +481,7 @@
             </div>
             <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;justify-content:flex-end;gap:8px">
                 <button onclick="closeAppendPhaseModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Cancel</button>
-                <button onclick="submitAppendPhase()" id="appendPhaseSubmitBtn" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Append Phase</button>
+                <button onclick="submitAppendPhase()" id="appendPhaseSubmitBtn" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer">Queue Phase</button>
             </div>
         </div>
     </div>
@@ -623,58 +580,23 @@
         </div>
     </div>
 
-    <button class="refresh-btn" onclick="openUnifiedChat(_selectedProject || null)" id="unifiedChatBtn" title="Talk to the Swarm">💬 Swarm</button>
-
-    <div style="margin:8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e">
-        <label title="POST a JSON summary here when the queue empties">🔔 Webhook:</label>
-        <input id="webhookUrl" type="url" placeholder="Discord / Slack / ntfy URL (fires when queue empties)"
-            style="flex:1;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px"
-            onblur="saveWebhook()">
-        <button onclick="testWebhook()" style="background:transparent;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap">⚡ Test</button>
-        <span id="webhookTestStatus" style="font-size:11px;color:#8b949e"></span>
-    </div>
-
-    <div style="margin:8px 0;font-size:12px;color:#8b949e">
-        <details>
-            <summary style="cursor:pointer;color:#8b949e;user-select:none">👁 Vision Providers (QA agent)</summary>
-            <div style="margin-top:8px;padding:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;display:flex;flex-direction:column;gap:8px">
-                <div style="display:flex;align-items:center;gap:8px">
-                    <label style="min-width:120px">Powerful model:</label>
-                    <input id="visionProvider" placeholder="claude" style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px">
-                    <label style="min-width:80px">Fast model:</label>
-                    <input id="visionProviderFast" placeholder="(same as powerful)" style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:12px">
-                </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                    <label style="min-width:120px">Providers JSON:</label>
-                    <textarea id="visionProvidersJson" rows="4" placeholder='{"claude":{"format":"anthropic_native","model":"claude-sonnet-4-6","api_key_env":"ANTHROPIC_API_KEY"}}'
-                        style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;font-family:monospace;resize:vertical"></textarea>
-                </div>
-                <div style="display:flex;gap:8px">
-                    <button onclick="saveVisionProviders()" style="background:#1f6feb;color:white;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer">💾 Save</button>
-                    <span id="visionSaveStatus" style="font-size:11px;color:#8b949e;align-self:center"></span>
-                </div>
-                <div style="font-size:11px;color:#6e7681">
-                    Format: <code>anthropic_native</code> (Claude) · <code>openai</code> (ollama/mlx) · <code>mcp</code> (Minimax). Provider names match the "Powerful/Fast" fields above.
-                </div>
-            </div>
-        </details>
-    </div>
+    <button class="refresh-btn" onclick="openUnifiedChat(_selectedProject || null)" title="Talk to the Swarm">💬 Swarm</button>
 
     <div class="spawn-bar">
         <label>Max</label>
         <input type="number" id="maxAgents" value="7" min="1" max="99" onchange="setMaxAgents()" title="Max concurrent agents">
-        <label style="margin-right:8px;border-right:1px solid #30363d;padding-right:8px;">cap</label>
+        <label class="spawn-divider-label">cap</label>
         <label>QA cycles</label>
         <input type="number" id="qaMaxCycles" value="3" min="1" max="20" onchange="setQaMaxCycles()" title="Max QA requeue cycles before stopping">
-        <label style="margin-right:8px;border-right:1px solid #30363d;padding-right:8px;">max</label>
+        <label class="spawn-divider-label">max</label>
         <label>Spawn</label>
         <input type="number" id="spawnCount" value="3" min="1" max="99">
         <label>agents</label>
-        <button id="spawnBtn" onclick="spawnAgents()">▶ Run</button>
-        <button onclick="spawnAll()" style="background:#6e40c9">▶▶ Run All</button>
-        <button id="autoBtn" onclick="toggleAuto()" style="background:#30363d;border:1px solid #58a6ff;color:#58a6ff">⟳ Auto: Off</button>
-        <button id="autoScaleBtn" onclick="toggleAutoScale()" title="Auto-scale: dynamically adjust agent count based on 429 pressure" style="background:#30363d;border:1px solid #3fb950;color:#3fb950">⚖ Scale: Off</button>
-        <button id="killAllBtn" onclick="killAllAgents()" style="background:#6e1a1a;color:#f85149;border:1px solid #f85149;margin-left:12px">⏹ Kill All</button>
+        <button id="spawnBtn" onclick="spawnAgents()" class="spawn-run-btn">▶ Run</button>
+        <button onclick="spawnAll()" class="spawn-runall-btn">▶▶ Run All</button>
+        <button id="autoBtn" onclick="toggleAuto()" class="spawn-toggle-btn spawn-toggle-auto">⟳ Auto: Off</button>
+        <button id="autoScaleBtn" onclick="toggleAutoScale()" title="Auto-scale: dynamically adjust agent count based on 429 pressure" class="spawn-toggle-btn spawn-toggle-scale">⚖ Scale: Off</button>
+        <button id="killAllBtn" onclick="killAllAgents()" class="spawn-kill-btn">⏹ Kill All</button>
         <span class="spawn-status" id="spawnStatus"></span>
     </div>
 
@@ -710,6 +632,102 @@
 
     </div><!-- /main-content -->
 
+    <!-- Settings Panel -->
+    <div id="settingsPanel" class="settings-panel">
+        <div class="settings-panel-header">
+            <span class="settings-panel-title">Settings</span>
+            <button class="settings-panel-close" onclick="closeSettingsPanel()">×</button>
+        </div>
+        <div class="settings-panel-body">
+
+            <!-- LLM Provider -->
+            <div class="settings-section">
+                <div class="settings-section-label">LLM Provider</div>
+                <div class="settings-row">
+                    <span class="settings-label">Provider</span>
+                    <select id="providerSelect" onchange="onProviderSelectChange()" style="flex:1"></select>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Model</span>
+                    <input type="text" id="providerModel" placeholder="model name (optional override)" style="flex:1">
+                    <button onclick="saveProvider()" class="apply-btn">Apply</button>
+                </div>
+                <div class="settings-row">
+                    <span class="provider-key-status" id="providerKeyStatus"></span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Thinking</span>
+                    <button id="thinkingToggle" onclick="toggleThinking()" class="settings-toggle-btn">Off</button>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Strategy</span>
+                    <select id="strategySelect" onchange="saveStrategy()" style="flex:1">
+                        <option value="priority">priority</option>
+                        <option value="refactor_first">refactor_first</option>
+                        <option value="round_robin">round_robin</option>
+                        <option value="least_recently_worked">least_recently_worked</option>
+                        <option value="dependency_aware">dependency_aware</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Webhook -->
+            <div class="settings-section">
+                <div class="settings-section-label">Webhook</div>
+                <div class="settings-row">
+                    <input id="webhookUrl" type="url" placeholder="Discord / Slack / ntfy URL (fires when queue empties)"
+                        style="flex:1" onblur="saveWebhook()">
+                </div>
+                <div class="settings-row">
+                    <button onclick="testWebhook()" class="apply-btn">⚡ Test</button>
+                    <span id="webhookTestStatus" style="font-size:11px;color:var(--text-muted)"></span>
+                </div>
+            </div>
+
+            <!-- Vision Providers -->
+            <div class="settings-section">
+                <div class="settings-section-label">Vision Providers (QA)</div>
+                <div class="settings-row">
+                    <span class="settings-label">Powerful</span>
+                    <input id="visionProvider" placeholder="claude" style="flex:1">
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Fast</span>
+                    <input id="visionProviderFast" placeholder="(same as powerful)" style="flex:1">
+                </div>
+                <div class="settings-row" style="flex-direction:column;align-items:stretch">
+                    <span class="settings-label" style="min-width:unset;margin-bottom:4px">Providers JSON</span>
+                    <textarea id="visionProvidersJson" rows="4" placeholder='{"claude":{"format":"anthropic_native","model":"claude-sonnet-4-6","api_key_env":"ANTHROPIC_API_KEY"}}' style="width:100%;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+                </div>
+                <div class="settings-row">
+                    <button onclick="saveVisionProviders()" class="apply-btn">💾 Save</button>
+                    <span id="visionSaveStatus" style="font-size:11px;color:var(--text-muted)"></span>
+                </div>
+                <div style="font-size:11px;color:var(--text-faint)">
+                    Format: <code>anthropic_native</code> (Claude) · <code>openai</code> (ollama/mlx) · <code>mcp</code> (Minimax).
+                </div>
+            </div>
+
+            <!-- Theme -->
+            <div class="settings-section">
+                <div class="settings-section-label">Theme</div>
+                <div class="settings-theme-row">
+                    <button class="settings-theme-btn" onclick="setTheme('cyberpunk')" data-theme-val="cyberpunk">🌆 Cyberpunk</button>
+                    <button class="settings-theme-btn" onclick="setTheme('dark')" data-theme-val="dark">🌑 Dark</button>
+                    <button class="settings-theme-btn" onclick="setTheme('light')" data-theme-val="light">☀️ Light</button>
+                </div>
+            </div>
+
+            <!-- Debug -->
+            <div class="settings-section">
+                <div class="settings-section-label">Debug</div>
+                <button id="debugModeBtnSettings" onclick="toggleDebugMode()" class="settings-toggle-btn">🐛 Debug: Off</button>
+            </div>
+
+        </div>
+    </div>
+    <div id="settingsBackdrop" class="settings-backdrop" onclick="closeSettingsPanel()"></div>
+
     <!-- Unified Chat Panel -->
     <div id="unifiedChatPanel" class="unified-chat-panel" style="display:none">
         <div class="unified-chat-header">
@@ -743,13 +761,42 @@
     </div>
 
     <script src="dashboard-utils.js?v=20260522a"></script>
-    <script src="dashboard_deps_integrity.js?v=20260522g"></script>
-    <script src="dashboard_closure.js?v=20260501b"></script>
+    <script src="dashboard_deps_integrity.js?v=20260523l"></script>
+    <script src="dashboard_closure.js?v=20260523a"></script>
     <script src="dashboard-core.js?v=20260523e"></script>
-    <script src="dashboard-projects.js?v=20260522f"></script>
+<!-- Knowledge Files Modal -->
+<div class="modal" id="knowledgeModal" onclick="if(event.target===this)closeKnowledgeModal()">
+    <div class="modal-content" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+            <h3 id="knowledgeModalTitle">Knowledge Files</h3>
+            <button class="modal-close" onclick="closeKnowledgeModal()">×</button>
+        </div>
+        <div style="padding:10px 20px;border-bottom:1px solid var(--border)">
+            <select id="knowledgeSearch" onchange="filterKnowledge()" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-size:13px;color:var(--text)">
+                <option value="">— select a project —</option>
+            </select>
+        </div>
+        <div id="knowledgeList" style="overflow-y:auto;flex:1;padding:16px 20px">
+            <div style="color:var(--text-faint);font-size:13px">Select a project above to view its knowledge file.</div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="closureModal" onclick="if(event.target===this)document.getElementById('closureModal').classList.remove('active')">
+    <div class="modal-content" style="max-width:760px;max-height:90vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+            <h3 id="closureModalTitle">Closure Contract</h3>
+            <button class="modal-close" onclick="document.getElementById('closureModal').classList.remove('active')">×</button>
+        </div>
+        <div id="closureModalBody" style="overflow-y:auto;flex:1;padding:16px 20px">
+        </div>
+    </div>
+</div>
+
+    <script src="dashboard-projects.js?v=20260523c"></script>
     <script src="dashboard-agents.js?v=20260523e"></script>
     <script src="dashboard-tasks.js?v=20260523e"></script>
-    <script src="dashboard-config.js?v=20260523e"></script>
+    <script src="dashboard-config.js?v=20260523f"></script>
     <script src="dashboard-wizard.js?v=20260523e"></script>
     <script src="dashboard-chat.js?v=20260523e"></script>
     <script src="dashboard.js?v=20260523e"></script>

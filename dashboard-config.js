@@ -227,26 +227,61 @@ function toggleHistory() {
 }
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────
+let _sidebarIdleCollapsed = localStorage.getItem('swarm.sidebarIdleCollapsed') !== 'false';
+
 function renderSidebar(projectNames, projectTaskCounts) {
     const container = document.getElementById('sidebar-projects');
     const allCount = Object.values(projectTaskCounts).reduce((s, v) => s + v, 0);
-    const items = [
-        { name: 'All Projects', key: null, count: allCount },
-        ...projectNames
-            .map(n => ({ name: n, key: n, count: projectTaskCounts[n] || 0 })),
-    ];
-    container.innerHTML = items.map(item => {
-        const active = _selectedProject === item.key;
-        const dataAttr = item.key !== null ? `data-project="${escapeHtml(item.name)}"` : '';
-        const hasAgent = item.key !== null && _activeProjectSet.has(item.key);
-        return `
-            <div class="sidebar-item ${active ? 'active' : ''}" ${dataAttr}
-                 onclick="selectSidebarProject(${item.key === null ? 'null' : "'" + item.name + "'"})">
-                ${hasAgent ? '<span class="active-led"></span>' : ''}
-                <span class="sidebar-item-name">${escapeHtml(item.name)}</span>
-                <span class="sidebar-item-count">${item.count}</span>
-            </div>`;
-    }).join('');
+
+    // Partition into three tiers
+    const live = [], active = [], idle = [];
+    for (const name of projectNames) {
+        if (_activeProjectSet && _activeProjectSet.has(name)) live.push(name);
+        else if ((projectTaskCounts[name] || 0) > 0) active.push(name);
+        else idle.push(name);
+    }
+
+    function sidebarItem(name, count) {
+        const isSelected = _selectedProject === name;
+        const hasAgent = _activeProjectSet && _activeProjectSet.has(name);
+        return `<div class="sidebar-item ${isSelected ? 'active' : ''}" data-project="${escapeHtml(name)}"
+                     onclick="selectSidebarProject('${escapeHtml(name).replace(/'/g, "\\'")}')">
+            ${hasAgent ? '<span class="active-led"></span>' : ''}
+            <span class="sidebar-item-name">${escapeHtml(name)}</span>
+            ${count > 0 ? `<span class="sidebar-item-count">${count}</span>` : ''}
+        </div>`;
+    }
+
+    function sectionLabel(text, extra = '') {
+        return `<div class="sidebar-section-label">${text}${extra}</div>`;
+    }
+
+    let html = `<div class="sidebar-item ${_selectedProject === null ? 'active' : ''}"
+                     onclick="selectSidebarProject(null)">
+        <span class="sidebar-item-name">All Projects</span>
+        ${allCount > 0 ? `<span class="sidebar-item-count">${allCount}</span>` : ''}
+    </div>`;
+
+    if (live.length) {
+        html += sectionLabel('● Live');
+        html += live.map(n => sidebarItem(n, projectTaskCounts[n] || 0)).join('');
+    }
+    if (active.length) {
+        html += sectionLabel('Active');
+        html += active.map(n => sidebarItem(n, projectTaskCounts[n] || 0)).join('');
+    }
+    if (idle.length) {
+        const toggleIcon = _sidebarIdleCollapsed ? '▸' : '▾';
+        html += `<div class="sidebar-section-label sidebar-section-toggle"
+                      onclick="event.stopPropagation();_sidebarIdleCollapsed=!_sidebarIdleCollapsed;localStorage.setItem('swarm.sidebarIdleCollapsed',_sidebarIdleCollapsed);renderSidebar(_allProjectNames,_sidebarTaskCounts)">
+            ${toggleIcon} Idle <span style="font-size:10px;color:var(--text-faint);margin-left:4px">${idle.length}</span>
+        </div>`;
+        if (!_sidebarIdleCollapsed) {
+            html += idle.map(n => sidebarItem(n, 0)).join('');
+        }
+    }
+
+    container.innerHTML = html;
 }
 
 function selectSidebarProject(name) {
@@ -314,7 +349,7 @@ function createHistoryCard(agent) {
     const meta = agent.metadata || {};
     const diffStat = meta.diff_stat ? meta.diff_stat.split('\n').pop() : '';
     return `
-        <div class="card agent-card" onclick="showAgentOutput('${agent.id}', '${agent.project}', false, '${agent.task_id || ''}')">
+        <div class="card agent-card status-${status}" onclick="showAgentOutput('${agent.id}', '${agent.project}', false, '${agent.task_id || ''}')">
             <div class="card-header">
                 <span class="project-name">${agent.project}</span>
                 <span class="status ${status}">${status}</span>
@@ -664,23 +699,118 @@ async function loadMetrics() {
     try {
         const m = await fetch('/api/metrics').then(r => r.json());
         const fmt = (v, pct) => pct ? (v * 100).toFixed(1) + '%' : (typeof v === 'number' ? v.toLocaleString() : v);
+        const fmtM = v => v >= 1e9 ? (v/1e9).toFixed(1)+'B' : v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : String(v);
         const items = [
             ['Completed', m.tasks_completed, false, 'success'],
-            ['Failed', m.tasks_failed, false, 'danger'],
-            ['1st-attempt success', m.first_attempt_success_rate, true, null],
-            ['Validation bug rate', m.validation_bug_rate, true, 'warning'],
-            ['Avg attempts', m.avg_attempts_per_task, false, 'info'],
+            ['Failed (all-time)', m.tasks_failed, false, 'danger'],
+            ['Agents run', m.agents_run, false, null],
+            ['1st-try success', m.first_attempt_success_rate, true, null],
+            ['Total tokens', fmtM(m.total_tokens || 0), false, null],
             ['Avg input tokens', m.avg_input_tokens, false, null],
             ['Avg output tokens', m.avg_output_tokens, false, null],
             ['Avg loops', m.avg_loops_per_agent, false, 'info'],
             ['web_search calls', m.web_search_calls, false, null],
             ['Knowledge files', m.knowledge_files_written, false, 'success'],
         ];
-        document.getElementById('metrics-grid').innerHTML = items.map(([label, val, pct, colorClass]) =>
-            `<div class="metric-cell">
-                <div class="metric-label">${label}</div>
+        document.getElementById('metrics-grid').innerHTML = items.map(([label, val, pct, colorClass]) => {
+            const isKnowledge = label === 'Knowledge files';
+            return `<div class="metric-cell${isKnowledge ? ' metric-cell-clickable' : ''}"${isKnowledge ? ' onclick="openKnowledgeModal()" title="Click to browse knowledge files"' : ''}>
+                <div class="metric-label">${label}${isKnowledge ? ' ↗' : ''}</div>
                 <div class="metric-value${colorClass ? ' ' + colorClass : ''}">${fmt(val, pct)}</div>
-            </div>`
-        ).join('');
+            </div>`;
+        }).join('');
     } catch (e) {}
+}
+
+/* ─── Knowledge Files Modal ──────────────────────────────────────── */
+let _knowledgeFiles = [];
+
+async function openKnowledgeModal() {
+    document.getElementById('knowledgeModal').classList.add('active');
+    const sel = document.getElementById('knowledgeSearch');
+    sel.innerHTML = '<option value="">All projects</option>';
+    const list = document.getElementById('knowledgeList');
+    list.innerHTML = '<div style="color:var(--text-faint);font-size:13px">Loading…</div>';
+    try {
+        const data = await fetch('/api/metrics/knowledge-files').then(r => r.json());
+        _knowledgeFiles = data.files || [];
+        document.getElementById('knowledgeModalTitle').textContent = `Knowledge Files (${_knowledgeFiles.length})`;
+        // Populate dropdown
+        _knowledgeFiles.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.project;
+            opt.textContent = f.project;
+            sel.appendChild(opt);
+        });
+        sel.value = '';
+        renderKnowledgeList(_knowledgeFiles);
+    } catch(e) {
+        list.innerHTML = '<div style="color:var(--red,#f85149);font-size:13px">Failed to load</div>';
+    }
+}
+
+function closeKnowledgeModal() {
+    document.getElementById('knowledgeModal').classList.remove('active');
+}
+
+function filterKnowledge() {
+    const q = document.getElementById('knowledgeSearch').value;
+    const list = document.getElementById('knowledgeList');
+    if (!q) {
+        list.innerHTML = '<div style="color:var(--text-faint);font-size:13px">Select a project above to view its knowledge file.</div>';
+        return;
+    }
+    const f = _knowledgeFiles.find(f => f.project === q);
+    if (!f) { list.innerHTML = '<div style="color:var(--text-faint);font-size:13px">Not found.</div>'; return; }
+    list.innerHTML = `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:13px;line-height:1.7;color:var(--text)">${renderMarkdown(f.content)}</div>`;
+}
+
+function renderMarkdown(md) {
+    // Simple markdown renderer: headings, bold, inline code, code blocks, bullets, horizontal rules
+    const lines = md.split('\n');
+    let html = '';
+    let inCode = false;
+    let codeBuf = '';
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.startsWith('```')) {
+            if (inCode) {
+                html += `<pre style="background:var(--bg-input,#0d1117);border:1px solid var(--border-faint);border-radius:5px;padding:10px 12px;overflow-x:auto;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text-muted,#8b949e);margin:8px 0">${escapeHtml(codeBuf)}</pre>`;
+                codeBuf = ''; inCode = false;
+            } else { inCode = true; }
+            continue;
+        }
+        if (inCode) { codeBuf += line + '\n'; continue; }
+
+        if (inList && !line.match(/^[\-\*] /)) { html += '</ul>'; inList = false; }
+
+        if (line.startsWith('### ')) {
+            html += `<div style="font-size:12px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">${escapeHtml(line.slice(4))}</div>`;
+        } else if (line.startsWith('## ')) {
+            html += `<div style="font-size:14px;font-weight:700;color:var(--cyan,#79c0ff);margin:20px 0 6px;border-bottom:1px solid var(--border-faint);padding-bottom:4px">${escapeHtml(line.slice(3))}</div>`;
+        } else if (line.startsWith('# ')) {
+            html += `<div style="font-size:16px;font-weight:700;color:var(--text);margin:0 0 12px">${escapeHtml(line.slice(2))}</div>`;
+        } else if (line.match(/^[\-\*] /)) {
+            if (!inList) { html += '<ul style="margin:4px 0 4px 16px;padding:0;list-style:disc">'; inList = true; }
+            html += `<li style="margin:2px 0">${inlineMd(line.slice(2))}</li>`;
+        } else if (line.match(/^---+$/)) {
+            html += `<hr style="border:none;border-top:1px solid var(--border-faint);margin:12px 0">`;
+        } else if (line.trim() === '') {
+            html += '<div style="height:6px"></div>';
+        } else {
+            html += `<div>${inlineMd(line)}</div>`;
+        }
+    }
+    if (inList) html += '</ul>';
+    if (inCode) html += `<pre style="background:var(--bg-input,#0d1117);border:1px solid var(--border-faint);border-radius:5px;padding:10px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text-muted,#8b949e)">${escapeHtml(codeBuf)}</pre>`;
+    return html;
+}
+
+function inlineMd(text) {
+    return escapeHtml(text)
+        .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input,#0d1117);border:1px solid var(--border-faint);border-radius:3px;padding:1px 5px;font-size:11px;font-family:\'IBM Plex Mono\',monospace;color:var(--text-accent,#ff7b72)">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }

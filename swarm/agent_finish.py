@@ -162,9 +162,10 @@ def _capture_project_diff_stat(project: Optional[str]) -> str:
     return ""
 
 
-def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int]:
+def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int, int]:
     input_tokens = 0
     output_tokens = 0
+    loop_count = 0
     token_key = task_id or agent_id
     token_file = Path(str(_al().DATA_DIR)) / f"agent_{token_key}_tokens.json"
     if token_file.exists():
@@ -172,15 +173,16 @@ def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int,
             tok = json.loads(token_file.read_text())
             input_tokens = tok.get("input", 0)
             output_tokens = tok.get("output", 0)
+            loop_count = tok.get("loop_count", 0)
             token_file.unlink()
         except Exception:
             pass
-    return input_tokens, output_tokens
+    return input_tokens, output_tokens, loop_count
 
 
 def _mark_agent_finished(agent_id: str, success: bool, exit_code: int,
                          output: str, diff_stat: str, input_tokens: int,
-                         output_tokens: int):
+                         output_tokens: int, loop_count: int = 0):
     al = _al()
     al._lazy_imports()
     db = al.db
@@ -194,6 +196,7 @@ def _mark_agent_finished(agent_id: str, success: bool, exit_code: int,
         metadata=json.dumps(agent_meta),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        loop_count=loop_count,
     )
 
 
@@ -594,8 +597,8 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
     # Phase 4 -- diff, tokens, mark agent finished.
     diff_stat = _capture_project_diff_stat(project)
-    input_tokens, output_tokens = _read_agent_token_usage(task_id, agent_id)
-    _mark_agent_finished(agent_id, success, exit_code, output, diff_stat, input_tokens, output_tokens)
+    input_tokens, output_tokens, loop_count = _read_agent_token_usage(task_id, agent_id)
+    _mark_agent_finished(agent_id, success, exit_code, output, diff_stat, input_tokens, output_tokens, loop_count)
 
     # Phase 5 -- task outcome.
     task_snapshot_pre_complete: Optional[dict] = None

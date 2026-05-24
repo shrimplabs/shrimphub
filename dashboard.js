@@ -17,6 +17,7 @@ if (window.SwarmDepsIntegrityUI) {
     _depHistoryLimit = window.SwarmDepsIntegrityUI.getDepHistoryLimit();
 }
 
+function refreshAll() { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }
 loadData().then(() => { if (_depsVisible) renderDepsGraph(); });
 // Click outside modals to close
 document.getElementById('outputModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });

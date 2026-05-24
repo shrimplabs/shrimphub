@@ -229,32 +229,42 @@ class DependencyGraph:
     def get_ready_tasks(self, completed: Set[str]) -> List[str]:
         """
         Get tasks that are ready to execute (all dependencies completed).
-        
+
+        A dependency is considered met if:
+        - It is in the completed set, OR
+        - It is not present in the graph at all (pruned/absent tasks self-heal,
+          matching the same rule used by _get_next_task in orchestrator.py)
+
         Args:
             completed: Set of completed task IDs
-        
+
         Returns:
             List of task IDs that can be executed now
         """
+        active_ids = set(self._nodes.keys())
         ready = []
-        
+
         for task_id, node in self._nodes.items():
             if node.status != "pending":
                 continue
-            
-            # Check if all dependencies are completed
-            if all(dep in completed for dep in node.dependencies):
+
+            # Dep is met if completed OR absent from the graph (pruned/failed+pruned)
+            if all(dep in completed or dep not in active_ids for dep in node.dependencies):
                 ready.append(task_id)
-        
+
         return ready
     
     def can_execute(self, task_id: str, completed: Set[str]) -> bool:
-        """Check if a task can be executed (all dependencies met)"""
+        """Check if a task can be executed (all dependencies met).
+
+        Matches the self-heal rule in _get_next_task: a dep absent from the
+        graph is treated as met (pruned completed/failed tasks don't block).
+        """
         node = self._nodes.get(task_id)
         if not node:
             return False
-        
-        return all(dep in completed for dep in node.dependencies)
+        active_ids = set(self._nodes.keys())
+        return all(dep in completed or dep not in active_ids for dep in node.dependencies)
     
     def get_blocked_tasks(self, completed: Set[str]) -> Dict[str, List[str]]:
         """

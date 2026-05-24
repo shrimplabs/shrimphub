@@ -10,6 +10,77 @@
         return _contextProvider ? _contextProvider() : {};
     }
 
+    // Color maps: DOT-generated hardcoded hex → theme-aware replacements.
+    // Keys are the exact fillcolor/fontcolor values from dependencies.py + api_deps.py.
+    const _DOT_COLOR_MAP = {
+        dark: {
+            // These are already the dark-mode values — keep as-is
+        },
+        light: {
+            // node fill remaps
+            '#30363d': '#e8edf2',   // pending fill: dark grey → light grey
+            '#0d1117': '#f0f4f8',   // ghost / in_progress bg fill → near-white
+            '#238636': '#2da44e',   // completed fill (ok as-is, slightly lighter)
+            '#da3633': '#d1242f',   // failed fill (ok)
+            // font remaps (what was readable on dark is invisible on light)
+            '#c9d1d9': '#24292f',   // pending text: light grey → near-black
+            '#ffffff': '#24292f',   // completed/failed white text → near-black
+            '#f0e68c': '#7a6500',   // ghost HEAD khaki text → dark gold
+            // edge/stroke colors
+            '#8b949e': '#57606a',   // default edge: medium grey → darker
+            '#3fb950': '#1a7f37',   // ghost ok text/border → darker green
+            '#d4af37': '#9a6700',   // ghost HEAD border gold → darker
+            '#f0883e': '#bc4c00',   // in_progress orange → darker
+            '#58a6ff': '#0969da',   // history edge blue → darker blue
+        }
+    };
+
+    function _remapDepGraphColors(svg) {
+        const theme = document.body.getAttribute('data-theme') || 'cyberpunk';
+        if (theme !== 'light') return; // dark/cyberpunk already look correct
+
+        const map = _DOT_COLOR_MAP.light;
+
+        function remapAttr(el, attr) {
+            const val = (el.getAttribute(attr) || '').toLowerCase().trim();
+            if (map[val]) el.setAttribute(attr, map[val]);
+        }
+
+        // Remap fill/stroke/fontcolor on all SVG elements
+        svg.querySelectorAll('[fill], [stroke], [color]').forEach(el => {
+            remapAttr(el, 'fill');
+            remapAttr(el, 'stroke');
+            remapAttr(el, 'color');
+        });
+
+        // Also remap text fill (SVG text uses fill for color)
+        svg.querySelectorAll('text').forEach(el => {
+            remapAttr(el, 'fill');
+            // Inline style fill
+            const style = el.getAttribute('style') || '';
+            if (style.includes('fill:')) {
+                const newStyle = style.replace(/fill:\s*(#[0-9a-fA-F]{6})/gi, (_, hex) => {
+                    return 'fill:' + (map[hex.toLowerCase()] || hex);
+                });
+                el.setAttribute('style', newStyle);
+            }
+        });
+
+        // Edge paths
+        svg.querySelectorAll('g.edge path, g.edge polygon').forEach(el => {
+            remapAttr(el, 'stroke');
+            remapAttr(el, 'fill');
+        });
+
+        // Cluster/subgraph labels
+        svg.querySelectorAll('g.cluster text').forEach(el => {
+            remapAttr(el, 'fill');
+        });
+        svg.querySelectorAll('g.cluster polygon, g.cluster rect').forEach(el => {
+            remapAttr(el, 'stroke');
+        });
+    }
+
     function _depRenderHistoryCandidates() {
         const seed = [Number(_depHistoryLimit) || 2, 2, 1, 0];
         return [...new Set(seed.filter(n => Number.isFinite(n) && n >= 0))];
@@ -95,6 +166,118 @@
             'transform',
             `translate(${_depGraphState.translateX}, ${_depGraphState.translateY}) scale(${_depGraphState.scale})`
         );
+        _updateMinimap();
+    }
+
+    // ── Minimap ──────────────────────────────────────────────────────────────
+
+    const MINIMAP_W = 160;
+    const MINIMAP_H = 110;
+
+    function _ensureMinimap(container) {
+        let mm = container.querySelector('.deps-minimap');
+        if (mm) return mm;
+
+        mm = document.createElement('div');
+        mm.className = 'deps-minimap';
+        mm.title = 'Minimap — click or drag to pan';
+        mm.innerHTML = `
+            <svg class="deps-minimap-svg" xmlns="http://www.w3.org/2000/svg"
+                 width="${MINIMAP_W}" height="${MINIMAP_H}">
+                <g class="deps-minimap-graph"></g>
+                <rect class="deps-minimap-viewport" rx="2"/>
+            </svg>`;
+
+        // Drag-to-pan on minimap
+        let mmDragging = false;
+        function mmPanTo(e) {
+            if (!_depGraphState) return;
+            const rect = mm.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) / MINIMAP_W;
+            const my = (e.clientY - rect.top) / MINIMAP_H;
+            const graphBounds = _depGraphState.graphRoot.getBBox();
+            const containerRect = _depGraphState.container.getBoundingClientRect();
+            // Centre the view on the clicked graph point
+            const gx = graphBounds.x + mx * graphBounds.width;
+            const gy = graphBounds.y + my * graphBounds.height;
+            _depGraphState.translateX = containerRect.width / 2 - gx * _depGraphState.scale;
+            _depGraphState.translateY = containerRect.height / 2 - gy * _depGraphState.scale;
+            applyDepGraphTransform();
+            saveDepGraphView();
+        }
+        mm.addEventListener('mousedown', e => { mmDragging = true; mmPanTo(e); e.preventDefault(); });
+        window.addEventListener('mousemove', e => { if (mmDragging) mmPanTo(e); });
+        window.addEventListener('mouseup', () => { mmDragging = false; });
+
+        container.appendChild(mm);
+        return mm;
+    }
+
+    function _updateMinimap() {
+        if (!_depGraphState) return;
+        const container = _depGraphState.container;
+        const mm = _ensureMinimap(container);
+        const mmSvg = mm.querySelector('.deps-minimap-svg');
+        const mmGroup = mm.querySelector('.deps-minimap-graph');
+        const mmViewport = mm.querySelector('.deps-minimap-viewport');
+
+        // Get full graph bounds in graph-space
+        let graphBounds;
+        try { graphBounds = _depGraphState.graphRoot.getBBox(); } catch(e) { return; }
+        if (!graphBounds.width || !graphBounds.height) return;
+
+        // Scale to fit the minimap
+        const mmScale = Math.min(MINIMAP_W / graphBounds.width, MINIMAP_H / graphBounds.height) * 0.92;
+        const mmOffX = (MINIMAP_W - graphBounds.width * mmScale) / 2 - graphBounds.x * mmScale;
+        const mmOffY = (MINIMAP_H - graphBounds.height * mmScale) / 2 - graphBounds.y * mmScale;
+
+        // Sync the minimap graph content from the main graph (clone nodes only, no labels for perf)
+        const mainGroup = _depGraphState.graphRoot;
+        if (mmGroup._lastSource !== mainGroup || mmGroup._lastChildCount !== mainGroup.children.length) {
+            mmGroup._lastSource = mainGroup;
+            mmGroup._lastChildCount = mainGroup.children.length;
+            mmGroup.innerHTML = '';
+            // Shallow-clone each node's shape (polygon/ellipse) — skip text for perf
+            mainGroup.querySelectorAll('g.node').forEach(node => {
+                const shape = node.querySelector('polygon,ellipse,rect,circle');
+                if (!shape) return;
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('transform', node.getAttribute('transform') || '');
+                const s = shape.cloneNode(false);
+                // Preserve fill colour (status colour) but drop stroke detail
+                s.setAttribute('stroke-width', '0.5');
+                g.appendChild(s);
+                mmGroup.appendChild(g);
+            });
+            // Clone edges (paths) at low detail
+            mainGroup.querySelectorAll('g.edge path').forEach(path => {
+                const p = path.cloneNode(false);
+                p.setAttribute('stroke-width', '0.5');
+                p.setAttribute('fill', 'none');
+                mmGroup.insertBefore(p, mmGroup.firstChild);
+            });
+        }
+
+        mmGroup.setAttribute('transform', `translate(${mmOffX},${mmOffY}) scale(${mmScale})`);
+
+        // Draw viewport rectangle: what's visible in the main container
+        const containerRect = container.getBoundingClientRect();
+        // Top-left of container in graph-space
+        const visLeft   = (-_depGraphState.translateX) / _depGraphState.scale;
+        const visTop    = (-_depGraphState.translateY) / _depGraphState.scale;
+        const visRight  = visLeft + containerRect.width / _depGraphState.scale;
+        const visBottom = visTop  + containerRect.height / _depGraphState.scale;
+
+        // Map to minimap pixels
+        const rx = visLeft   * mmScale + mmOffX;
+        const ry = visTop    * mmScale + mmOffY;
+        const rw = (visRight  - visLeft) * mmScale;
+        const rh = (visBottom - visTop)  * mmScale;
+
+        mmViewport.setAttribute('x', rx);
+        mmViewport.setAttribute('y', ry);
+        mmViewport.setAttribute('width',  Math.max(4, rw));
+        mmViewport.setAttribute('height', Math.max(4, rh));
     }
 
     function fitDepGraphView(boundsOverride = null) {
@@ -457,7 +640,11 @@
                 if (!svg) {
                     throw lastRenderError || new Error('graph renderer returned no SVG');
                 }
-                svg.style.maxWidth = '100%';
+                // Remove the natural height Graphviz bakes in — container has a fixed height
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = '100%';
                 svg.style.fontFamily = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
                 svg.style.overflow = 'visible';
                 svg.classList.add('deps-graph-svg');
@@ -483,7 +670,11 @@
                     if (sda) rect.setAttribute('stroke-dasharray', sda);
                     poly.parentNode.replaceChild(rect, poly);
                 });
-                svg.setAttribute('style', 'max-width:100%;background:transparent;overflow:visible');
+                svg.setAttribute('style', 'width:100%;height:100%;background:transparent;overflow:visible');
+
+                // Remap hardcoded dark-mode node colors to theme-aware values
+                _remapDepGraphColors(svg);
+
                 container.innerHTML = '';
                 container.appendChild(svg);
                 const historySelect = document.getElementById('depsHistoryLimit');
