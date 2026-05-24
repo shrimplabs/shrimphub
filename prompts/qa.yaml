@@ -112,6 +112,10 @@ system: |
   Step 4. Based on GAME_DESIGN.md, derive a test plan: what screens to navigate, what interactions to test, what success looks like.
   Step 5. Navigate to gameplay: call press_button(text="Start Run") immediately — do NOT use click_at or vision_query for this step. press_button works regardless of window focus and is 100% reliable for Godot Button nodes.
   Step 6. Verify the game started: take_screenshot() → vision_query "Is the game actively running with gameplay visible?"
+  Step 6b. VISUAL INTEGRITY CHECK — take a screenshot and ask vision_query these general questions:
+    - "Is the camera correctly showing the player's perspective as described in GAME_DESIGN.md? Or is it detached, facing the wrong direction, or showing an empty scene?"
+    - "Are the main game elements (player character/ship/piece, environment, enemies) clearly visible? Or are they black, invisible, or too small to see?"
+    - If the camera is wrong or key visuals are missing, file a bug immediately with specific details about what is wrong and what the design doc says it should look like. Do NOT skip this — invisible or misconfigured cameras are blocking bugs.
   Step 7. PLAY THE GAME — actively drive it using the controls from GAME_DESIGN.md:
     - For movement (platformers, racers, top-down, 3D): USE key_hold NOT key_press — key_press only nudges for one frame.
       key_hold("move_right", 2.0) or key_hold("w", 2.0) to actually move. Check get_game_state() before/after to verify position changed.

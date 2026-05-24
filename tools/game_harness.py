@@ -179,8 +179,12 @@ def ask_llm(
             vision_provider = config.get("vision_provider", "local-powerful")
             vision_description = call_vision(
                 image_path,
-                "Describe what is happening in this game screenshot in 2-3 sentences. "
-                "Focus on: player position/movement, HUD info (health/score/lap), obstacles, UI elements.",
+                "Describe this game screenshot for a player who needs to decide their next action. "
+                "Be specific about: (1) which direction the track curves ahead — left, right, or straight? "
+                "(2) is the player near a wall or obstacle? "
+                "(3) HUD info: lap number, position, time. "
+                "(4) is there a menu or UI overlay visible? "
+                "Keep it to 3-4 sentences.",
                 vision_provider,
                 config,
             )
@@ -287,36 +291,41 @@ def parse_tool_call(text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are an AI playing a video game. Each step you receive a screenshot and game state, then output ONE action.
+You are an AI playing a video game. Each step you receive a description of what the screenshot shows and the current game state, then you output ONE action.
 
-CRITICAL: Your entire reply must be a single JSON object. No text before it. No text after it. No markdown.
+CRITICAL: Your entire reply must be a single JSON object. No text before it. No text after it. No markdown fences. No explanation.
 
 The JSON must have exactly these two keys: "tool" and "args".
 
 VALID TOOLS (use ONLY these exact tool names):
 
-key_hold — hold a key/action for N seconds (use this for movement, acceleration)
-  {"tool": "key_hold", "args": {"key": "ship_thrust", "duration": 2.0}}
-  {"tool": "key_hold", "args": {"key": "turn_right", "duration": 1.0}}
-  {"tool": "key_hold", "args": {"key": "move_right", "duration": 1.5}}
+play_macro — run a SEQUENCE of actions in one step (PREFERRED for movement — combine move + turn in one call)
+  Two actions: {"tool": "play_macro", "args": {"actions": [{"type": "hold", "action": "move_right", "duration": 1.5}, {"type": "hold", "action": "jump", "duration": 0.2}]}}
+  One action:  {"tool": "play_macro", "args": {"actions": [{"type": "hold", "action": "move_left", "duration": 2.0}]}}
 
-key_press — tap a key once (use for single actions like jump, shoot)
-  {"tool": "key_press", "args": {"key": "jump"}}
+key_hold — hold ONE action/key for N seconds
+  {"tool": "key_hold", "args": {"key": "move_right", "duration": 1.0}}
+  {"tool": "key_hold", "args": {"key": "w", "duration": 1.5}}
+
+key_press — tap a key once (for menus, single actions, jumps)
   {"tool": "key_press", "args": {"key": "space"}}
+  {"tool": "key_press", "args": {"key": "ui_accept"}}
 
-press_button — click a UI button by label (use for menus)
+press_button — click a UI button by its label text (for menus only)
   {"tool": "press_button", "args": {"text": "Start Game"}}
   {"tool": "press_button", "args": {"text": "Play"}}
 
-play_macro — run a sequence of actions (thrust + steer combo)
-  {"tool": "play_macro", "args": {"actions": [{"type": "hold", "action": "ship_thrust", "duration": 2.0}, {"type": "hold", "action": "turn_right", "duration": 0.5}]}}
+wait — pause briefly
+  {"tool": "wait", "args": {"seconds": 0.5}}
 
-wait — pause for N seconds
-  {"tool": "wait", "args": {"seconds": 1.0}}
+INVALID (never output these): ui_accept as a tool name, godot, game_state, set_game_state, action, method, command
 
-INVALID (never use): ui_accept, godot, game_state, set_game_state, action, method
-
-For anti-gravity racing: use ship_thrust to accelerate, turn_left/turn_right to steer.
+STRATEGY GUIDE:
+- The game design doc lists the exact action names — use those (e.g. move_left, jump, fire, ship_thrust).
+- Vary your actions each step based on the screenshot description — do NOT repeat the same action every step.
+- If the screenshot shows a corner or obstacle ahead, steer to avoid it.
+- If you see a menu or overlay, use press_button with the visible button label.
+- Use play_macro to combine multiple actions (e.g. move + turn) into one efficient step.
 """
 
 
