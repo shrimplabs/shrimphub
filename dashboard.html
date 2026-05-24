@@ -196,6 +196,15 @@
                 <input id="instantHint" type="text" placeholder="e.g. something weird, horror themed, massive scope…" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
             </div>
             <div style="display:flex;flex-direction:column;gap:6px">
+                <label style="font-size:12px;color:var(--text-muted)">Scope</label>
+                <select id="instantScope" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
+                    <option value="tiny">Tiny — ~10 tasks (rapid testing)</option>
+                    <option value="small">Small — ~20 tasks</option>
+                    <option value="medium" selected>Medium — ~40 tasks</option>
+                    <option value="large">Large — ~60 tasks</option>
+                </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
                 <label style="font-size:12px;color:var(--text-muted)">Number of projects</label>
                 <input id="instantCount" type="number" value="1" min="1" max="50" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px;width:80px">
             </div>

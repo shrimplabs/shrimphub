@@ -620,6 +620,7 @@ function openInstantModal() {
     document.getElementById('instantHint').value = '';
     document.getElementById('instantCount').value = '1';
     document.getElementById('instantType').value = 'godot';
+    document.getElementById('instantScope').value = 'medium';
     document.getElementById('instantStatus').textContent = '';
     document.getElementById('instantRunBtn').disabled = false;
     document.getElementById('instantRunBtn').textContent = '⚡ Create';
@@ -636,6 +637,8 @@ async function runInstantProject() {
     const count = parseInt(document.getElementById('instantCount').value) || 1;
     const type = document.getElementById('instantType').value;
     const hint = document.getElementById('instantHint').value.trim();
+    const scopeMap = { tiny: [5, 12], small: [15, 25], medium: [30, 50], large: [50, 80] };
+    const [min_tasks, max_tasks] = scopeMap[document.getElementById('instantScope').value] || scopeMap.medium;
 
     btn.disabled = true;
     btn.textContent = count === 1 ? '⏳ Working…' : `⏳ Creating ${count} projects…`;
@@ -647,7 +650,7 @@ async function runInstantProject() {
         const resp = await fetch('/api/wizard/create-instant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project_type: type, hint, count }),
+            body: JSON.stringify({ project_type: type, hint, count, min_tasks, max_tasks }),
         });
         const data = await resp.json();
         if (!resp.ok) {

@@ -61,11 +61,18 @@ def task_graph_quality_errors(tasks, allowed_external_roots=None, project_type: 
     if not roots:
         errors.append("Graph must have at least one root task.")
 
-    if len(tasks) >= 6:
-        id_set_local = set(ids)
+    # Exclude sprint-close tail tasks (art_pass, polish, qa/harness_qa/hybrid_qa, audit)
+    # from graph-shape heuristics. These are system-appended after the plan DAG and always
+    # form a linear tail — they must not penalise an otherwise well-structured plan.
+    _tail_types = {"art_pass", "polish", "qa", "harness_qa", "hybrid_qa", "audit"}
+    plan_tasks = [t for t in tasks if t.get("type") not in _tail_types]
+    plan_ids = {t.get("id", "") for t in plan_tasks if t.get("id")}
+
+    if len(plan_tasks) >= 6:
+        id_set_local = plan_ids
         internal_dep_sets = [
             frozenset(d for d in (task.get("dependencies") or []) if d in id_set_local)
-            for task in tasks
+            for task in plan_tasks
         ]
         non_empty_internal = [d for d in internal_dep_sets if d]
         if non_empty_internal and all(len(d) == 1 for d in non_empty_internal) and len(set(non_empty_internal)) == 1:
@@ -82,21 +89,21 @@ def task_graph_quality_errors(tasks, allowed_external_roots=None, project_type: 
         else:
             root_like_count = sum(
                 1
-                for task in tasks
+                for task in plan_tasks
                 if not (task.get("dependencies") or [])
                 or all(dep in allowed_external_roots for dep in (task.get("dependencies") or []))
             )
-            if len(tasks) >= 8 and root_like_count > len(tasks) // 2:
+            if len(plan_tasks) >= 8 and root_like_count > len(plan_tasks) // 2:
                 errors.append(
                     "Generated dependency graph is too flat: too many tasks remain attached directly to the external "
                     "anchor instead of depending on preceding task outputs. "
                     "A project plan must encode more of the intended sequencing between systems."
                 )
 
-        graph_ids = {t.get("id", "") for t in tasks if t.get("id")}
+        graph_ids = plan_ids
         indegree = {tid: 0 for tid in graph_ids}
         outdegree = {tid: 0 for tid in graph_ids}
-        for task in tasks:
+        for task in plan_tasks:
             tid = task.get("id", "")
             for dep in (task.get("dependencies") or []):
                 if dep in graph_ids and tid in outdegree:
@@ -106,11 +113,11 @@ def task_graph_quality_errors(tasks, allowed_external_roots=None, project_type: 
         convergence_nodes = [tid for tid, degree in indegree.items() if degree > 1]
         root_nodes = [
             t.get("id", "")
-            for t in tasks
+            for t in plan_tasks
             if not (t.get("dependencies") or [])
             or all(dep in allowed_external_roots for dep in (t.get("dependencies") or []))
         ]
-        if len(tasks) >= 8 and len(root_nodes) <= 1 and len(branch_nodes) <= 1 and len(convergence_nodes) <= 1:
+        if len(plan_tasks) >= 8 and len(root_nodes) <= 1 and len(branch_nodes) <= 1 and len(convergence_nodes) <= 1:
             errors.append(
                 "Generated dependency graph is too chain-like: it has too little branching and convergence for a "
                 "project plan of this size. A project plan must expose multiple parallel branches."
