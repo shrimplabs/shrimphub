@@ -486,6 +486,8 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
 
         # Assign stable IDs and resolve depends_on indices → task IDs
         task_ids = [f"{project_name}-t{i+1}-{_uuid.uuid4().hex[:4]}" for i in range(len(tasks_in))]
+        # Keep a snapshot of user-provided task IDs before any auto tasks are appended
+        user_task_ids = list(task_ids)
         pending_batch = []
         for i, t in enumerate(tasks_in):
             raw_deps = t.get("depends_on", []) or t.get("dependencies", [])
@@ -609,7 +611,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
             return jsonify({"error": "Project creation validation failed", "details": validation_errors}), 400
 
         return jsonify({"project": project_name, "tasks_created": len(created),
-                        "task_ids": [t["id"] for t in created], "git_log": git_log, "gitea_url": gitea_url})
+                        "task_ids": user_task_ids, "git_log": git_log, "gitea_url": gitea_url})
 def _copy_tree(src: Path, dst: Path):
     if not src.exists():
         return
