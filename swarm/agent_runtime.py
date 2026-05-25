@@ -1107,7 +1107,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 else:
                     auto_msg = f"Refactor: update plan for {PROJECT}"
                 result = git_commit(auto_msg)
-                if result.get("ok"):
+                if result.get("ok") and TASK_TYPE != "art_pass":
                     git_push()
         except Exception as e:
             log(f"WARNING: auto-commit failed (non-fatal): {e}")

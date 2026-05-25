@@ -1279,6 +1279,30 @@ class TestMainLoop:
         assert call_count[0] == 3
         assert code == 0
 
+    def test_art_pass_loop_limit_auto_commit_does_not_push(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "art_pass"
+        rt.ART_PASS_SYSTEM = "Art pass system"
+        rt.ART_PASS_USER = "Art pass user"
+        rt.MAX_TOOL_LOOPS = 1
+        def fake_llm(sys_p, msgs):
+            return '[TOOL_CALL]{"tool": "run_command", "args": {"command": "printf changed > art_note.txt"}}[/TOOL_CALL]', {"input": 0, "output": 0}
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), \
+             patch("swarm.agent_runtime.git_push") as git_push_mock:
+            code = rt.main()
+
+        assert code == 0
+        git_push_mock.assert_not_called()
+        log = subprocess.run(
+            ["git", "log", "-1", "--pretty=%s"],
+            cwd=tmp_path / "workspace" / "test-proj",
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        assert log == "Refactor: update art_note.txt"
+
     def test_python_project_uses_python_feature_prompt(self, tmp_path):
         proj = tmp_path / "workspace" / "test-proj"
         (proj / "requirements.txt").write_text("flask\n")
