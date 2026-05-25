@@ -182,8 +182,9 @@ def _tool_authority_denial(tool: str, args: dict) -> dict | None:
     run_broadcast_write_count = _rt.RUN_BROADCAST_WRITE_COUNT
 
     mutating_tools = {"write_file", "patch_file", "append_file", "git_commit", "git_push"}
-
-    if task_type in ("plan", "python_plan") and tool in mutating_tools:
+    # plan/python_plan also block run_command — agents can bypass write restrictions via shell
+    plan_blocked = mutating_tools | {"run_command"}
+    if task_type in ("plan", "python_plan") and tool in plan_blocked:
         return _task_tool_authority_error(tool, "planning tasks are read-only")
 
     if tool == "delegate_helper" and task_type not in {"feature", "bug", "refactor", "polish", "audit", "research", "triage"}:

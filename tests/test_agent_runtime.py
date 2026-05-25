@@ -586,6 +586,19 @@ class TestTaskAuthorityGuards:
         assert result["ok"] is False
         assert "create_tasks_file_aware" in result["error"]
 
+
+    def test_plan_blocks_run_command(self):
+        rt.TASK_TYPE = "plan"
+        result = rt.execute_tool({"tool": "run_command", "args": {"command": "git log --oneline -5"}})
+        assert result["ok"] is False
+        assert "read-only" in result["error"]
+
+    def test_python_plan_blocks_run_command(self):
+        rt.TASK_TYPE = "python_plan"
+        result = rt.execute_tool({"tool": "run_command", "args": {"command": "echo hello > /tmp/test.txt"}})
+        assert result["ok"] is False
+        assert "read-only" in result["error"]
+
     def test_recovery_task_cannot_spawn_child_work(self):
         rt.TASK_TYPE = "bug"
         rt.TASK_METADATA = {"is_recovery_task": True}
