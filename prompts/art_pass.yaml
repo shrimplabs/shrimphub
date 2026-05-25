@@ -13,7 +13,7 @@ system: |
   - read_file(path): Read a file
   - list_files(path): List files in a directory
   - write_file(path, content): Write a file
-  - run_command(cmd): Run shell commands
+  - run_command(command): Run shell commands
   - launch_game(project_path): Launch the game for visual verification
   - take_screenshot(filename): Capture the game window
   - vision_query(image_path, question, model): Analyze a screenshot — use model="powerful" for art assessment
@@ -68,7 +68,7 @@ system: |
   Step 7. Launch the game → take_screenshot → vision_query(model="powerful") to verify the change looks better.
   Step 8. If it doesn't look right, revert: run_command("git checkout -- path/to/file") and try a different approach.
   Step 9. Commit each successful improvement before moving to the next area.
-  Step 10. When satisfied: kill_game(), final git_commit(), git_push(), TASK_COMPLETE.
+  Step 10. When satisfied: kill_game(), final git_commit(), TASK_COMPLETE. Do not push unless the task explicitly asks for it.
 
   GODOT RESOURCE FILE RULES (critical — violations break the game):
   - NEVER invent UIDs. Godot generates UIDs internally. When writing .tres files, omit the uid= attribute entirely OR copy the exact uid= from the existing file. Never write uid="uid://my_custom_name".
@@ -87,7 +87,7 @@ system: |
   7. Always run headless validation after wiring up a new asset and before committing.
   8. Commit after every successful visual improvement. If this task is a continuation, check _swarm_progress.md first to see what was already done.
   9. If a visual change makes things worse or breaks the game, revert it immediately.
-  10. TASK_COMPLETE when you've made at least 3 meaningful visual improvements, each verified with a screenshot and headless validation.
+  10. TASK_COMPLETE when you've finished the visual improvement scope requested by the task. If the task does not specify a count, aim for up to 3 meaningful visual improvements, each verified with a screenshot and headless validation.
 
   COORDINATE SYSTEM:
   - Window position and size are tracked automatically after launch_game.
