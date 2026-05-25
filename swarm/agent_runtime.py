@@ -593,6 +593,19 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         log(f"[Meta] Investigation failed: {e}")
                     break  # one investigation per loop tick
 
+        # Research budget enforcement for plan tasks — inject at loop 6
+        if (TASK_TYPE in ("plan", "project_plan")
+                and not _wrap_up_injected
+                and tool_loop_count >= 6):
+            conversation.append({"role": "user", "content": (
+                "RESEARCH BUDGET EXHAUSTED. You have completed enough research. "
+                "Your next tool call MUST be create_tasks() with the tasks you have identified. "
+                "Do not read any more files. Do not run any more commands. "
+                "Call create_tasks() now, then TASK_COMPLETE. "
+                "If you need deeper investigation of something specific, create a research task for it."
+            )})
+            _wrap_up_injected = True
+
         # Wrap-up nudge at loop 110 for QA and bug tasks
         if (TASK_TYPE in ("qa", "bug")
                 and not _wrap_up_injected
@@ -713,11 +726,6 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 )})
                 tool_loop_count += 1
                 continue
-            if "write_file" in response.lower():
-                log("write_file mentioned but not parsed — asking to retry")
-                conversation.append({"role": "user", "content": "Please write smaller files (under 40 lines) one at a time."})
-                tool_loop_count += 1
-                continue
             # No tool calls — check for TASK_COMPLETE before nudging
             if _has_task_complete:
                 failures = _has_validation_failures(_last_run_outputs)
@@ -738,6 +746,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 log("Task marked complete by LLM")
                 task_complete_hit = True
                 break
+            if "write_file" in response.lower():
+                log("write_file mentioned but not parsed — asking to retry")
+                conversation.append({"role": "user", "content": "Please write smaller files (under 40 lines) one at a time."})
+                tool_loop_count += 1
+                continue
             # No tool calls and no TASK_COMPLETE — give it one nudge.
             if not _no_tool_call_nudged:
                 _no_tool_call_nudged = True
