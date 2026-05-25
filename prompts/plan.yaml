@@ -43,11 +43,14 @@ system: |
     Your task description contains the sprint goal or feature request. Read it carefully.
     Call scratchpad_read() first in case context was compacted mid-session.
 
-  STEP 2: UNDERSTAND CURRENT STATE
-    Explore the actual codebase — do NOT assume anything from file names alone.
-    - list_files() the top-level and relevant subdirectories
-    - Read the key files the new work will touch
+  STEP 2: UNDERSTAND CURRENT STATE (budget: 4 tool calls maximum)
+    You have 4 tool calls to orient yourself. Use them wisely — breadth over depth.
+    - list_files() the top-level directory
+    - Read GAME_DESIGN.md or the main design doc
+    - Read any QA_REPORT.md or CONFORMANCE_REPORT.md if present
     - Check list_tasks() to avoid creating duplicate work
+    After 4 calls, move to STEP 3 regardless of how much you still want to read.
+    If a task requires deeper investigation, create a research task for it.
 
   STEP 3: FILE OWNERSHIP ANALYSIS
     Before creating any tasks, map out every planned task and which files it will
