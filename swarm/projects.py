@@ -410,25 +410,27 @@ class ProjectRegistry:
         try:
             import subprocess as sp
             result = sp.run(
-                ["git", "log", f"--pretty=format:%h|%s|%ar", f"-{count}"],
+                ["git", "log", f"--pretty=format:%h|%s|%ar|%ct", f"-{count}"],
                 cwd=str(project_path), capture_output=True, text=True, timeout=5
             )
             if result.returncode != 0:
                 return []
-            
+
             commits = []
             for line in result.stdout.strip().splitlines():
-                parts = line.split("|", 2)
-                if len(parts) == 3:
-                    commits.append({
-                        "hash": parts[0],
-                        "message": parts[1],
-                        "age": parts[2]
-                    })
+                parts = line.split("|", 3)
+                if len(parts) >= 3:
+                    commit = {"hash": parts[0], "message": parts[1], "age": parts[2]}
+                    if len(parts) == 4:
+                        try:
+                            commit["timestamp"] = int(parts[3]) * 1000  # ms for JS
+                        except ValueError:
+                            pass
+                    commits.append(commit)
             return commits
         except Exception:
             return []
-    
+
     def update_commits(self, project_name: str):
         """Update recent commits for a project"""
         commits = self.get_commits(project_name)
@@ -749,16 +751,22 @@ class SQLiteProjectRegistry:
         try:
             import subprocess as sp
             result = sp.run(
-                ["git", "log", f"--pretty=format:%h|%s|%ar", f"-{count}"],
+                ["git", "log", f"--pretty=format:%h|%s|%ar|%ct", f"-{count}"],
                 cwd=str(project_path), capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
                 return []
             commits = []
             for line in result.stdout.strip().splitlines():
-                parts = line.split("|", 2)
-                if len(parts) == 3:
-                    commits.append({"hash": parts[0], "message": parts[1], "age": parts[2]})
+                parts = line.split("|", 3)
+                if len(parts) >= 3:
+                    commit = {"hash": parts[0], "message": parts[1], "age": parts[2]}
+                    if len(parts) == 4:
+                        try:
+                            commit["timestamp"] = int(parts[3]) * 1000
+                        except ValueError:
+                            pass
+                    commits.append(commit)
             return commits
         except Exception:
             return []

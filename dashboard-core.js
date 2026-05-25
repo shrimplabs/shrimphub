@@ -240,6 +240,11 @@ async function loadData() {
         }
         for (const [name, data] of Object.entries(projectList)) {
             markProjectActivity(name, data.last_update);
+            // Use most recent commit timestamp as activity signal (more reliable than last_update)
+            const commits = data.recent_commits || [];
+            if (commits.length > 0 && commits[0].timestamp) {
+                activityMap[name] = Math.max(activityMap[name] || 0, commits[0].timestamp);
+            }
         }
 
         const sortedProjects = sortProjectEntries(Object.entries(projectList), projectTaskCount, activityMap);
