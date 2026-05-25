@@ -593,10 +593,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         log(f"[Meta] Investigation failed: {e}")
                     break  # one investigation per loop tick
 
-        # Research budget enforcement for plan tasks — inject at loop 6
+        # Research budget enforcement for plan tasks
+        # plan: 10 loops (targeted task creation — doesn't need full codebase survey)
+        # project_plan: 15 loops (full sprint planning — needs broader codebase breadth)
+        _plan_budget = 15 if TASK_TYPE == "project_plan" else 10
         if (TASK_TYPE in ("plan", "project_plan")
                 and not _wrap_up_injected
-                and tool_loop_count >= 6):
+                and tool_loop_count >= _plan_budget):
             conversation.append({"role": "user", "content": (
                 "RESEARCH BUDGET EXHAUSTED. You have completed enough research. "
                 "Your next tool call MUST be create_tasks() with the tasks you have identified. "
