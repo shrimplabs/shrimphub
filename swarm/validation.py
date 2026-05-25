@@ -1164,6 +1164,7 @@ def _spawn_validation_bug_task(
 
     metadata: dict = {
         "parent_task": original_task_id,
+        "last_failure": error_output[:2000],
         "error_log": error_output,
         "error_log_excerpt": error_output[:2000],
         "fix_notes": fix_notes or [],
@@ -1262,9 +1263,9 @@ def _spawn_validation_bug_task(
         from swarm.task_chains import chain_to_project_head
         bug_task_deps = chain_to_project_head(db, project, task_id=bug_task_id, ensure_head=True)
 
-    # Decay priority with chain depth so nested bug chains don't crowd out feature work.
-    # base 100, -5 per level, floor at 70.
-    bug_priority = max(70, 100 - 5 * chain_depth)
+    # Decay priority with nested bug depth so first-level validation bugs retain
+    # top priority but repeated bug-of-bug chains stop crowding out feature work.
+    bug_priority = max(70, 100 - 5 * max(0, chain_depth - 1))
 
     bug_task = {
         "id": bug_task_id,

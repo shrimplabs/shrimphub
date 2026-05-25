@@ -24,7 +24,7 @@ def register_routes(app, task_source, db, workspace):
         '"input_action"',
         '"press_button"',
         '"screenshot"',
-        "const PORT := 11010",
+        "DEFAULT_PORT := 11010",
     )
 
     def _normalize_dependencies(raw):

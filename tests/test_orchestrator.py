@@ -377,6 +377,8 @@ class TestPostTaskValidation:
 
         bug = db.task_get("bug-t1")
         assert bug is not None
+        assert bug["priority"] == 100
+        assert bug["metadata"]["last_failure"] == huge_error[:2000]
         assert bug["metadata"]["error_log"] == huge_error
         assert bug["metadata"]["error_log_excerpt"] == huge_error[:2000]
 
