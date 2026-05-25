@@ -116,3 +116,11 @@ Report at: `data/AUDIT_LEARNINGS_REPORT.md`
 3. `_shared.py` neutral hub eliminates circular import failures
 4. GUT `.bind()` pattern eliminates lambda-signal test failures
 5. Godot 4 API specificity (`null > 0.0`, `.has()`, `set_input_as_handled()`)
+
+---
+## tool_dispatch.py authority gating (bug-667733530-513 fix)
+
+`swarm/tool_dispatch.py` `_tool_authority_denial()` is the central gate for all tool calls.
+- `plan` and `python_plan` task types: blocks `mutating_tools | {run_command}` with "planning tasks are read-only"
+- `project_plan`: special-case block for `{mutating_tools} | {run_command, create_task, create_tasks}` with "must use create_tasks_file_aware() only"
+- Bug was: `run_command` was missing from the `plan`/`python_plan` block set — agents bypassed write restrictions via shell
