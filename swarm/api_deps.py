@@ -635,7 +635,19 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                 # Also anchor to the project HEAD so the chain tip is always visible
                 if head_task_id and head_task_id not in active_ids:
                     dep_ids_needed.add(head_task_id)
-                all_history = _load_history_tasks(data_dir, project=project, max_entries=5000)
+                # Query DB for completed/cancelled/failed tasks (immutable history).
+                # Fall back to JSONL only for pre-migration tasks not in DB.
+                db_history = [
+                    dict(t) for t in db.task_get_all()
+                    if t.get("project") == project
+                    and t.get("status") in ("completed", "cancelled", "failed")
+                    and t.get("id") not in active_ids
+                ]
+                jsonl_history = _load_history_tasks(data_dir, project=project, max_entries=500)
+                db_ids = {t["id"] for t in db_history}
+                jsonl_only = [t for t in jsonl_history if t.get("id") not in db_ids]
+                all_history = db_history + jsonl_only
+
                 head_task_id = _resolve_project_head_for_dot(db, project, all_history)
                 if head_task_id and head_task_id not in active_ids:
                     dep_ids_needed.add(head_task_id)
@@ -674,8 +686,19 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     if dep not in active_ids
                 }
                 if dep_ids_needed:
+                    # DB-first: completed tasks are in the tasks table now
+                    db_hist_global = [
+                        dict(t) for t in db.task_get_all()
+                        if t.get("status") in ("completed", "cancelled", "failed")
+                        and t.get("id") not in active_ids
+                    ]
+                    db_hist_ids = {t["id"] for t in db_hist_global}
+                    jsonl_global = [
+                        t for t in _load_history_tasks(data_dir, max_entries=500)
+                        if t.get("id") not in db_hist_ids
+                    ]
                     ancestors = _select_history_with_ancestry(
-                        _load_history_tasks(data_dir, max_entries=5000),
+                        db_hist_global + jsonl_global,
                         seed_ids=dep_ids_needed,
                         max_depth=history_depth,
                     )
