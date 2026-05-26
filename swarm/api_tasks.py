@@ -230,7 +230,24 @@ def register_routes(app, task_source, db, workspace):
 # ---------- Tasks ----------
     @app.route("/api/tasks", methods=["GET"])
     def list_tasks():
-        tasks = task_source.get_all_tasks()
+        include_completed = request.args.get("include_completed", "").lower() in ("true", "1", "yes")
+        status_filter = request.args.get("status")
+        project_filter = request.args.get("project")
+
+        all_tasks = task_source.get_all_tasks()
+
+        if status_filter:
+            tasks = [t for t in all_tasks if t.status == status_filter]
+        elif include_completed:
+            tasks = all_tasks
+        else:
+            # Default: active working set -- pending, in_progress, failed
+            # Completed and cancelled are history; use ?include_completed=true to see them
+            tasks = [t for t in all_tasks if t.status in ("pending", "in_progress", "failed")]
+
+        if project_filter:
+            tasks = [t for t in tasks if t.project == project_filter]
+
         return jsonify({
             "tasks": [t.to_dict() for t in tasks]
         })

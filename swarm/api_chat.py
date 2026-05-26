@@ -69,6 +69,7 @@ def _build_state_snapshot(db, all_tasks=None, all_agents=None, projects=None):
     pending_tasks = [t for t in all_tasks if t["status"] == "pending"]
     in_prog_tasks = [t for t in all_tasks if t["status"] == "in_progress"]
     failed_tasks  = [t for t in all_tasks if t["status"] == "failed"]
+    completed_count = sum(1 for t in all_tasks if t["status"] in ("completed", "cancelled"))
     active_agents = [a for a in all_agents if a["status"] == "active"]
 
     proj_summary = {}
@@ -98,10 +99,10 @@ KNOWN PROJECTS (exact names — use these verbatim when creating tasks):
 Active agents ({len(active_agents)}):
 {chr(10).join(f'  id={a.get("id","")[:12]} project={a.get("project","")} task={a.get("task_id","")[:30]}' for a in active_agents) or '  (none)'}
 
-Pending tasks: {len(pending_tasks)}  In-progress: {len(in_prog_tasks)}  Failed: {len(failed_tasks)}
+Pending tasks: {len(pending_tasks)}  In-progress: {len(in_prog_tasks)}  Failed: {len(failed_tasks)}  Completed (history): {completed_count}
 
 Per-project summary (projects with tasks):
-{chr(10).join(f'  {p}: pending={v["pending"]} in_progress={v["in_progress"]} failed={v["failed"]}' for p, v in sorted(proj_summary.items()) if p != '_swarm') or '  (none)'}
+{chr(10).join(f'  {p}: pending={v["pending"]} in_progress={v["in_progress"]} failed={v["failed"]} completed={v["completed"]}' for p, v in sorted(proj_summary.items()) if p != '_swarm') or '  (none)'}
 
 Failed tasks (up to 10):
 {chr(10).join(f'  {t["id"]} ({t["project"]}) att:{t.get("attempts",0)}/{t.get("max_attempts",3)}: {t["description"][:80]}' for t in failed_tasks[-10:]) or '  (none)'}
