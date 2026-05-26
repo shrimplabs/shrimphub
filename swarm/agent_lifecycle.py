@@ -626,7 +626,13 @@ def get_active_count() -> int:
 
 
 def prune_history():
-    """Archive finished agents and tasks to JSONL history, then remove from DB."""
+    """Archive finished agents to JSONL and remove from DB.
+
+    Completed/failed/cancelled tasks are kept in the tasks table permanently
+    (immutable history).  They are still written to task-history.jsonl as a
+    write-only export log, but are never deleted from the DB.  A
+    ``metadata.archived`` flag prevents double-writing on repeated prune cycles.
+    """
     _lazy_imports()
 
     # Use orchestrator's HISTORY_FILE if available, otherwise fall back
@@ -635,36 +641,43 @@ def prune_history():
         HISTORY_FILE = getattr(_orc, 'HISTORY_FILE', _get_data_dir() / "agent-history.jsonl")
     except Exception:
         HISTORY_FILE = _get_data_dir() / "agent-history.jsonl"
+    # --- Agent archival ---
     finished = [a for a in db.agent_get_all() if a.get("status") not in ("active", "spawning")]
-    if not finished:
-        return
+    if finished:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with HISTORY_FILE.open("a") as f:
+            for agent in finished:
+                f.write(json.dumps(agent) + "\n")
 
-    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with HISTORY_FILE.open("a") as f:
-        for agent in finished:
-            f.write(json.dumps(agent) + "\n")
-
-    # Archive completed/failed/cancelled tasks before deleting them
-    finished_tasks = [t for t in db.task_get_all() if t.get("status") in ("completed", "failed", "cancelled")]
+    # --- Task archival (decoupled from agent archival) ---
+    # Only archive tasks that haven't been written to JSONL yet.
+    finished_tasks = [
+        t for t in db.task_get_all()
+        if t.get("status") in ("completed", "failed", "cancelled")
+        and not (t.get("metadata") or {}).get("archived")
+    ]
     if finished_tasks:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         task_history_file = HISTORY_FILE.parent / "task-history.jsonl"
         with task_history_file.open("a") as f:
             for task in finished_tasks:
                 f.write(json.dumps(task) + "\n")
-        # Prune task-history.jsonl: keep only the last 20000 entries
-        _TASK_HISTORY_MAX = 20000
-        try:
-            existing = task_history_file.read_text().splitlines()
-            if len(existing) > _TASK_HISTORY_MAX:
-                task_history_file.write_text("\n".join(existing[-_TASK_HISTORY_MAX:]) + "\n")
-        except Exception as _prune_err:
-            print(f"[Swarm] task-history prune failed: {_prune_err}")
+        # Mark tasks as archived so they aren't re-written next cycle.
+        for task in finished_tasks:
+            meta = dict(task.get("metadata") or {})
+            meta["archived"] = True
+            db.task_update(task["id"], {"metadata": meta})
 
     # Update each project's head_task_id to the most recent continuity-eligible
     # task, but do not overwrite a live continuation with a failed/cancelled tail.
-    if finished_tasks:
+    # Consider all terminal tasks (including previously-archived ones).
+    all_terminal = [
+        t for t in db.task_get_all()
+        if t.get("status") in ("completed", "failed", "cancelled")
+    ]
+    if all_terminal:
         latest_by_project: Dict[str, tuple[str, str]] = {}
-        for task in finished_tasks:
+        for task in all_terminal:
             proj = task.get("project", "")
             completed = task.get("completed", "")
             if proj and completed and is_continuity_eligible_task(task):
@@ -686,12 +699,10 @@ def prune_history():
             if existing_proj.get("head_task_id") != task_id:
                 db.project_upsert({**existing_proj, "head_task_id": task_id})
 
-    conn = db._connect()
-    conn.execute(
-        "DELETE FROM agents WHERE status NOT IN ('active', 'spawning')"
-    )
-    conn.commit()
-    conn.execute(
-        "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled')"
-    )
-    conn.commit()
+    # --- Delete finished agents from DB (agents still archived; tasks are NOT deleted) ---
+    if finished:
+        conn = db._connect()
+        conn.execute(
+            "DELETE FROM agents WHERE status NOT IN ('active', 'spawning')"
+        )
+        conn.commit()
