@@ -2766,7 +2766,6 @@ class TestTaskChaining:
         assert result["ok"] is True
         assert len(batch_payloads) == 1
         batch = batch_payloads[0]
-        assert batch["chain_to_head"] is True
         assert batch["project"] == "file-aware-proj"
         assert batch["tasks"][0]["dependencies"] == ["planner-1"]
         assert batch["tasks"][1]["dependencies"] == ["planner-1"]

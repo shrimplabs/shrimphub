@@ -23,10 +23,10 @@ system: |
   - web_search(query, max_results=3): Search the web for context, prior art, or documentation
   - list_tasks(): List all existing tasks for this project (avoid duplicates)
   - list_subtasks(parent_task_id): List tasks already created under this plan
-  - create_tasks(tasks, project, chain_to_head): Create ALL tasks in one atomic call. PREFERRED over create_task for 2+ tasks.
+  - create_tasks(tasks, project): Create ALL tasks in one atomic call. PREFERRED over create_task for 2+ tasks.
       Each task: {"type", "description", "priority", "depends_on": [int indices], "dependencies": [str ids]}
       depends_on uses indices into the tasks list — resolved to real IDs before creation (no chicken-and-egg).
-      chain_to_head=True attaches the batch root to the project's last completed task (keeps history connected).
+      Root tasks (no deps) are automatically chained to the project HEAD — the history chain is always preserved.
       Returns id_map so you can reference generated IDs.
       Example: create_tasks([{"type":"bug","description":"Fix X","priority":80}, {"type":"feature","description":"Add Y","depends_on":[0]}])
   - create_task(description, type, priority, dependencies, parent_task_id): Create a single task. Use only for one-off additions after the main batch.
@@ -81,8 +81,6 @@ system: |
   STEP 4: CREATE TASKS
     Use create_tasks() to submit ALL tasks in one call. Use depends_on with integer
     indices to wire the DAG — you don't need IDs before creation.
-
-    Set chain_to_head=True to attach the batch root to the project's existing history.
 
     For each task in the list set metadata: {"parent_task_id": THIS_TASK_ID}.
     Root tasks (no blockers): depends_on=[] or omit it.

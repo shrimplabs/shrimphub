@@ -230,7 +230,24 @@ def register_routes(app, task_source, db, workspace):
 # ---------- Tasks ----------
     @app.route("/api/tasks", methods=["GET"])
     def list_tasks():
-        tasks = task_source.get_all_tasks()
+        include_completed = request.args.get("include_completed", "").lower() in ("true", "1", "yes")
+        status_filter = request.args.get("status")
+        project_filter = request.args.get("project")
+
+        all_tasks = task_source.get_all_tasks()
+
+        if status_filter:
+            tasks = [t for t in all_tasks if t.status == status_filter]
+        elif include_completed:
+            tasks = all_tasks
+        else:
+            # Default: active working set -- pending, in_progress, failed
+            # Completed and cancelled are history; use ?include_completed=true to see them
+            tasks = [t for t in all_tasks if t.status in ("pending", "in_progress", "failed")]
+
+        if project_filter:
+            tasks = [t for t in tasks if t.project == project_filter]
+
         return jsonify({
             "tasks": [t.to_dict() for t in tasks]
         })
@@ -297,7 +314,6 @@ def register_routes(app, task_source, db, workspace):
         Body:
           project        str   — default project for all items (overridable per item)
           chain          bool  — each task automatically depends on the previous one
-          chain_to_head  bool  — attach project's head_task_id as a dependency on the first root task
           tasks          list  — task objects; each may include:
             depends_on  list[int]  — indices into this batch (resolved to IDs before creation)
             dependencies list[str] — explicit task IDs (merged with depends_on)
@@ -312,7 +328,7 @@ def register_routes(app, task_source, db, workspace):
         data = request.json or {}
         task_list = data.get("tasks", [])
         chain = data.get("chain", False)
-        chain_to_head = data.get("chain_to_head", True)
+        chain_to_head = True  # always on — off-chain task creation is not allowed
         default_project = data.get("project", "")
         if not isinstance(task_list, list) or not task_list:
             return jsonify({"error": "Expected {tasks: [...]}"}), 400
@@ -405,17 +421,6 @@ def register_routes(app, task_source, db, workspace):
                 _rollback_added_tasks()
                 return jsonify({"error": str(e), "task_id": task_id, "index": i}), 400
             added.append(task.id)
-            # Floating-task warning: task had no deps and project has a head_task_id
-            if not resolved_deps[i] and not chain_to_head:
-                proj_name = item.get("project") or default_project
-                if proj_name:
-                    project_head = ensure_project_head(db, proj_name)
-                    if project_head:
-                        warnings.append(
-                            f"Task '{task_id}' has no dependencies \u2014 "
-                            f"project '{proj_name}' head_task_id is "
-                            f"'{project_head}'. Consider using chain_to_head."
-                        )
 
         id_map = {str(i): tid for i, tid in enumerate(task_ids) if tid}
         resp = {"created": len(added), "ids": added, "id_map": id_map}

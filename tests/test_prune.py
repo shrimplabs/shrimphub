@@ -107,17 +107,51 @@ class TestPruneHistory:
         assert db.agent_get("a3") is not None
         assert not orc.HISTORY_FILE.exists()
 
-    def test_completed_task_removed_from_db(self, isolated_orc):
+    def test_completed_task_stays_in_db_with_archived_flag(self, isolated_orc):
         _seed_task("t1", status="completed")
         _seed_agent("a1", status="completed")
         orc.prune_history()
-        assert db.task_get("t1") is None
+        task = db.task_get("t1")
+        assert task is not None
+        assert task["status"] == "completed"
+        assert task.get("metadata", {}).get("archived") is True
 
-    def test_failed_task_removed_from_db(self, isolated_orc):
+    def test_failed_task_stays_in_db_with_archived_flag(self, isolated_orc):
         _seed_task("t2", status="failed")
         _seed_agent("a1", status="completed")
         orc.prune_history()
-        assert db.task_get("t2") is None
+        task = db.task_get("t2")
+        assert task is not None
+        assert task["status"] == "failed"
+        assert task.get("metadata", {}).get("archived") is True
+
+    def test_task_archival_runs_without_finished_agents(self, isolated_orc):
+        """Task archival is decoupled from agent archival."""
+        _seed_task("t5", status="completed")
+        # No finished agents -- only active
+        _seed_agent("a1", status="active")
+        orc.prune_history()
+        task = db.task_get("t5")
+        assert task is not None
+        assert task.get("metadata", {}).get("archived") is True
+        # Task history JSONL should have been written
+        task_history = orc.HISTORY_FILE.parent / "task-history.jsonl"
+        assert task_history.exists()
+
+    def test_archived_tasks_not_double_written_to_jsonl(self, isolated_orc):
+        """Repeated prune cycles don't duplicate task entries in JSONL."""
+        _seed_task("t6", status="completed")
+        _seed_agent("a1", status="completed")
+        orc.prune_history()
+        # Second prune -- task already has archived flag
+        _seed_agent("a2", status="completed")
+        orc.prune_history()
+        task_history = orc.HISTORY_FILE.parent / "task-history.jsonl"
+        task_lines = [
+            l for l in task_history.read_text().strip().splitlines()
+            if json.loads(l).get("id") == "t6"
+        ]
+        assert len(task_lines) == 1
 
     def test_pending_task_not_removed(self, isolated_orc):
         _seed_task("t3", status="pending")

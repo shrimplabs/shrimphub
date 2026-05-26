@@ -1015,7 +1015,6 @@ class TestDelegateTaskBatch:
 
         batch_call = next(call for call in calls if call[0] == "POST" and call[1].endswith("/api/tasks/batch"))
         batch_payload = batch_call[2]
-        assert batch_payload["chain_to_head"] is False
         assert batch_payload["tasks"][0]["dependencies"] == ["parent-1"]
 
         successor_call = [call for call in calls if call[0] == "POST" and call[1].endswith("/api/tasks")][0]

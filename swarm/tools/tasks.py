@@ -250,7 +250,6 @@ def delegate_task_batch(children: list, mode: str = "integrate", project: str = 
     body = json.dumps({
         "project": proj,
         "tasks": batch_tasks,
-        "chain_to_head": False,
     }).encode()
     try:
         req = _ur.Request(
@@ -446,7 +445,6 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
     body = json.dumps({
         "project": proj,
         "tasks": batch_tasks,
-        "chain_to_head": True,
     }).encode()
     try:
         req = _ur.Request(
@@ -490,7 +488,7 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
     }
 
 
-def create_tasks(tasks: list, project: str = None, chain_to_head: bool = False) -> dict:
+def create_tasks(tasks: list, project: str = None) -> dict:
     """Create multiple tasks in one call with reliable DAG dependency wiring.
 
     Use this instead of calling create_task() repeatedly when you need to create
@@ -504,8 +502,8 @@ def create_tasks(tasks: list, project: str = None, chain_to_head: bool = False) 
       - "depends_on": list[int] -- indices into THIS tasks list (resolved to IDs before creation)
       - "dependencies": list[str] -- explicit task IDs outside this batch (merged with depends_on)
 
-    chain_to_head: if True, the first rootless task in the batch automatically depends on
-                   the project HEAD (last completed task), keeping history connected.
+    Root tasks (no deps) are automatically chained to the project HEAD so the
+    history chain is never broken. This is not optional.
 
     Example -- bug fixes in parallel, feature waits for both:
       create_tasks([
@@ -522,7 +520,6 @@ def create_tasks(tasks: list, project: str = None, chain_to_head: bool = False) 
     body = json.dumps({
         "project": proj,
         "tasks": tasks,
-        "chain_to_head": chain_to_head,
     }).encode()
     try:
         req = _ur.Request(

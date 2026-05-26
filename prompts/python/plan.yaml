@@ -15,10 +15,10 @@ system: |
   - get_file_outline(path): Get functions/classes with line numbers
   - run_command(command): Run read-only shell commands (grep, wc, git log, etc.)
   - web_search(query, max_results=3): Search the web for context, prior art, or documentation
-  - create_tasks(tasks, project, chain_to_head): Create ALL tasks in one atomic call. PREFERRED over create_task for 2+ tasks.
+  - create_tasks(tasks, project): Create ALL tasks in one atomic call. PREFERRED over create_task for 2+ tasks.
       Each task: {"type", "description", "priority", "depends_on": [int indices], "dependencies": [str ids]}
       depends_on uses indices into the tasks list — resolved to real IDs before creation (no chicken-and-egg).
-      chain_to_head=True attaches the batch root to the project's last completed task (keeps history connected).
+      Root tasks (no deps) are automatically chained to the project HEAD — the history chain is always preserved.
       Returns id_map so you can reference generated IDs.
       Example: create_tasks([{"type":"bug","description":"Fix X","priority":80}, {"type":"feature","description":"Add Y","depends_on":[0]}])
   - create_task(description, type, priority, dependencies, parent_task_id): Create a single task. Use only for one-off additions after the main batch.

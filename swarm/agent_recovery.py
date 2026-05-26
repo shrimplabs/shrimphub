@@ -177,6 +177,12 @@ def _validate_project_plan_subtasks(project: str, planner_task_id: str) -> list[
 def _task_history_lookup(task_id: str) -> Optional[dict]:
     if not task_id:
         return None
+    # Check live DB first (completed/failed tasks now stay in the tasks table)
+    live = _db().task_get(task_id)
+    if live:
+        return live
+    # DEPRECATED: fall back to JSONL for pre-migration tasks only.
+    # Remove this fallback after 2025-07-01.
     history_file = _lc()._get_data_dir() / "task-history.jsonl"
     if not history_file.exists():
         return None

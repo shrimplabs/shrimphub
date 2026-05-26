@@ -8,6 +8,7 @@ from flask import jsonify, request
 import time
 
 from swarm.task_chains import chain_to_project_head
+from swarm.dependencies import is_dependency_met
 
 
 def register_routes(app, task_source, orchestrator, generate_task_script, config, db, auto_mode_state, data_dir, workspace):
@@ -30,12 +31,13 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
                 return jsonify({"error": f"Task {task_id} not found"}), 404
             if task.status == "in_progress":
                 return jsonify({"error": "Task is already in progress"}), 400
-            # Check unmet dependencies — a dep is met if completed or missing
+            # Check unmet dependencies
             deps = task.dependencies or []
             if deps:
-                completed_ids = db.task_get_completed_ids()
-                active_ids = {t["id"] for t in db.task_get_all()}
-                unmet = [d for d in deps if d not in completed_ids and d in active_ids]
+                all_tasks = db.task_get_all()
+                all_task_ids = {t["id"] for t in all_tasks}
+                completed_ids = {t["id"] for t in all_tasks if t["status"] == "completed"}
+                unmet = [d for d in deps if not is_dependency_met(d, all_task_ids, completed_ids)]
                 if unmet:
                     return jsonify({
                         "error": "Unmet dependencies",
@@ -63,14 +65,13 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
 
         # Find existing pending task or create one
         pending = task_source.get_pending_tasks()
-        # Use _get_next_task logic: deps met = completed or not in active set
-        completed_ids = db.task_get_completed_ids()
-        active_ids = {t["id"] for t in db.task_get_all()}
-        completed_ids |= {t["id"] for t in db.task_get_all() if t["status"] == "completed"}
+        all_tasks = db.task_get_all()
+        all_task_ids = {t["id"] for t in all_tasks}
+        completed_ids = {t["id"] for t in all_tasks if t["status"] == "completed"}
         project_pending = [
             t for t in pending
             if t.project == project
-            and all(d in completed_ids or d not in active_ids for d in (t.dependencies or []))
+            and all(is_dependency_met(d, all_task_ids, completed_ids) for d in (t.dependencies or []))
         ]
         project_pending.sort(key=lambda t: (-t.priority, t.id))
         task = project_pending[0] if project_pending else None

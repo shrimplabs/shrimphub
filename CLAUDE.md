@@ -189,7 +189,7 @@ Two independent limits apply to agents:
 
 - When a task exhausts `max_attempts`, `_spawn_review_task()` creates a recovery task with full failure history and reparents all dependents to it
 - Recovery tasks have `is_recovery_task: True` in metadata -- they never spawn further recovery tasks (prevents infinite chains)
-- `_get_next_task()` treats a dep as "met" if it's completed OR if it no longer exists in the active tasks table -- chains self-heal when deps are pruned as failed
+- `_get_next_task()` treats a dep as "met" if its status is `completed` in the tasks table, OR if it is entirely absent from the tasks table (escape hatch for manually deleted tasks). Failed and cancelled tasks block their dependents
 - Recovery task creation is NOT gated on MANAGED_PROJECTS (only PAUSED_PROJECTS skip) -- recovery always fires
 
 ### Continuation task dependency reparenting
@@ -322,7 +322,7 @@ On failure: if `attempts < max_attempts`, task resets to `pending` with `metadat
 |------|-------------|
 | `data/swarm.db` | Primary SQLite DB (tasks, projects, agents tables) |
 | `data/agent-history.jsonl` | Archived agents (pruned from DB after completion) |
-| `data/task-history.jsonl` | Archived completed/failed tasks (used by repair/requeue) |
+| `data/task-history.jsonl` | Write-only export log of completed/failed tasks (not source of truth -- the tasks table is the canonical record; JSONL is a fallback for pre-migration data only) |
 | `data/agent_<id>.log` | Per-agent stdout/stderr |
 | `data/agent_<id>.py` | Generated wrapper script (deleted on completion) |
 | `data/agent_<task_id>_tokens.json` | Transient token counts written by agent, read by orchestrator on finish |
@@ -378,7 +378,7 @@ Prompt YAML files live in `prompts/`. Each maps to a task type:
 - `GET/POST /api/projects/<name>/lock` `/unlock` `/locks`
 
 ### Tasks
-- `GET /api/tasks` -- list all tasks
+- `GET /api/tasks` -- list tasks (default: pending + in_progress + failed); `?include_completed=true` to include completed/cancelled; `?status=X` to filter by exact status; `?project=X` to filter by project
 - `POST /api/tasks` -- create one task `{project, type, description, priority, dependencies, metadata}`
 - `GET /api/tasks/<id>` -- get task
 - `PUT/PATCH /api/tasks/<id>` -- update task (merge: only fields present in body are touched)
@@ -410,7 +410,7 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 - **`dependencies`** -- explicit task ID strings; merged with `depends_on` results
 - **`project`** -- top-level default; per-item `project` overrides it
 - **`chain: true`** -- each task automatically depends on the previous one (linear sequence)
-- **`chain_to_head`** -- default `true`; root tasks (no deps) are automatically chained to the project's current HEAD task, preserving a complete build history. Pass `false` to create floating tasks intentionally.
+- **`chain_to_head`** -- always `true` (hardcoded); root tasks (no deps) are automatically chained to the project's current HEAD task. Off-chain task creation is not allowed.
 - IDs are generated upfront with an index suffix so same-millisecond creation never collides
 - Response includes `id_map: {"0": "<id>", "1": "<id>", ...}` for referencing generated IDs afterward
 
@@ -460,7 +460,6 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 
 As of the open-source release these tests fail and are tracked as bugs -- do not introduce further regressions in these areas:
 
-- `test_api.py::TestDependencies::test_ready_tasks_honor_task_history_completed_dependencies`
 - `test_closure_status.py::test_closure_status_green_when_required_gates_pass`
 - `test_closure_verification.py::test_resolve_godot_command_rewrites_legacy_gut`
 - `test_orchestrator.py::TestPostTaskValidation::test_main_scene_startup_script_error_fails_validation`
@@ -481,6 +480,7 @@ These two are network-flaky and allowed to fail in CI:
 - Write one file at a time in prompts to avoid LLM truncation
 - Never kill/restart the server process from within an agent -- use task tools only
 - Shell variable interpolation fails in JSON curl -- hardcode task IDs in dependency arrays
+- Completed and failed tasks are never deleted from the tasks table -- they are the immutable historical record. The dependency graph is append-only in history. Manual deletion via `DELETE /api/tasks/<id>` is still available as an escape hatch.
 
 ## Post-task Validation
 

@@ -7,6 +7,7 @@ Implements different strategies for selecting the next task to work on.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from swarm.tasks import Task, TaskSource
+from swarm.dependencies import is_dependency_met
 
 
 class TaskSelectionStrategy(ABC):
@@ -40,28 +41,31 @@ class TaskSelectionStrategy(ABC):
         available_projects = context.get("available_projects", set())
         locked_projects = context.get("locked_projects", set())
 
-        # Get completed task IDs
+        # Build completed and all-task ID sets for dep resolution
         completed_ids: set = set()
+        all_task_ids: set = set()
         if task_source is not None:
-            completed_ids = {t.id for t in task_source.get_all_tasks() if t.status == "completed"}
-        
+            all_tasks = task_source.get_all_tasks()
+            completed_ids = {t.id for t in all_tasks if t.status == "completed"}
+            all_task_ids = {t.id for t in all_tasks}
+
         available = []
         for task in tasks:
             # Skip if project is locked
             if task.project in locked_projects:
                 continue
-            
+
             # Skip if project not in available list
             if available_projects and task.project not in available_projects:
                 continue
-            
-            # Check dependencies
+
+            # Check dependencies using shared helper
             deps = task.dependencies
-            if deps and not all(dep_id in completed_ids for dep_id in deps):
+            if deps and not all(is_dependency_met(d, all_task_ids, completed_ids) for d in deps):
                 continue
-            
+
             available.append(task)
-        
+
         return available
 
 

@@ -29,9 +29,25 @@ _handoff_locks: dict[str, threading.Lock] = {}
 _handoff_locks_mutex = threading.Lock()
 
 
-def _load_project_task_history(data_dir: Path, project_name: str) -> dict[str, dict]:
-    history_file = data_dir / "task-history.jsonl"
+def _load_project_task_history(data_dir: Path, project_name: str, db=None) -> dict[str, dict]:
+    """Load completed/failed tasks for a project.
+
+    Checks the live DB first (completed tasks now stay in the tasks table),
+    then falls back to task-history.jsonl for pre-migration data.  DB rows
+    take precedence over JSONL entries with the same ID (dedupe).
+    """
     records: dict[str, dict] = {}
+
+    # Primary source: live DB (completed/failed tasks stay permanently)
+    if db is not None:
+        for row in db.task_get_all():
+            if row.get("project") == project_name and row.get("id"):
+                if row.get("status") in ("completed", "failed", "cancelled"):
+                    records[row["id"]] = row
+
+    # DEPRECATED: JSONL fallback for pre-migration tasks only.
+    # Remove after 2025-07-01.
+    history_file = data_dir / "task-history.jsonl"
     if not history_file.exists():
         return records
     for line in history_file.read_text().splitlines():
@@ -44,13 +60,15 @@ def _load_project_task_history(data_dir: Path, project_name: str) -> dict[str, d
             continue
         if rec.get("project") != project_name or not rec.get("id"):
             continue
-        records[rec["id"]] = rec
+        # DB wins: skip JSONL entries already found in the live DB
+        if rec["id"] not in records:
+            records[rec["id"]] = rec
     return records
 
 
 def _restore_project_branch_from_history(db, data_dir: Path, project_name: str, head_task_id: str | None) -> list[str]:
     """Resurrect a missing live branch from task-history around the stored head."""
-    history_by_id = _load_project_task_history(data_dir, project_name)
+    history_by_id = _load_project_task_history(data_dir, project_name, db=db)
     if not history_by_id:
         return []
 
