@@ -388,14 +388,18 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
                     "Planner dependencies must be task IDs only; keep file ownership in files=[...]."
                 ),
             }
+        # Explicit depends_on indices (int) in the task dict wire sequential ordering
+        for dep_idx in task.get("depends_on", []):
+            if isinstance(dep_idx, int) and 0 <= dep_idx < len(tasks) and dep_idx != i:
+                auto_deps[i].add(dep_idx)
         for f in task.get("files", []):
             f = f.strip()
             if not f:
                 continue
             if f in file_owner:
+                # Dep on the latest owner so the chain flows forward, not just to the first
                 auto_deps[i].add(file_owner[f])
-            else:
-                file_owner[f] = i
+            file_owner[f] = i  # always update to latest owner
 
     order = []
     remaining = list(range(len(tasks)))

@@ -232,43 +232,45 @@ system: |
     create_tasks_file_aware ONCE with the complete list.
 
     Rules for your task list:
-    - Include "files" for every task — the tool uses these to auto-chain dependencies
-    - For [PARALLEL] tasks: "dependencies": [] (auto-deps from shared files are added for you)
-    - For [SEQUENTIAL] tasks: you may leave "dependencies": [] if the shared file already
-      links them; only add explicit deps for cross-file ordering you need to enforce
+    - Include "files" for every task that touches files — the tool uses these to auto-chain tasks sharing a file
+    - For [PARALLEL] tasks: omit "depends_on" — they run concurrently with no blockers
+    - For [SEQUENTIAL] tasks: you MUST include "depends_on": [<index>, ...] with the integer
+      indices of every task that must finish first. Do NOT rely on file overlap alone —
+      art_pass, polish, qa, and audit have no shared files and WILL float if you omit depends_on.
     - Do NOT call create_task at all — use create_tasks_file_aware exclusively
     - Do NOT submit in batches — one call for all tasks
     - Each description must be specific: name the files, describe exact behaviour,
       reference the design doc section it satisfies
     - Include the [PARALLEL] or [SEQUENTIAL] label in each description
-    - Aim for 5-8 tasks total (not counting the mandatory art_pass and qa)
-    - The art_pass task MUST be included. It MUST depend on all core sprint tasks.
+    - Aim for 5-8 tasks total (not counting the mandatory art_pass, polish, qa, audit)
+    - The art_pass task MUST be included. It MUST have depends_on listing ALL core sprint task indices.
       Its type is "art_pass", not "feature" or "polish".
-    - The polish task MUST be included. It MUST depend on the art_pass.
-    - The qa/harness_qa task MUST be included. It MUST depend on the polish task.
-    - The audit task MUST be included as the final task. It MUST depend on the qa task.
+    - The polish task MUST be included. It MUST have depends_on: [<art_pass index>].
+    - The qa/harness_qa task MUST be included. It MUST have depends_on: [<polish index>].
+    - The audit task MUST be included as the final task. It MUST have depends_on: [<qa index>].
 
-    Example call structure:
+    Example call structure (indices refer to position in the tasks list):
     [TOOL_CALL]{"tool": "create_tasks_file_aware", "args": {"tasks": [
       {"type": "feature",  "description": "[PARALLEL] Build HUD scene ...", "files": ["scripts/hud.gd", "scenes/hud.tscn"], "priority": 60},
-      {"type": "feature",  "description": "[SEQUENTIAL: after HUD] Wire HUD into game ...", "files": ["scripts/game.gd", "scenes/hud.tscn"], "priority": 60},
+      {"type": "feature",  "description": "[SEQUENTIAL: after HUD] Wire HUD into game ...", "files": ["scripts/game.gd", "scenes/hud.tscn"], "priority": 60, "depends_on": [0]},
       {"type": "bug",      "description": "[PARALLEL] Fix player physics ...", "files": ["scripts/player.gd"], "priority": 80},
-      {"type": "art_pass", "description": "[SEQUENTIAL: after core tasks] Art pass: ensure player sprite is visible, HUD text is readable, and no placeholder ColorRects remain — per GAME_DESIGN.md visual goals. Fix invisible or geometry-only elements.", "files": ["scenes/main.tscn", "scripts/player.gd", "scenes/hud.tscn"], "priority": 60},
-      {"type": "polish",   "description": "[SEQUENTIAL: after art pass] UI/UX polish: ensure screen transitions are smooth, buttons give feedback, menu flow is navigable, HUD is readable, and game feel is responsive — per GAME_DESIGN.md.", "files": [], "priority": 60},
-      {"type": "qa",       "description": "[SEQUENTIAL: after polish] Sprint gate QA: launch game, verify CF-1 Boot and CF-2 Visual Presence flows from PROJECT_CLOSURE.md pass. Verify core gameplay loop is functional. File bug tasks for any regressions.", "files": [], "priority": 75},
-      {"type": "audit",    "description": "[SEQUENTIAL: after QA] Design conformance audit: compare codebase against GAME_DESIGN.md, write CONFORMANCE_REPORT.md listing all missing/partial/diverged requirements, then spawn next sprint planner.", "files": [], "priority": 70}
+      {"type": "art_pass", "description": "[SEQUENTIAL: after core tasks] Art pass: ensure player sprite is visible, HUD text is readable, and no placeholder ColorRects remain — per GAME_DESIGN.md visual goals.", "files": ["scenes/main.tscn", "scripts/player.gd", "scenes/hud.tscn"], "priority": 60, "depends_on": [0, 1, 2]},
+      {"type": "polish",   "description": "[SEQUENTIAL: after art pass] UI/UX polish: ensure screen transitions are smooth, buttons give feedback, menu flow is navigable, HUD is readable.", "files": [], "priority": 60, "depends_on": [3]},
+      {"type": "qa",       "description": "[SEQUENTIAL: after polish] Sprint gate QA: launch game, verify CF-1 Boot and CF-2 Visual Presence flows from PROJECT_CLOSURE.md pass. File bug tasks for regressions.", "files": [], "priority": 75, "depends_on": [4]},
+      {"type": "audit",    "description": "[SEQUENTIAL: after QA] Design conformance audit: compare codebase against GAME_DESIGN.md, write CONFORMANCE_REPORT.md, then spawn next sprint planner.", "files": [], "priority": 70, "depends_on": [5]}
     ]}}[/TOOL_CALL]
 
   STEP 6: VERIFY
-    Review the returned task IDs and auto_deps list: does the dependency graph correctly
-    serialize tasks that share files? Are there any parallel tasks that will conflict?
-    Confirm:
+    Review the returned task IDs and auto_deps list. Confirm:
     - PROJECT_CLOSURE.md was written (STEP 4b completed)
-    - The art_pass task is present and depends on the core sprint tasks
-    - The polish task is present and depends on the art_pass
-    - The qa/harness_qa task is present and depends on the polish task
-    - The audit task is present and depends on the qa task
-    - No core feature/bug task has the art_pass, polish, qa, or audit as a dependency (they are always last)
+    - The art_pass task has auto_deps pointing to ALL core sprint tasks (not empty)
+    - The polish task has auto_deps pointing to art_pass (not empty)
+    - The qa/harness_qa task has auto_deps pointing to polish (not empty)
+    - The audit task has auto_deps pointing to qa (not empty)
+    - No core feature/bug task depends on art_pass, polish, qa, or audit (they are always last)
+    If any of art_pass/polish/qa/audit show auto_deps=[], the chain is broken — the tool call
+    failed to wire them. This means you omitted depends_on indices. Fix by calling
+    create_tasks_file_aware again with correct depends_on on those tasks.
     If the tool reported errors, investigate and fix before completing.
 
   Say TASK_COMPLETE when all tasks are created.
