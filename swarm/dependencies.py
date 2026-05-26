@@ -9,6 +9,31 @@ from typing import Any, Dict, List, Optional, Set
 from collections import defaultdict, deque
 
 
+def is_dependency_met(dep_id: str, all_task_ids: set, completed_ids: set) -> bool:
+    """Check whether a single dependency is satisfied.
+
+    A dependency is met if:
+    - The dep task has ``status = "completed"`` (present in *completed_ids*).
+    - The dep task is absent from the DB entirely (*dep_id* not in
+      *all_task_ids*).  This is the escape hatch for manual deletion or
+      legacy pre-migration tasks.
+
+    A dependency **blocks** if:
+    - The dep task exists in the DB but is not completed (failed, cancelled,
+      pending, or in_progress).
+    """
+    if dep_id in completed_ids:
+        return True
+    if dep_id not in all_task_ids:
+        return True  # absent = met (escape hatch)
+    return False  # present but not completed = blocked
+
+
+def are_all_dependencies_met(deps: list, all_task_ids: set, completed_ids: set) -> bool:
+    """Return True when every dependency in *deps* is met."""
+    return all(is_dependency_met(d, all_task_ids, completed_ids) for d in deps)
+
+
 def _norm_dep_ids(raw: Optional[List[str]]) -> List[str]:
     """Normalize dependency IDs: keep non-empty unique strings in original order."""
     out: List[str] = []

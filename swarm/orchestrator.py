@@ -42,6 +42,7 @@ from swarm.constants import (
     MAX_TOOL_LOOPS, API_PORT, QA_MAX_CYCLES,
 )
 from swarm.integrity import can_task_accept_agent
+from swarm.dependencies import is_dependency_met
 
 # ---------------------------------------------------------------------------
 # Module-level config -- set by the caller (e.g. create_app or swarm_runner)
@@ -435,11 +436,10 @@ def _get_next_task() -> Optional[Dict]:
     db.backfill_completed_task_ids()
     all_tasks = db.task_get_all()
     pending = [t for t in all_tasks if t["status"] == "pending"]
-    # Include permanently-recorded completed IDs so pruned tasks don't block deps
-    completed_ids = db.task_get_completed_ids()
-    completed_ids |= {t["id"] for t in all_tasks if t["status"] == "completed"}
-    # Active task IDs -- deps not in this set are gone (failed+pruned) and should not block
-    active_ids = {t["id"] for t in all_tasks}
+    # Completed tasks now stay in the tasks table (immutable history), so
+    # completed_ids is derived directly from the live table.
+    completed_ids = {t["id"] for t in all_tasks if t["status"] == "completed"}
+    all_task_ids = {t["id"] for t in all_tasks}
 
     paused = set(PAUSED_PROJECTS)
 
@@ -496,8 +496,7 @@ def _get_next_task() -> Optional[Dict]:
         if task_wt and task_wt in active_worktrees:
             continue
         deps = t.get("dependencies", [])
-        # A dep is met if completed, OR if it no longer exists (failed+pruned -- chain self-heals)
-        if all(d in completed_ids or d not in active_ids for d in deps):
+        if all(is_dependency_met(d, all_task_ids, completed_ids) for d in deps):
             ready.append(t)
 
     if not ready:

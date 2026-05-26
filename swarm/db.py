@@ -713,9 +713,18 @@ def backfill_completed_task_ids() -> list[str]:
 
 
 def task_get_completed_ids() -> set:
-    """Return all ever-completed task IDs (survives pruning)."""
-    rows = _connect().execute("SELECT id FROM completed_task_ids").fetchall()
-    return {r["id"] for r in rows}
+    """Return all ever-completed task IDs.
+
+    Now that completed tasks stay in the tasks table, this is the union of:
+    - completed tasks in the live tasks table (primary source)
+    - legacy completed_task_ids shadow table (pre-migration fallback)
+    """
+    conn = _connect()
+    rows = conn.execute("SELECT id FROM tasks WHERE status='completed'").fetchall()
+    ids = {r["id"] for r in rows}
+    rows2 = conn.execute("SELECT id FROM completed_task_ids").fetchall()
+    ids |= {r["id"] for r in rows2}
+    return ids
 
 
 def task_get_completed_record(task_id: str) -> Optional[Dict]:
