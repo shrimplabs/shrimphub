@@ -641,10 +641,8 @@ async function runInstantProject() {
     const [min_tasks, max_tasks] = scopeMap[document.getElementById('instantScope').value] || scopeMap.medium;
 
     btn.disabled = true;
-    btn.textContent = count === 1 ? '⏳ Working…' : `⏳ Creating ${count} projects…`;
-    status.textContent = count === 1
-        ? 'Inventing concept, planning tasks, scaffolding repo…'
-        : `This may take a while for ${count} projects…`;
+    btn.textContent = count === 1 ? '⏳ Working…' : `⏳ Creating ${count}…`;
+    status.textContent = 'Starting…';
 
     try {
         const resp = await fetch('/api/wizard/create-instant', {
@@ -652,19 +650,46 @@ async function runInstantProject() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ project_type: type, hint, count, min_tasks, max_tasks }),
         });
-        const data = await resp.json();
         if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
             status.textContent = `Error: ${data.error || resp.statusText}`;
             btn.disabled = false;
             btn.textContent = '⚡ Create';
             return;
         }
-        const created = data.created || 0;
-        const results = data.results || [];
-        const names = results.filter(r => r.success).map(r => r.project_name).join(', ');
-        status.textContent = `✓ Created ${created}/${data.requested}: ${names}`;
-        btn.textContent = '✓ Done';
-        setTimeout(() => { loadProjects(); loadTasks(); }, 1000);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n\n');
+            buf = lines.pop(); // keep incomplete chunk
+            for (const chunk of lines) {
+                const line = chunk.trim();
+                if (!line.startsWith('data:')) continue;
+                let evt;
+                try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+
+                if (evt.type === 'progress') {
+                    status.textContent = evt.message;
+                } else if (evt.type === 'done') {
+                    status.textContent = `✓ ${evt.project_name} — ${evt.tasks_created} tasks queued`;
+                    btn.textContent = evt.index < evt.count ? `⏳ ${evt.index}/${evt.count} done…` : '✓ Done';
+                } else if (evt.type === 'error') {
+                    const name = evt.project_name ? `${evt.project_name}: ` : '';
+                    status.textContent = `✗ ${name}${evt.message}`;
+                } else if (evt.type === 'complete') {
+                    const names = (evt.results || []).filter(r => r.success).map(r => r.project_name).join(', ');
+                    status.textContent = `✓ ${evt.created}/${evt.requested} created${names ? ': ' + names : ''}`;
+                    btn.textContent = '✓ Done';
+                    setTimeout(() => { loadData(); }, 1500);
+                }
+            }
+        }
     } catch (e) {
         status.textContent = `Network error: ${e.message}`;
         btn.disabled = false;

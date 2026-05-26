@@ -12,7 +12,7 @@ import subprocess
 import time
 import requests
 
-from flask import jsonify, request
+from flask import Response, jsonify, request, stream_with_context
 
 from swarm import project_graph_policy as _graph_policy
 from swarm.godot_bootstrap import install_gut_into_project
@@ -285,7 +285,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
 
     @app.route("/api/wizard/create-instant", methods=["POST"])
     def wizard_create_instant():
-        """Imagine + plan + create in one shot. No human review step.
+        """Imagine + plan + create in one shot. Streams SSE progress events.
 
         Body (all optional):
           project_type  — godot | python | typescript | other (default: godot)
@@ -293,8 +293,13 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
           count         — create N projects (default: 1, max: 50)
           min_tasks     — passed to planner (default: 10)
           max_tasks     — passed to planner (default: 80)
+
+        SSE events: data: <json>\\n\\n
+          {type: "progress", index, count, stage, message, project_name?}
+          {type: "done",     index, count, project_name, tasks_created, success}
+          {type: "error",    index, count, project_name?, message}
+          {type: "complete", requested, created, results}
         """
-        import uuid as _uuid
         data = request.json or {}
         project_type = _normalize_project_type(data.get("project_type", "godot"))
         hint = data.get("hint", "").strip()
@@ -302,82 +307,109 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
         min_tasks = int(data.get("min_tasks", 10))
         max_tasks = int(data.get("max_tasks", 80))
 
-        results = []
-        for i in range(count):
-            entry = {"index": i + 1}
-            try:
-                # Step 1: Imagine
-                imagine_resp = app.test_client().post(
-                    "/api/wizard/imagine",
-                    json={"project_type": project_type, "hint": hint},
-                )
-                concept = json.loads(imagine_resp.data)
-                if "error" in concept:
-                    entry["error"] = f"imagine failed: {concept['error']}"
-                    results.append(entry)
-                    continue
+        def _sse(obj):
+            return f"data: {json.dumps(obj)}\n\n"
 
-                project_name = concept["project_name"]
-                description = concept["description"]
-                entry["project_name"] = project_name
-                entry["concept"] = concept
-                print(f"[Instant] ({i+1}/{count}) Conceived: {project_name} — {concept.get('genre','')}")
+        def generate():
+            results = []
+            for i in range(count):
+                entry = {"index": i + 1}
+                try:
+                    # Step 1: Imagine
+                    yield _sse({"type": "progress", "index": i+1, "count": count,
+                                 "stage": "imagine", "message": f"({i+1}/{count}) Inventing concept…"})
+                    imagine_resp = app.test_client().post(
+                        "/api/wizard/imagine",
+                        json={"project_type": project_type, "hint": hint},
+                    )
+                    concept = json.loads(imagine_resp.data)
+                    if "error" in concept:
+                        msg = f"imagine failed: {concept['error']}"
+                        entry["error"] = msg
+                        yield _sse({"type": "error", "index": i+1, "count": count, "message": msg})
+                        results.append(entry)
+                        continue
 
-                # Step 2: Plan
-                plan_resp = app.test_client().post(
-                    "/api/wizard/plan",
-                    json={
-                        "project_name": project_name,
-                        "project_type": project_type,
-                        "description": description,
-                        "min_tasks": min_tasks,
-                        "max_tasks": max_tasks,
-                    },
-                )
-                plan = json.loads(plan_resp.data)
-                if "error" in plan:
-                    entry["error"] = f"plan failed: {plan['error']}"
-                    results.append(entry)
-                    continue
+                    project_name = concept["project_name"]
+                    description = concept["description"]
+                    entry["project_name"] = project_name
+                    entry["concept"] = concept
+                    print(f"[Instant] ({i+1}/{count}) Conceived: {project_name} — {concept.get('genre','')}")
+                    yield _sse({"type": "progress", "index": i+1, "count": count,
+                                 "stage": "plan", "project_name": project_name,
+                                 "message": f"({i+1}/{count}) Planning tasks for {project_name}…"})
 
-                tasks = plan.get("tasks", [])
-                entry["tasks_planned"] = len(tasks)
-                print(f"[Instant] ({i+1}/{count}) Planned {len(tasks)} tasks for {project_name}")
+                    # Step 2: Plan
+                    plan_resp = app.test_client().post(
+                        "/api/wizard/plan",
+                        json={
+                            "project_name": project_name,
+                            "project_type": project_type,
+                            "description": description,
+                            "min_tasks": min_tasks,
+                            "max_tasks": max_tasks,
+                        },
+                    )
+                    plan = json.loads(plan_resp.data)
+                    if "error" in plan:
+                        msg = f"plan failed: {plan['error']}"
+                        entry["error"] = msg
+                        yield _sse({"type": "error", "index": i+1, "count": count,
+                                     "project_name": project_name, "message": msg})
+                        results.append(entry)
+                        continue
 
-                # Step 3: Create
-                create_resp = app.test_client().post(
-                    "/api/wizard/create",
-                    json={
-                        "project_name": project_name,
-                        "project_type": project_type,
-                        "notes": description,
-                        "tasks": tasks,
-                    },
-                )
-                result = json.loads(create_resp.data)
-                if "error" in result:
-                    details = result.get("details", [])
-                    detail_str = "; ".join(details) if details else ""
-                    entry["error"] = f"create failed: {result['error']}" + (f" — {detail_str}" if detail_str else "")
-                    results.append(entry)
-                    continue
+                    tasks = plan.get("tasks", [])
+                    entry["tasks_planned"] = len(tasks)
+                    print(f"[Instant] ({i+1}/{count}) Planned {len(tasks)} tasks for {project_name}")
+                    yield _sse({"type": "progress", "index": i+1, "count": count,
+                                 "stage": "create", "project_name": project_name,
+                                 "message": f"({i+1}/{count}) Scaffolding {project_name} ({len(tasks)} tasks)…"})
 
-                entry["tasks_created"] = result.get("tasks_created", 0)
-                entry["gitea_url"] = result.get("gitea_url")
-                entry["success"] = True
-                print(f"[Instant] ({i+1}/{count}) Created {project_name} with {entry['tasks_created']} tasks")
+                    # Step 3: Create
+                    create_resp = app.test_client().post(
+                        "/api/wizard/create",
+                        json={
+                            "project_name": project_name,
+                            "project_type": project_type,
+                            "notes": description,
+                            "tasks": tasks,
+                        },
+                    )
+                    result = json.loads(create_resp.data)
+                    if "error" in result:
+                        details = result.get("details", [])
+                        detail_str = "; ".join(details) if details else ""
+                        msg = f"create failed: {result['error']}" + (f" — {detail_str}" if detail_str else "")
+                        entry["error"] = msg
+                        yield _sse({"type": "error", "index": i+1, "count": count,
+                                     "project_name": project_name, "message": msg})
+                        results.append(entry)
+                        continue
 
-            except Exception as e:
-                entry["error"] = str(e)
+                    entry["tasks_created"] = result.get("tasks_created", 0)
+                    entry["gitea_url"] = result.get("gitea_url")
+                    entry["success"] = True
+                    print(f"[Instant] ({i+1}/{count}) Created {project_name} with {entry['tasks_created']} tasks")
+                    yield _sse({"type": "done", "index": i+1, "count": count,
+                                 "project_name": project_name,
+                                 "tasks_created": entry["tasks_created"],
+                                 "success": True})
 
-            results.append(entry)
+                except Exception as e:
+                    entry["error"] = str(e)
+                    yield _sse({"type": "error", "index": i+1, "count": count,
+                                 "project_name": entry.get("project_name"),
+                                 "message": str(e)})
 
-        successful = [r for r in results if r.get("success")]
-        return jsonify({
-            "requested": count,
-            "created": len(successful),
-            "results": results,
-        })
+                results.append(entry)
+
+            successful = [r for r in results if r.get("success")]
+            yield _sse({"type": "complete", "requested": count,
+                         "created": len(successful), "results": results})
+
+        return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
     @app.route("/api/wizard/plan", methods=["POST"])
     def wizard_plan():
