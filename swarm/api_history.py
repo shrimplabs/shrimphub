@@ -98,7 +98,8 @@ def register_routes(
             db.task_update(task_id, updates)
             return jsonify({"success": True, "task_id": task_id, "action": "reset"})
 
-        # Case 2: task was pruned \u2014 look it up in task-history.jsonl
+        # Case 2: DEPRECATED fallback for pre-migration tasks that were pruned
+        # from the DB before immutable history was enabled. Remove after 2025-07-01.
         task_record = None
         task_history_file = data_dir / "task-history.jsonl"
         if task_history_file.exists():

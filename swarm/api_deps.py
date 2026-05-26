@@ -78,13 +78,26 @@ def _load_history_tasks(data_dir, project=None, max_entries=500):
     return tasks
 
 
-def _completed_ids_from_history(data_dir, project=None) -> set[str]:
-    """Return completed task IDs from task-history.jsonl."""
-    return {
+def _completed_ids_from_history(data_dir, project=None, db=None) -> set[str]:
+    """Return completed task IDs, preferring the live DB over JSONL.
+
+    Now that completed tasks stay in the tasks table, this is primarily a
+    JSONL fallback for pre-migration data.  When *db* is provided, any ID
+    already present in the live tasks table is excluded from the JSONL
+    results to avoid duplicates (DB wins).
+    """
+    # DEPRECATED: JSONL scan is a fallback for pre-migration tasks only.
+    # Remove after 2025-07-01 once all DBs have accumulated enough history.
+    jsonl_ids = {
         t.get("id")
         for t in _load_history_tasks(data_dir, project=project)
         if t.get("id") and t.get("status") == "completed"
     }
+    if db is not None:
+        # Dedupe: any task ID in the live DB takes precedence over JSONL
+        live_ids = {row["id"] for row in db.task_get_all()}
+        jsonl_ids -= live_ids
+    return jsonl_ids
 
 
 def _resolve_project_head_for_dot(db, project: str, history_tasks: list[dict]) -> str | None:
@@ -709,7 +722,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
         graph = build_graph_from_tasks(tasks)
         completed = set(db.task_get_completed_ids())
         if data_dir:
-            completed |= _completed_ids_from_history(data_dir, project=project or None)
+            completed |= _completed_ids_from_history(data_dir, project=project or None, db=db)
         completed |= {t.id for t in tasks if t.status == "completed"}
         ready_ids = graph.get_ready_tasks(completed)
         ready = [
@@ -733,7 +746,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
 
     @app.route("/api/task-lookup/<task_id>", methods=["GET"])
     def task_lookup(task_id):
-        """Return task details from active tasks or task-history.jsonl."""
+        """Return task details from the live DB, falling back to task-history.jsonl for pre-migration data."""
         try:
             active = db.task_get(task_id)
             if active:

@@ -722,6 +722,9 @@ def task_get_completed_ids() -> set:
     conn = _connect()
     rows = conn.execute("SELECT id FROM tasks WHERE status='completed'").fetchall()
     ids = {r["id"] for r in rows}
+    # DEPRECATED: legacy fallback for pre-migration completed tasks.
+    # The completed_task_ids shadow table is redundant now that completed tasks
+    # stay in the tasks table. Remove this fallback after 2025-07-01.
     rows2 = conn.execute("SELECT id FROM completed_task_ids").fetchall()
     ids |= {r["id"] for r in rows2}
     return ids
