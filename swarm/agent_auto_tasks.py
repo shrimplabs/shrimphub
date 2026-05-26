@@ -147,7 +147,7 @@ def auto_spawn_qa_task(
     is_recovery_task: bool,
 ) -> None:
     """Increment QA counter and auto-spawn a QA task when the threshold is reached."""
-    _skip = {"qa", "harness_qa", "hybrid_qa", "audit", "manager", "project_create", "project_plan"}
+    _skip = {"qa", "harness_qa", "hybrid_qa", "scenario_qa", "audit", "manager", "project_create", "project_plan"}
     if validation_failed or spawned_continuation or is_recovery_task:
         return
     if task_type_finished in _skip:
@@ -162,10 +162,11 @@ def auto_spawn_qa_task(
     db = _db()
     qa_completion_counter[project] = qa_completion_counter.get(project, 0) + 1
     existing = db.task_get_by_project(project)
+    _qa_types = {"qa", "harness_qa", "hybrid_qa", "scenario_qa"}
     # Suppress if the full sprint-close sequence is already in the pipeline.
     # Check QA specifically — if QA is queued, art_pass and polish must already be there too.
     has_qa = any(
-        t.get("type") in ("qa", "harness_qa", "hybrid_qa")
+        t.get("type") in _qa_types
         and t.get("status") in ("pending", "in_progress", "failed")
         for t in existing
     )
@@ -173,8 +174,15 @@ def auto_spawn_qa_task(
         t for t in existing
         if t.get("status") in ("pending", "in_progress")
         and t.get("id") != task_id
-        and t.get("type") not in ("qa", "harness_qa", "hybrid_qa", "audit", "manager")
+        and t.get("type") not in (_qa_types | {"audit", "manager"})
     ]
+    # Don't spawn QA while bug tasks are still active — QA will race with fixes
+    # and get killed by the dep violation checker. Wait for a clean project state.
+    has_active_bugs = any(
+        t.get("type") == "bug"
+        and t.get("status") in ("pending", "in_progress")
+        for t in existing
+    )
     threshold_due = qa_completion_counter[project] >= qa_auto_threshold
     empty_queue_due = not open_nonqa
     if not (threshold_due or empty_queue_due):
@@ -182,6 +190,11 @@ def auto_spawn_qa_task(
 
     qa_completion_counter[project] = 0
     if has_qa:
+        return
+    if has_active_bugs:
+        print(f"[Swarm] Deferring auto-QA for {project}: {sum(1 for t in existing if t.get('type')=='bug' and t.get('status') in ('pending','in_progress'))} bug task(s) still active")
+        # Don't zero the counter — recheck next completion
+        qa_completion_counter[project] = qa_auto_threshold
         return
 
     tc = _task_chains()
