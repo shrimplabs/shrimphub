@@ -186,11 +186,12 @@ def _create_schema(conn: sqlite3.Connection):
             completed    TEXT,
             agent_id     TEXT,
             dependencies TEXT DEFAULT '[]',
-            metadata     TEXT DEFAULT '{}',
-            attempts     INTEGER DEFAULT 0,
-            max_attempts INTEGER DEFAULT 3,
-            run_after    TEXT,
-            plan_id      TEXT
+            metadata         TEXT DEFAULT '{}',
+            acceptance_test  TEXT DEFAULT '{}',
+            attempts         INTEGER DEFAULT 0,
+            max_attempts     INTEGER DEFAULT 3,
+            run_after        TEXT,
+            plan_id          TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
         CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
@@ -301,10 +302,11 @@ def _evolve_schema(conn: sqlite3.Connection):
         ("max_attempts", "ALTER TABLE tasks ADD COLUMN max_attempts INTEGER DEFAULT 3"),
         ("run_after",    "ALTER TABLE tasks ADD COLUMN run_after    TEXT"),
         ("plan_id",      "ALTER TABLE tasks ADD COLUMN plan_id      TEXT"),
+        ("acceptance_test", "ALTER TABLE tasks ADD COLUMN acceptance_test TEXT DEFAULT '{}'"),
     ]:
         if col not in existing_tasks:
             conn.execute(ddl)
-    # Index for plan_id — created after column is guaranteed to exist
+    # Index for plan_id -- created after column is guaranteed to exist
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_plan_id ON tasks(plan_id)")
     existing_projects = {row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "notes" not in existing_projects:
@@ -534,16 +536,17 @@ def task_upsert(task: Dict) -> str:
             """INSERT INTO tasks
                (id,project,type,description,priority,status,
                 created,started,completed,agent_id,dependencies,metadata,
-                attempts,max_attempts,run_after,plan_id)
+                acceptance_test,attempts,max_attempts,run_after,plan_id)
                VALUES (:id,:project,:type,:description,:priority,:status,
                        :created,:started,:completed,:agent_id,:dependencies,:metadata,
-                       :attempts,:max_attempts,:run_after,:plan_id)
+                       :acceptance_test,:attempts,:max_attempts,:run_after,:plan_id)
                ON CONFLICT(id) DO UPDATE SET
                    project=excluded.project, type=excluded.type,
                    description=excluded.description, priority=excluded.priority,
                    status=excluded.status, started=excluded.started,
                    completed=excluded.completed, agent_id=excluded.agent_id,
                    dependencies=excluded.dependencies, metadata=excluded.metadata,
+                   acceptance_test=excluded.acceptance_test,
                    attempts=excluded.attempts, max_attempts=excluded.max_attempts,
                    run_after=excluded.run_after, plan_id=excluded.plan_id""",
             {
@@ -559,6 +562,7 @@ def task_upsert(task: Dict) -> str:
                 "agent_id":     task.get("agent_id"),
                 "dependencies": _encode_deps(deps),
                 "metadata":     json.dumps(task.get("metadata", {})),
+                "acceptance_test": json.dumps(task.get("acceptance_test", {})),
                 "attempts":     task.get("attempts", 0),
                 "max_attempts": task.get("max_attempts", 3),
                 "run_after":    task.get("run_after"),
@@ -624,6 +628,8 @@ def task_update(task_id: str, fields: dict):
         row = {}
         for k, v in fields.items():
             if k == "metadata" and isinstance(v, dict):
+                row[k] = _json.dumps(v)
+            elif k == "acceptance_test" and isinstance(v, dict):
                 row[k] = _json.dumps(v)
             elif k == "dependencies":
                 deps = _validate_task_dependencies(task_id, v)
@@ -793,8 +799,9 @@ def repair_malformed_task_rows() -> list[str]:
 
 def _task_row(row) -> Dict:
     d = dict(row)
-    d["dependencies"] = json.loads(d.get("dependencies") or "[]")
-    d["metadata"]     = json.loads(d.get("metadata") or "{}")
+    d["dependencies"]      = json.loads(d.get("dependencies") or "[]")
+    d["metadata"]         = json.loads(d.get("metadata") or "{}")
+    d["acceptance_test"]  = json.loads(d.get("acceptance_test") or "{}")
     return d
 
 

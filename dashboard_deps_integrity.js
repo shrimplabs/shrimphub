@@ -6,6 +6,13 @@
     let _depGraphViewByProject = {};
     let _integrityData = null;
 
+    // Playback state
+    let _pbEvents = null;       // array of event objects from /api/dependencies/playback-events
+    let _pbIndex = 0;           // current event index
+    let _pbPlaying = false;
+    let _pbTimer = null;
+    let _pbProject = null;      // project for which events were loaded
+
     function _ctx() {
         return _contextProvider ? _contextProvider() : {};
     }
@@ -84,6 +91,37 @@
     function _depRenderHistoryCandidates() {
         const seed = [Number(_depHistoryLimit) || 2, 2, 1, 0];
         return [...new Set(seed.filter(n => Number.isFinite(n) && n >= 0))];
+    }
+
+    function _postProcessDepSvg(svg) {
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        svg.style.fontFamily = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+        svg.style.overflow = 'visible';
+        svg.classList.add('deps-graph-svg');
+        svg.setAttribute('overflow', 'visible');
+        svg.querySelectorAll('polygon[fill="white"], polygon[fill="#ffffff"]').forEach(el => el.remove());
+        svg.querySelectorAll('g.node polygon').forEach(poly => {
+            const pts = (poly.getAttribute('points') || '').trim().split(/\s+/).map(p => p.split(',').map(Number));
+            if (!pts.length) return;
+            const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+            const x = Math.min(...xs), y = Math.min(...ys);
+            const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', x); rect.setAttribute('y', y);
+            rect.setAttribute('width', w); rect.setAttribute('height', h);
+            rect.setAttribute('rx', '6'); rect.setAttribute('ry', '6');
+            rect.setAttribute('fill', poly.getAttribute('fill'));
+            rect.setAttribute('stroke', poly.getAttribute('stroke'));
+            rect.setAttribute('stroke-width', poly.getAttribute('stroke-width') || '1.5');
+            const sda = poly.getAttribute('stroke-dasharray');
+            if (sda) rect.setAttribute('stroke-dasharray', sda);
+            poly.parentNode.replaceChild(rect, poly);
+        });
+        svg.setAttribute('style', 'width:100%;height:100%;background:transparent;overflow:visible');
+        _remapDepGraphColors(svg);
     }
 
     function _isVizMemoryError(error) {
@@ -640,40 +678,7 @@
                 if (!svg) {
                     throw lastRenderError || new Error('graph renderer returned no SVG');
                 }
-                // Remove the natural height Graphviz bakes in — container has a fixed height
-                svg.removeAttribute('width');
-                svg.removeAttribute('height');
-                svg.style.width = '100%';
-                svg.style.height = '100%';
-                svg.style.fontFamily = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
-                svg.style.overflow = 'visible';
-                svg.classList.add('deps-graph-svg');
-                svg.setAttribute('overflow', 'visible');
-                svg.querySelectorAll('polygon[fill="white"], polygon[fill="#ffffff"]').forEach(el => el.remove());
-                svg.querySelectorAll('g.node polygon').forEach(poly => {
-                    const pts = (poly.getAttribute('points') || '').trim().split(/\s+/).map(p => p.split(',').map(Number));
-                    if (!pts.length) return;
-                    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-                    const x = Math.min(...xs), y = Math.min(...ys);
-                    const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
-                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                    rect.setAttribute('x', x);
-                    rect.setAttribute('y', y);
-                    rect.setAttribute('width', w);
-                    rect.setAttribute('height', h);
-                    rect.setAttribute('rx', '6');
-                    rect.setAttribute('ry', '6');
-                    rect.setAttribute('fill', poly.getAttribute('fill'));
-                    rect.setAttribute('stroke', poly.getAttribute('stroke'));
-                    rect.setAttribute('stroke-width', poly.getAttribute('stroke-width') || '1.5');
-                    const sda = poly.getAttribute('stroke-dasharray');
-                    if (sda) rect.setAttribute('stroke-dasharray', sda);
-                    poly.parentNode.replaceChild(rect, poly);
-                });
-                svg.setAttribute('style', 'width:100%;height:100%;background:transparent;overflow:visible');
-
-                // Remap hardcoded dark-mode node colors to theme-aware values
-                _remapDepGraphColors(svg);
+                _postProcessDepSvg(svg);
 
                 container.innerHTML = '';
                 container.appendChild(svg);
@@ -724,6 +729,197 @@
                 container.textContent = 'Could not render graph: ' + message;
             }
         }
+    };
+
+    // ---------- Dep Graph Playback ----------
+
+    function _fmtPlaybackTs(iso) {
+        if (!iso) return '—';
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})
+                + ' ' + d.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'});
+        } catch (e) { return iso; }
+    }
+
+    function _pbStop() {
+        if (_pbTimer) { clearTimeout(_pbTimer); _pbTimer = null; }
+        _pbPlaying = false;
+        const btn = document.getElementById('playbackPlayBtn');
+        if (btn) btn.textContent = '▶';
+    }
+
+    async function _pbRenderAt(idx) {
+        if (!_pbEvents || !_pbEvents.length) return;
+        idx = Math.max(0, Math.min(idx, _pbEvents.length - 1));
+        _pbIndex = idx;
+        const ev = _pbEvents[idx];
+        const ctx = _ctx();
+
+        // Update scrubber
+        const scrubber = document.getElementById('playbackScrubber');
+        if (scrubber) scrubber.value = idx;
+
+        // Update timestamp label
+        const tsLabel = document.getElementById('playbackTimestamp');
+        if (tsLabel) tsLabel.textContent = _fmtPlaybackTs(ev.iso);
+
+        // Update callout
+        const calloutEl = document.getElementById('playbackCallout');
+        if (calloutEl) {
+            const calloutLabels = {
+                first_task: '🚀 First task created',
+                first_completion: '✅ First completion',
+                sprint_burst: '⚡ Sprint burst — 3+ completions in 60s',
+                recovery_spawn: '🔄 Recovery task spawned',
+            };
+            if (ev.callout && calloutLabels[ev.callout]) {
+                calloutEl.textContent = calloutLabels[ev.callout] + ' — ' + ev.label;
+                calloutEl.style.display = '';
+            } else {
+                calloutEl.style.display = 'none';
+            }
+        }
+
+        // Fetch and render dot-at
+        const container = document.getElementById('depsSvg');
+        try {
+            const res = await fetch(`${ctx.API}/api/dependencies/dot-at?project=${encodeURIComponent(_pbProject)}&at=${encodeURIComponent(ev.iso)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const dot = data.dot || '';
+            if (!dot.trim() || dot.trim() === 'digraph {}') {
+                container.textContent = 'No tasks at this point in time.';
+                return;
+            }
+            if (!_viz) _viz = new Viz();
+            const svg = await _viz.renderSVGElement(dot);
+            _postProcessDepSvg(svg);
+            container.innerHTML = '';
+            container.appendChild(svg);
+            initDepGraphInteraction(container, svg, {});
+        } catch (e) {
+            console.error('Playback render error', e);
+        }
+    }
+
+    function _pbStep() {
+        if (!_pbPlaying) return;
+        if (_pbIndex >= _pbEvents.length - 1) {
+            _pbStop();
+            return;
+        }
+        _pbRenderAt(_pbIndex + 1);
+
+        // Pause at callouts for 2s
+        const ev = _pbEvents[_pbIndex];
+        const speed = parseFloat(document.getElementById('playbackSpeed')?.value || '2');
+        const delay = ev.callout ? 2000 : Math.max(200, 800 / speed);
+
+        _pbTimer = setTimeout(_pbStep, delay);
+    }
+
+    window.toggleDepPlayback = async function () {
+        const ctx = _ctx();
+        if (!ctx.selectedProject) return;
+
+        const bar = document.getElementById('depsPlaybackBar');
+        if (!bar) return;
+
+        // If already in playback mode for this project, just toggle play/pause
+        if (_pbEvents && _pbProject === ctx.selectedProject && bar.style.display !== 'none') {
+            window.depPlaybackPlayPause();
+            return;
+        }
+
+        // Load events
+        _pbStop();
+        _pbProject = ctx.selectedProject;
+        bar.style.display = '';
+        const scrubber = document.getElementById('playbackScrubber');
+        const tsLabel = document.getElementById('playbackTimestamp');
+        if (tsLabel) tsLabel.textContent = 'Loading…';
+
+        try {
+            const res = await fetch(`${ctx.API}/api/dependencies/playback-events?project=${encodeURIComponent(ctx.selectedProject)}`);
+            if (!res.ok) { bar.style.display = 'none'; return; }
+            const data = await res.json();
+            _pbEvents = data.events || [];
+            if (!_pbEvents.length) {
+                bar.style.display = 'none';
+                return;
+            }
+
+            // Configure scrubber range
+            if (scrubber) {
+                scrubber.min = 0;
+                scrubber.max = _pbEvents.length - 1;
+                scrubber.value = 0;
+            }
+
+            // Render markers for callout events
+            const markersEl = document.getElementById('playbackMarkers');
+            if (markersEl) {
+                markersEl.innerHTML = '';
+                _pbEvents.forEach((ev, i) => {
+                    if (!ev.callout) return;
+                    const pct = (i / (_pbEvents.length - 1)) * 100;
+                    const m = document.createElement('div');
+                    m.className = `playback-marker ${ev.callout}`;
+                    m.style.left = pct + '%';
+                    m.title = ev.label;
+                    m.onclick = () => { _pbStop(); _pbRenderAt(i); };
+                    markersEl.appendChild(m);
+                });
+            }
+
+            _pbIndex = 0;
+            await _pbRenderAt(0);
+        } catch (e) {
+            console.error('Failed to load playback events', e);
+            bar.style.display = 'none';
+        }
+    };
+
+    window.depPlaybackPlayPause = function () {
+        if (_pbPlaying) {
+            _pbStop();
+        } else {
+            _pbPlaying = true;
+            const btn = document.getElementById('playbackPlayBtn');
+            if (btn) btn.textContent = '⏸';
+            _pbStep();
+        }
+    };
+
+    window.depPlaybackScrub = function (val) {
+        _pbStop();
+        _pbRenderAt(parseInt(val, 10));
+    };
+
+    window.depPlaybackExit = function () {
+        _pbStop();
+        _pbEvents = null;
+        _pbProject = null;
+        const bar = document.getElementById('depsPlaybackBar');
+        if (bar) bar.style.display = 'none';
+        const calloutEl = document.getElementById('playbackCallout');
+        if (calloutEl) calloutEl.style.display = 'none';
+        // Re-render live graph
+        api.renderDepsGraph();
+    };
+
+    // Show/hide the Playback button based on whether a project is selected
+    const _origRender = api.renderDepsGraph.bind(api);
+    api.renderDepsGraph = async function () {
+        const ctx = _ctx();
+        const btn = document.getElementById('playbackToggleBtn');
+        if (btn) btn.style.display = ctx.selectedProject ? '' : 'none';
+        // If playback is active for a different project, exit it
+        if (_pbEvents && _pbProject && ctx.selectedProject !== _pbProject) {
+            window.depPlaybackExit();
+        }
+        return _origRender();
     };
 
     window.SwarmDepsIntegrityUI = api;

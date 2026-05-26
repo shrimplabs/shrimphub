@@ -36,6 +36,7 @@ from swarm.tools.files import (  # noqa: F401, E402
 )
 
 from swarm.tools.tasks import (  # noqa: F401, E402
+    create_subtask,
     create_task,
     create_tasks_file_aware,
     create_tasks,

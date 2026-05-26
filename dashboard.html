@@ -91,7 +91,26 @@
                 <option value="3">3</option>
                 <option value="5">5</option>
             </select>
+            <button type="button" class="deps-graph-btn" id="playbackToggleBtn" onclick="toggleDepPlayback()" style="display:none;margin-left:8px">⏵ Playback</button>
             <span id="depsGraphHint">Wheel: zoom · Drag: pan · Focus Active: live tasks · 0: fit · +/-: zoom · R: reset</span>
+        </div>
+        <div id="depsPlaybackBar" style="display:none">
+            <div class="playback-controls">
+                <button type="button" class="deps-graph-btn playback-btn" id="playbackPlayBtn" onclick="depPlaybackPlayPause()">▶</button>
+                <select class="deps-graph-btn playback-btn" id="playbackSpeed" style="padding-right:20px">
+                    <option value="0.5">0.5×</option>
+                    <option value="1">1×</option>
+                    <option value="2" selected>2×</option>
+                    <option value="5">5×</option>
+                </select>
+                <div class="playback-scrubber-wrap">
+                    <input type="range" id="playbackScrubber" class="playback-scrubber" min="0" max="100" value="0" oninput="depPlaybackScrub(this.value)">
+                    <div id="playbackMarkers" class="playback-markers"></div>
+                </div>
+                <span id="playbackTimestamp" class="playback-timestamp">—</span>
+                <button type="button" class="deps-graph-btn playback-btn" onclick="depPlaybackExit()" style="margin-left:4px;opacity:0.6">✕</button>
+            </div>
+            <div id="playbackCallout" class="playback-callout" style="display:none"></div>
         </div>
         <div id="depsSvg">
             Loading dependency graph…

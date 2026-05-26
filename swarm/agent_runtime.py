@@ -61,6 +61,7 @@ from swarm.tools.files import (  # noqa: F401, E402
 )
 
 from swarm.tools.tasks import (  # noqa: F401
+    create_subtask,
     create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
     list_tasks, list_subtasks,
     annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
@@ -101,7 +102,7 @@ from swarm.tool_dispatch import (  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
-# Config variables — set by the wrapper before calling main()
+# Config variables -- set by the wrapper before calling main()
 # ---------------------------------------------------------------------------
 
 WORKSPACE: Path = Path(".")
@@ -131,7 +132,7 @@ RUN_BROADCAST_WRITE_COUNT: int = 0
 CLAIMED_FILE_PATHS: set[str] = set()
 LOCK_CONFLICT_HANDOFF: dict | None = None
 
-# Task-type prompts — set by the wrapper
+# Task-type prompts -- set by the wrapper
 FEATURE_SYSTEM: str = ""
 FEATURE_USER: str = ""
 BUG_SYSTEM: str = ""
@@ -173,15 +174,15 @@ HYBRID_QA_USER: str = ""
 SCENARIO_QA_SYSTEM: str = ""
 SCENARIO_QA_USER: str = ""
 
-# LLM provider config — set by the wrapper
+# LLM provider config -- set by the wrapper
 LLM_PROVIDER: str = "minimax"
 
-# EXPERIMENT: meta-investigation — a short out-of-band LLM call that fires when
+# EXPERIMENT: meta-investigation -- a short out-of-band LLM call that fires when
 # the same error string repeats 3+ times in run_command output across non-consecutive
 # loops. It reads relevant files, probes the environment, then injects a hint into
 # the main conversation. Disable via config.json: "meta_investigation": false
 META_INVESTIGATION_ENABLED: bool = True
-# Provider used for meta-investigation calls — defaults to the same provider as the
+# Provider used for meta-investigation calls -- defaults to the same provider as the
 # main agent. Override via config.json: "meta_investigation_provider": "claude"
 META_INVESTIGATION_PROVIDER: str = ""
 
@@ -192,6 +193,55 @@ mcp_client = None
 
 
 SCRATCHPAD: list = []  # NOTE: actual scratchpad lives in swarm.tools.knowledge.SCRATCHPAD
+
+
+# ---------------------------------------------------------------------------
+# H1-H8 Metrics Instrumentation
+# ---------------------------------------------------------------------------
+
+def _h7_detect_reread(written_files: set, read_files: set) -> int:
+    """Count re-read-after-write events (H7: Iterative Refinement).
+
+    A re-read event is when a file written in this session is read again
+    after the write - the signal that an iterative refine cycle completed.
+    """
+    return len(written_files & read_files)
+
+
+def _append_history_record(
+    data_dir: str,
+    task_id: str,
+    project: str,
+    task_type: str,
+    loop_count: int,
+    tool_call_counts: dict,
+    h7_reread_count: int,
+    task_completed: bool,
+    exit_reason: str,
+) -> None:
+    """Append structured H1-H8 metrics to data/agent-history.jsonl."""
+    import datetime
+    import json
+
+    record = {
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "task_id": task_id,
+        "project": project,
+        "task_type": task_type,
+        "loop_count": loop_count,
+        "tool_call_counts": dict(tool_call_counts),
+        "h7_reread_count": h7_reread_count,
+        "task_completed": task_completed,
+        "exit_reason": exit_reason,
+    }
+
+    history_path = Path(data_dir) / "agent-history.jsonl"
+    try:
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with history_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as e:
+        log(f"WARNING: failed to write history record: {e}")
 
 
 def _load_task_metadata() -> dict:
@@ -205,7 +255,7 @@ def _load_task_metadata() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Module sync helpers — propagate wrapper-set config to tool submodules
+# Module sync helpers -- propagate wrapper-set config to tool submodules
 # (same pattern as _sync_qa_tools_globals)
 # ---------------------------------------------------------------------------
 
@@ -437,7 +487,7 @@ def main() -> int:
 
     # Build the legacy Godot refactor prompt only for Godot projects.
     if TASK_TYPE == "refactor" and not is_python and not is_typescript:
-        system_prompt = f"""You are an expert Godot game developer. Use tool calls to modify the codebase — do not just describe changes.
+        system_prompt = f"""You are an expert Godot game developer. Use tool calls to modify the codebase -- do not just describe changes.
 
 Available tools (use [TOOL_CALL]{{"tool": "name", "args": {{...}}}}[/TOOL_CALL] format):
 - list_files(path): List files and directories
@@ -449,23 +499,23 @@ Available tools (use [TOOL_CALL]{{"tool": "name", "args": {{...}}}}[/TOOL_CALL] 
 - git_commit(message): Stage all changes and commit
 - git_push(): Push commits to remote
 
-REFACTOR RULES — follow these exactly:
+REFACTOR RULES -- follow these exactly:
 
-PHASE 1 — PLAN (if refactor.md does not exist, or all items are done):
+PHASE 1 -- PLAN (if refactor.md does not exist, or all items are done):
 1. Use grep -n and sed to read all oversized files and identify logical sections to extract (systems, managers, UI, constants, etc.). Note the approximate start/end line numbers for each section.
 2. Write (or overwrite) refactor.md at the project root with a fresh checklist including line ranges:
    # Refactor Plan: Sprint <N>
    ## Files to reduce
-   - [ ] scripts/foo_system.gd — lines 450-620 of source.gd (festival + event logic)
-   - [ ] scripts/bar_manager.gd — lines 621-790 of source.gd (guild management)
+   - [ ] scripts/foo_system.gd -- lines 450-620 of source.gd (festival + event logic)
+   - [ ] scripts/bar_manager.gd -- lines 621-790 of source.gd (guild management)
    ...
 3. git_commit("Refactor: create sprint <N> plan") then git_push().
 
-PHASE 2 — EXECUTE (read refactor.md to find next unchecked item):
+PHASE 2 -- EXECUTE (read refactor.md to find next unchecked item):
 4. Read refactor.md to find the next unchecked `- [ ]` item.
 5. Find the exact line numbers of the section to extract.
 6. Write the new extracted file using write_file.
-7. Delete those lines from the source file using sed in-place — do NOT rewrite the whole file:
+7. Delete those lines from the source file using sed in-place -- do NOT rewrite the whole file:
    run_command: sed -i '<start>,<end>d' /path/to/source.gd
    This is mandatory. The source file MUST have fewer lines after every extraction.
 8. Verify the source shrank: run_command: wc -l /path/to/source.gd
@@ -486,7 +536,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 refactor_md_content = f.read()
             if "- [ ]" in refactor_md_content:
                 resume_context = (
-                    f"\nrefactor.md exists with pending items — resume it:\n```\n{refactor_md_content[:3000]}\n```\n"
+                    f"\nrefactor.md exists with pending items -- resume it:\n```\n{refactor_md_content[:3000]}\n```\n"
                     f"Find the next unchecked `- [ ]` item and execute it. Skip straight to Phase 2."
                 )
             else:
@@ -514,7 +564,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         f"Say TASK_COMPLETE immediately."
                     )
         else:
-            resume_context = "\nNo refactor.md found — start with Phase 1: analyse oversized files and write the plan."
+            resume_context = "\nNo refactor.md found -- start with Phase 1: analyse oversized files and write the plan."
 
         user_prompt = (
             f"Project: {PROJECT}\n"
@@ -566,7 +616,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     total_output_tokens = 0
 
     stall_detector = StallDetector()
-    # EXPERIMENT: meta-investigation — track recurring error strings across loops
+    # EXPERIMENT: meta-investigation -- track recurring error strings across loops
     _error_counts: _collections.Counter = _collections.Counter()
     _error_loop_history: dict[str, list[str]] = {}  # error_key → list of loop summaries
     _meta_investigated: set[str] = set()  # errors already investigated (don't repeat)
@@ -576,20 +626,20 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         compact_token_threshold = _get_compaction_threshold()
 
         if stall_detector.check() and not _wrap_up_injected:
-            log("WARNING: stall detected — same tool called 3 times with identical args")
+            log("WARNING: stall detected -- same tool called 3 times with identical args")
             conversation.append({"role": "user", "content": StallDetector.injected_message()})
-        # EXPERIMENT: meta-investigation — fire when same error seen 3+ times
+        # EXPERIMENT: meta-investigation -- fire when same error seen 3+ times
         if META_INVESTIGATION_ENABLED and not _wrap_up_injected:
             for err_key, count in _error_counts.items():
                 if count >= 3 and err_key not in _meta_investigated:
                     _meta_investigated.add(err_key)
-                    log(f"[Meta] Repeated error ({count}x): {err_key[:80]} — launching investigation")
+                    log(f"[Meta] Repeated error ({count}x): {err_key[:80]} -- launching investigation")
                     history = _error_loop_history.get(err_key, [])
                     try:
                         hint = _run_meta_investigation(err_key, history, TASK_DESC)
                         log("[Meta] Investigation complete")
                         conversation.append({"role": "user", "content": (
-                            f"[INVESTIGATOR NOTE — out-of-band analysis of your repeated error]\n\n"
+                            f"[INVESTIGATOR NOTE -- out-of-band analysis of your repeated error]\n\n"
                             f"{hint}\n\n"
                             "Take this into account before your next tool call."
                         )})
@@ -598,8 +648,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     break  # one investigation per loop tick
 
         # Research budget enforcement for plan tasks
-        # plan: 10 loops (targeted task creation — doesn't need full codebase survey)
-        # project_plan: 15 loops (full sprint planning — needs broader codebase breadth)
+        # plan: 10 loops (targeted task creation -- doesn't need full codebase survey)
+        # project_plan: 15 loops (full sprint planning -- needs broader codebase breadth)
         _plan_budget = 15 if TASK_TYPE == "project_plan" else 10
         if (TASK_TYPE in ("plan", "project_plan")
                 and not _wrap_up_injected
@@ -669,11 +719,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         except Exception:
             pass
 
-        # Detect context window exceeded — spawn continuation task and exit cleanly
+        # Detect context window exceeded -- spawn continuation task and exit cleanly
         if "context window exceeds limit" in response or (
             "invalid_request_error" in response and "context" in response.lower()
         ):
-            log("WARNING: context window limit hit — spawning continuation task")
+            log("WARNING: context window limit hit -- spawning continuation task")
             context_limit_hit = True
             break
 
@@ -692,7 +742,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         tool_calls = parse_tool_calls(response)
 
-        # Validate tool calls before executing — catch missing required args
+        # Validate tool calls before executing -- catch missing required args
         # and inject a targeted correction WITHOUT burning a loop counter slot.
         # Capped at 2 retries per loop position to prevent infinite correction loops.
         if tool_calls:
@@ -707,25 +757,25 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     conversation.append({"role": "user", "content": (
                         f"Fix these tool call errors and try again:\n{_corrections}"
                     )})
-                    # Don't increment tool_loop_count — this retry is free
+                    # Don't increment tool_loop_count -- this retry is free
                     continue
                 else:
-                    log("WARNING: malformed tool call(s) after 2 retries — executing anyway")
+                    log("WARNING: malformed tool call(s) after 2 retries -- executing anyway")
 
         if not tool_calls:
             has_open = "[TOOL_CALL]" in response or "<tool_call>" in response
             has_close = "[/TOOL_CALL]" in response or "</tool_call>" in response
             if has_open and not has_close:
-                log("WARNING: response truncated — injecting targeted retry")
+                log("WARNING: response truncated -- injecting targeted retry")
                 conversation.append({"role": "user", "content": (
                     "Your response was cut off before the tool call closed. "
-                    "Write a shorter tool call — avoid large write_file blocks. "
+                    "Write a shorter tool call -- avoid large write_file blocks. "
                     "Try again with a concise tool call."
                 )})
                 tool_loop_count += 1
                 continue
             if has_open and has_close:
-                log("WARNING: tool call tags present but JSON invalid — asking to retry")
+                log("WARNING: tool call tags present but JSON invalid -- asking to retry")
                 conversation.append({"role": "user", "content": (
                     "Your tool call could not be parsed. "
                     "Use exactly this format with valid JSON:\n"
@@ -733,11 +783,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 )})
                 tool_loop_count += 1
                 continue
-            # No tool calls — check for TASK_COMPLETE before nudging
+            # No tool calls -- check for TASK_COMPLETE before nudging
             if _has_task_complete:
                 failures = _has_validation_failures(_last_run_outputs)
                 if failures:
-                    log(f"TASK_COMPLETE blocked — validation failures still present: {failures[:3]}")
+                    log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
                     feedback = (
                         "TASK_COMPLETE rejected. Your most recent command output still contains errors "
                         "that must be fixed before the task can be marked complete:\n\n"
@@ -754,14 +804,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 task_complete_hit = True
                 break
             if "write_file" in response.lower():
-                log("write_file mentioned but not parsed — asking to retry")
+                log("write_file mentioned but not parsed -- asking to retry")
                 conversation.append({"role": "user", "content": "Please write smaller files (under 40 lines) one at a time."})
                 tool_loop_count += 1
                 continue
-            # No tool calls and no TASK_COMPLETE — give it one nudge.
+            # No tool calls and no TASK_COMPLETE -- give it one nudge.
             if not _no_tool_call_nudged:
                 _no_tool_call_nudged = True
-                log("WARNING: no tool calls and no TASK_COMPLETE — nudging model to finish")
+                log("WARNING: no tool calls and no TASK_COMPLETE -- nudging model to finish")
                 conversation.append({"role": "user", "content": (
                     "Your response contained no tool calls and no TASK_COMPLETE. "
                     "If you have finished your work, output TASK_COMPLETE on its own line now. "
@@ -770,17 +820,38 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 )})
                 tool_loop_count += 1
                 continue
-            log("No valid tool calls found after nudge — marking task failed")
+            log("No valid tool calls found after nudge -- marking task failed")
             break
 
         tool_results = []
         _last_run_outputs = []   # reset each loop; only keep the latest batch
-        _no_tool_call_nudged = False  # reset — model is back to using tools
+        _no_tool_call_nudged = False  # reset -- model is back to using tools
+
+        # H1-H8 metrics: per-task counters
+        _tool_call_counts: dict = {}
+        _session_written_files: set = set()   # H7: files written in this session
+        _session_read_files: set = set()       # H7: files read in this session
+
         for tc in tool_calls:
             log(f"Tool call: {tc}")
             result = execute_tool(tc)
             log(f"Result: {str(result)[:200]}")
             tool_results.append(f"Tool {tc.get('tool', '?')}: {json.dumps(result)}")
+
+            # H1-H3: increment tool call counter
+            tool_name = tc.get("tool", "?")
+            _tool_call_counts[tool_name] = _tool_call_counts.get(tool_name, 0) + 1
+
+            # H7: track written and read files
+            args = tc.get("args", {})
+            if tool_name in ("write_file", "patch_file", "append_file"):
+                path_val = args.get("path") or args.get("file") or ""
+                if path_val:
+                    _session_written_files.add(path_val)
+            if tool_name in ("read_file", "read_file_range"):
+                path_val = args.get("path") or args.get("file") or ""
+                if path_val:
+                    _session_read_files.add(path_val)
             if isinstance(result, dict) and result.get("lock_conflict_handoff_created"):
                 lock_handoff_hit = result
                 break
@@ -809,7 +880,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         if lock_handoff_hit:
             log(
-                "Lock conflict handoff created — stopping current task after sequencing "
+                "Lock conflict handoff created -- stopping current task after sequencing "
                 f"follow-up {lock_handoff_hit.get('followup_task_id')} behind "
                 f"{lock_handoff_hit.get('blocked_by_task_id')}"
             )
@@ -821,7 +892,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         if _has_task_complete:
             failures = _has_validation_failures(_last_run_outputs)
             if failures:
-                log(f"TASK_COMPLETE blocked — validation failures still present: {failures[:3]}")
+                log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
                 feedback = (
                     "TASK_COMPLETE rejected. Your most recent command output still contains errors "
                     "that must be fixed before the task can be marked complete:\n\n"
@@ -862,12 +933,12 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         is_continuation = TASK_DESC.startswith("CONTINUATION of task")
         _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
         if is_continuation:
-            log("Context limit hit on a continuation task — stopping chain, marking done")
+            log("Context limit hit on a continuation task -- stopping chain, marking done")
             _unlock_claimed_files()
             print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_end"}))
             return 0
         if _project_unmanaged:
-            log(f"Context limit hit but {PROJECT} is not in managed_projects — skipping continuation spawn")
+            log(f"Context limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
             _unlock_claimed_files()
             print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_unmanaged_no_continuation"}))
             return 0
@@ -897,7 +968,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 progress_file = Path(proj_root) / "_swarm_progress.md"
                 all_assistant = [m["content"] for m in conversation if m.get("role") == "assistant" and m.get("content")]
                 progress_content = (
-                    f"# Swarm Progress — {TASK_ID}\n\n"
+                    f"# Swarm Progress -- {TASK_ID}\n\n"
                     f"## Original Task\n{TASK_DESC[:1000]}\n\n"
                     f"## Git Evidence\n{git_context}\n\n"
                     f"## What Was Done (agent turns)\n"
@@ -917,7 +988,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 f"1. Read _swarm_progress.md in the project root for the full agent turn history.\n"
                 f"2. Run the appropriate validation (e.g. `godot --headless --script res://check_scripts.gd` or `python -m py_compile`) to see current error state.\n"
                 f"3. Review `git diff HEAD~3..HEAD` to understand what has already been changed.\n"
-                f"4. Continue fixing what remains — do NOT redo work already committed.\n"
+                f"4. Continue fixing what remains -- do NOT redo work already committed.\n"
             )
             cont_meta: dict = {}
             if PROJECT_PATH_OVERRIDE:
@@ -946,14 +1017,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 log(f"Continuation task created: {new_id}" + (f" (inheriting worktree {PROJECT_PATH_OVERRIDE})" if PROJECT_PATH_OVERRIDE else ""))
         except Exception as e:
             log(f"WARNING: failed to spawn continuation task: {e}")
-        log("Context limit — exiting after partial progress")
+        log("Context limit -- exiting after partial progress")
         _unlock_claimed_files()
         print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_spawned"}))
         return 0
 
     # ---------------------------------------------------------------------------
     # Post-completion graph reflection loop
-    # Runs outside the main tool budget — does NOT count toward MAX_TOOL_LOOPS.
+    # Runs outside the main tool budget -- does NOT count toward MAX_TOOL_LOOPS.
     # Allowed tools: list_tasks + the 5 adaptive graph mutators only.
     # Cap: 40 calls. Nudge at 35 to wrap up.
     # Skipped for read-only, qa, manager, project_create, audit, triage, project_plan.
@@ -981,9 +1052,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             _ref_system = (
                 "You are in the GRAPH REFLECTION phase. Your implementation work is done.\n"
                 "Your job now is to review the downstream task queue and improve it based on what you just learned.\n\n"
-                "TOOL CALL FORMAT — you MUST use this exact format for every tool call:\n"
+                "TOOL CALL FORMAT -- you MUST use this exact format for every tool call:\n"
                 "[TOOL_CALL]{\"tool\": \"tool_name\", \"args\": {\"key\": \"value\"}}[/TOOL_CALL]\n\n"
-                "ALLOWED TOOLS (ONLY these — no file reads, no writes, no git):\n"
+                "ALLOWED TOOLS (ONLY these -- no file reads, no writes, no git):\n"
                 "- list_tasks(project): list all tasks for the project with their IDs and status\n"
                 "- annotate_downstream_tasks(findings, task_ids): prepend context to downstream pending tasks\n"
                 "- split_task(task_id, replacement_tasks): replace a pending downstream task with smaller pieces\n"
@@ -993,16 +1064,16 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 "WORKFLOW:\n"
                 "1. Call list_tasks() to see all tasks for the project (pending, in_progress, completed)\n"
                 "2. Reflect on what you built and what that means for pending tasks\n"
-                "3. Make only changes that are genuinely useful — do nothing if the plan looks correct\n"
+                "3. Make only changes that are genuinely useful -- do nothing if the plan looks correct\n"
                 "4. When done, output REFLECTION_COMPLETE on its own line\n\n"
-                "IMPORTANT — how annotate_downstream_tasks works:\n"
+                "IMPORTANT -- how annotate_downstream_tasks works:\n"
                 "- It only annotates tasks that are BOTH pending AND transitively depend on YOUR task\n"
-                "- Most tasks in list_tasks() are parallel branches — they will NOT be annotated even if pending\n"
+                "- Most tasks in list_tasks() are parallel branches -- they will NOT be annotated even if pending\n"
                 "- If it returns annotated=0, that means none of your direct dependents are pending (they may\n"
-                "  already be in_progress or there are no downstream tasks). Do NOT retry — just finish.\n"
+                "  already be in_progress or there are no downstream tasks). Do NOT retry -- just finish.\n"
                 "- Call it ONCE with your findings. If it annotated 0, accept that and output REFLECTION_COMPLETE.\n\n"
                 "Do NOT: read files, write files, run commands, commit, or do any implementation work.\n"
-                "Do NOT: annotate every task — only ones where you have specific, concrete information to add."
+                "Do NOT: annotate every task -- only ones where you have specific, concrete information to add."
             )
 
             _ref_user_seed = (
@@ -1045,14 +1116,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
                 _ref_tool_calls = parse_tool_calls(_ref_resp)
 
-                # Filter to allowed tools only — silently drop disallowed calls
+                # Filter to allowed tools only -- silently drop disallowed calls
                 _ref_allowed = [tc for tc in _ref_tool_calls if tc.get("tool") in _REFLECTION_ALLOWED_TOOLS]
                 _ref_blocked = [tc.get("tool") for tc in _ref_tool_calls if tc.get("tool") not in _REFLECTION_ALLOWED_TOOLS]
                 if _ref_blocked:
                     log(f"[Reflection] Blocked disallowed tool calls: {_ref_blocked}")
 
                 if not _ref_allowed and not _ref_tool_calls:
-                    # No tool calls — nudge once then bail
+                    # No tool calls -- nudge once then bail
                     _ref_conv.append({
                         "role": "user",
                         "content": "No tool calls detected. If you are done, output REFLECTION_COMPLETE.",
@@ -1087,7 +1158,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 _ref_loop += 1
 
             if _ref_loop >= _REFLECTION_MAX:
-                log(f"[Reflection] Hit call cap ({_REFLECTION_MAX}) — exiting")
+                log(f"[Reflection] Hit call cap ({_REFLECTION_MAX}) -- exiting")
 
         except Exception as _ref_exc:
             log(f"[Reflection] ERROR (non-fatal): {_ref_exc}")
@@ -1096,7 +1167,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     if TASK_TYPE in ("manager", "project_create", "qa", "audit", "triage", "project_plan"):
         pass  # No git commit needed for these task types
     elif READONLY:
-        log("Read-only task — skipping auto-commit")
+        log("Read-only task -- skipping auto-commit")
     else:
         try:
             code, out, err = run("git status --porcelain")
@@ -1121,9 +1192,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         is_continuation = TASK_DESC.startswith("CONTINUATION of task")
         _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
         if is_continuation:
-            log("Loop limit hit on a continuation task — stopping chain, marking done")
+            log("Loop limit hit on a continuation task -- stopping chain, marking done")
         elif _project_unmanaged:
-            log(f"Loop limit hit but {PROJECT} is not in managed_projects — skipping continuation spawn")
+            log(f"Loop limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
         else:
             try:
                 recent = conversation[-6:] if len(conversation) >= 6 else conversation
@@ -1139,7 +1210,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     progress_file = Path(proj_root) / "_swarm_progress.md"
                     all_assistant = [m["content"] for m in conversation if m.get("role") == "assistant" and m.get("content")]
                     progress_content = (
-                        f"# Swarm Progress — {TASK_ID}\n\n"
+                        f"# Swarm Progress -- {TASK_ID}\n\n"
                         f"## Original Task\n{TASK_DESC[:1000]}\n\n"
                         f"## What Was Done\n"
                         + "\n\n---\n\n".join(f"**Turn {i+1}:**\n{c[:600]}" for i, c in enumerate(all_assistant[-8:]))
@@ -1184,6 +1255,30 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             except Exception as e:
                 log(f"WARNING: failed to spawn continuation task: {e}")
 
+    # H1-H8: determine exit reason and write history record
+    if context_limit_hit:
+        _exit_reason = "context_limit"
+        _task_completed = True  # continuation spawned = success exit
+    elif loop_limit_hit:
+        _exit_reason = "loop_limit"
+        _task_completed = True  # continuation spawned = success exit
+    elif lock_handoff_hit:
+        _exit_reason = "lock_handoff"
+        _task_completed = True
+    elif task_complete_hit:
+        _exit_reason = "task_complete"
+        _task_completed = True
+    else:
+        _exit_reason = "no_task_complete"
+        _task_completed = False
+
+    _h7 = _h7_detect_reread(_session_written_files, _session_read_files)
+    _append_history_record(
+        DATA_DIR, TASK_ID, PROJECT, TASK_TYPE,
+        tool_loop_count, _tool_call_counts,
+        _h7, _task_completed, _exit_reason,
+    )
+
     # Write token usage to file for orchestrator to pick up
     try:
         token_data = {
@@ -1205,7 +1300,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                           "input_tokens": total_input_tokens, "output_tokens": total_output_tokens}))
         return 0
     else:
-        log("Task ended without TASK_COMPLETE — marking as failed")
+        log("Task ended without TASK_COMPLETE -- marking as failed")
         _unlock_claimed_files()
         print(json.dumps({"status": "failed", "project": PROJECT, "task_id": TASK_ID,
                           "note": "no_task_complete",

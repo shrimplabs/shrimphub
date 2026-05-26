@@ -64,7 +64,7 @@ from swarm.tools.files import (
     read_file_range, patch_file, write_file, append_file,
 )
 from swarm.tools.tasks import (
-    create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
+    create_subtask, create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
     list_tasks, list_subtasks,
     annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
 )
@@ -293,6 +293,10 @@ def execute_tool(tool_call: dict) -> dict:
     if denied:
         return denied
 
+    validation_error = validate_tool_call(tool_call)
+    if validation_error:
+        return {"ok": False, "error": f"Tool call validation failed: {validation_error}"}
+
     if _rt.TASK_TYPE == "project_plan" and tool in {"create_task", "create_tasks"}:
         return {
             "ok": False,
@@ -456,6 +460,7 @@ def _populate_registry():
     _reg("mcp_list_tools",  lambda a, ws, p: mcp_list_tools(a.get("server", "")))
 
     # --- Task tools ---
+    _reg("create_subtask",  lambda a, ws, p: create_subtask(a.get("description", ""), a.get("type", "feature"), a.get("priority", 50), a.get("files_touched"), a.get("depends_on_current", True), a.get("max_depth", 2), a.get("project"), a.get("metadata")), ["description"])
     _reg("create_task",     lambda a, ws, p: create_task(a.get("description", ""), a.get("type", "feature"), a.get("priority", 50), a.get("dependencies", []), a.get("project"), a.get("parent_task_id"), a.get("metadata")), ["description"])
     _reg("create_tasks",   lambda a, ws, p: create_tasks(a.get("tasks", []), a.get("project")), ["tasks"])
     _reg("create_tasks_file_aware", lambda a, ws, p: create_tasks_file_aware(a.get("tasks", []), a.get("project")),         ["tasks"])

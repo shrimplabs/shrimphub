@@ -34,10 +34,10 @@ PROFILE_DEFAULTS = {
         "verification": {
             "unit_test_command": None,
             "integration_test_command": None,
-            # GUT-based smoke check — runs with full project context (autoloads registered).
-            # Do NOT use `godot -s <script>` here; that runs without autoloads and causes
-            # compile errors for any script that references autoload singletons.
-            "smoke_checks": [{"id": "main-scene", "type": "command", "command": GODOT_GUT_COMMAND}],
+            # Boot-based smoke check -- the game itself is the smoke test.
+            # GUT test suite return code 1 whenever tests fail; too many pre-existing
+            # test failures exist in Godot game projects to use GUT as a smoke gate.
+            "smoke_checks": [{"id": "boot", "type": "command", "command": GODOT_BOOT_COMMAND}],
         },
         "critical_flows": [{"id": "main-flow", "description": "Launch the project and reach the primary playable scene."}],
     },

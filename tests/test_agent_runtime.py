@@ -909,6 +909,277 @@ class TestDelegateHelper:
         assert patch_call[2]["metadata"]["existing"] is True
 
 
+
+
+
+
+
+class TestCreateSubtask:
+    """Tests for the create_subtask tool.
+
+    _ur is a local import inside create_subtask functions, not a module attribute.
+    Must patch urllib.request.urlopen (the real urllib module).
+    """
+
+    def _setup_rt(self, task_id="parent-task", depth=0):
+        """Set up runtime context and sync to core so _read_core() returns valid data."""
+        rt.TASK_ID = task_id
+        rt.PROJECT = "test-proj"
+        rt.TASK_TYPE = "feature"
+        rt._sync_core_globals()
+        rt.IO_LOG = []
+        rt.LLM_RESPONSES = []
+        rt.MATCH_STRATEGY = "first"
+        rt.FINAL_PLAN = None
+
+    # --- dispatch routing ---
+
+    def test_invalid_type_rejected_at_dispatch(self):
+        result = rt.execute_tool({
+            "tool": "create_subtask",
+            "args": {"description": "x", "type": "bad"},
+        })
+        assert result["ok"] is False
+        assert "Invalid task type" in result["error"]
+
+    def test_dispatch_passes_correct_args(self):
+        with patch("swarm.tool_dispatch.create_subtask",
+                   return_value={"ok": True, "task_id": "sub-1", "depth": 1}) as cs:
+            result = rt.execute_tool({
+                "tool": "create_subtask",
+                "args": {
+                    "description": "my sub",
+                    "type": "refactor",
+                    "priority": 75,
+                    "files_touched": ["src/main.gd"],
+                    "depends_on_current": True,
+                    "max_depth": 3,
+                    "project": "my-proj",
+                    "metadata": {"note": "test"},
+                },
+            })
+        assert result["ok"] is True
+        assert result["task_id"] == "sub-1"
+        cs.assert_called_once()
+        args = cs.call_args[0]
+        assert args[0] == "my sub"
+        assert args[1] == "refactor"
+        assert args[2] == 75
+        assert args[3] == ["src/main.gd"]
+        assert args[4] is True
+        assert args[5] == 3
+        assert args[6] == "my-proj"
+        assert args[7] == {"note": "test"}
+
+    def test_dispatch_rejects_missing_description(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "parent-task", "metadata": {"task_depth": 0}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            result = rt.execute_tool({
+                "tool": "create_subtask", "args": {}})
+        assert result["ok"] is False
+        assert "description" in result["error"]
+
+    # --- validation ---
+
+    def test_invalid_task_type_rejected(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "parent-task", "metadata": {"task_depth": 0}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("test", task_type="not_a_type")
+        assert result["ok"] is False
+        assert "Invalid task type" in result["error"]
+
+    def test_unknown_task_id_rejected(self):
+        self._setup_rt(task_id="unknown")
+
+        def fake(url, timeout=None):
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "unknown", "metadata": {"task_depth": 0}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("sub")
+        assert result["ok"] is False
+        assert "valid TASK_ID" in result["error"]
+
+    # --- depth enforcement ---
+
+    def test_depth_guard_blocks_at_max_depth(self):
+        # Parent is at depth 2, max_depth is 1 (sub-task would be at 3 > 1 → blocked)
+        self._setup_rt(task_id="deep-task")
+
+        def fake(url, timeout=None):
+            # GET: parent is at depth 2
+            # POST: would create new task at depth 3
+            if not isinstance(url, str) and url.get_method() == "POST":
+                raise AssertionError("POST should not be called when max depth exceeded")
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "deep-task", "metadata": {"task_depth": 2}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("sub", max_depth=1)
+        assert result["ok"] is False
+        assert "max sub-task depth" in result["error"]
+
+    def test_normal_depth_allowed(self):
+        self._setup_rt()
+        captured = {}
+
+        def fake(url, timeout=None):
+            if not isinstance(url, str) and url.get_method() == "POST":
+                captured["data"] = json.loads(url.data.decode())
+                return _FakeUrlopenResponse({"task": {"id": "new-sub", "metadata": {}}})
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "parent-task", "metadata": {"task_depth": 0}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("child")
+        assert result["ok"] is True
+        assert captured["data"]["dependencies"] == ["parent-task"]
+        assert captured["data"]["metadata"]["parent_task_id"] == "parent-task"
+        assert captured["data"]["metadata"]["task_depth"] == 1
+
+    # --- file conflict detection ---
+
+    def test_pending_sibling_blocks_same_file(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            return _FakeUrlopenResponse({
+                "tasks": [
+                    {"id": "parent-task", "metadata": {"task_depth": 0}},
+                    {"id": "sibling-subtask", "status": "pending",
+                     "metadata": {"parent_task_id": "parent-task",
+                                  "delegated_files": ["src/shared.gd"]}}
+                ]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("conflicting", files_touched=["src/shared.gd"])
+        assert result["ok"] is False
+        assert "file conflict detected" in result["error"]
+        assert "sibling-subtask" in result["error"]
+
+    def test_in_progress_sibling_blocks_same_file(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            return _FakeUrlopenResponse({
+                "tasks": [
+                    {"id": "parent-task", "metadata": {"task_depth": 0}},
+                    {"id": "active-subtask", "status": "in_progress",
+                     "metadata": {"parent_task_id": "parent-task",
+                                  "delegated_files": ["src/shared.gd"]}}
+                ]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("conflicting", files_touched=["src/shared.gd"])
+        assert result["ok"] is False
+        assert "file conflict detected" in result["error"]
+
+    def test_non_overlapping_files_allowed(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            if not isinstance(url, str) and url.get_method() == "POST":
+                return _FakeUrlopenResponse({"task": {"id": "new-subtask", "metadata": {}}})
+            return _FakeUrlopenResponse({
+                "tasks": [
+                    {"id": "parent-task", "metadata": {"task_depth": 0}},
+                    {"id": "sibling-subtask", "status": "pending",
+                     "metadata": {"parent_task_id": "parent-task",
+                                  "delegated_files": ["src/other.gd"]}}
+                ]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("non-conflicting", files_touched=["src/shared.gd"])
+        assert result["ok"] is True
+
+    def test_completed_sibling_does_not_block(self):
+        self._setup_rt()
+
+        def fake(url, timeout=None):
+            if not isinstance(url, str) and url.get_method() == "POST":
+                return _FakeUrlopenResponse({"task": {"id": "new-sub", "metadata": {}}})
+            return _FakeUrlopenResponse({
+                "tasks": [
+                    {"id": "parent-task", "metadata": {"task_depth": 0}},
+                    {"id": "done-subtask", "status": "completed",
+                     "metadata": {"parent_task_id": "parent-task",
+                                  "delegated_files": ["src/shared.gd"]}}
+                ]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("after-completion", files_touched=["src/shared.gd"])
+        assert result["ok"] is True
+
+    # --- depends_on_current ---
+
+    def test_depends_on_current_true_adds_parent_dep(self):
+        self._setup_rt(task_id="my-parent")
+        captured = {}
+
+        def fake(url, timeout=None):
+            if not isinstance(url, str) and url.get_method() == "POST":
+                captured["data"] = json.loads(url.data.decode())
+                return _FakeUrlopenResponse({
+                    "task": {"id": "created-sub", "metadata": {"task_depth": 2}}
+                })
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "my-parent", "metadata": {"task_depth": 1}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("child task")
+        assert result["ok"] is True
+        assert captured["data"]["dependencies"] == ["my-parent"]
+        assert captured["data"]["metadata"]["parent_task_id"] == "my-parent"
+        assert captured["data"]["metadata"]["task_depth"] == 2
+
+    def test_depends_on_current_false_no_parent_dep(self):
+        self._setup_rt(task_id="my-parent")
+        captured = {}
+
+        def fake(url, timeout=None):
+            if not isinstance(url, str) and url.get_method() == "POST":
+                captured["data"] = json.loads(url.data.decode())
+                return _FakeUrlopenResponse({"task": {"id": "fire-and-forget", "metadata": {}}})
+            return _FakeUrlopenResponse({
+                "tasks": [{"id": "my-parent", "metadata": {"task_depth": 1}}]
+            })
+
+        with patch("urllib.request.urlopen", side_effect=fake):
+            from swarm.tools.tasks import create_subtask
+            result = create_subtask("fire and forget", depends_on_current=False)
+        assert result["ok"] is True
+        assert captured["data"]["dependencies"] == []
+
+
 class _FakeUrlopenResponse:
     def __init__(self, payload):
         self.payload = payload

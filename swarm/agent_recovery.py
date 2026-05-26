@@ -206,6 +206,54 @@ def _task_history_lookup(task_id: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Branch failure history collector
+# ---------------------------------------------------------------------------
+
+def _collect_branch_failure_history(branch_root_id: str, project: str, current_failed_id: str) -> str:
+    """Return a digest of all previous failure excerpts for this branch root.
+
+    Walks every task in the DB that shares the same recovery_root_task_id,
+    collects their error_log_excerpt / last_failure, and returns a combined
+    string capped at ~4000 chars.  Used to give deep-recovery agents full
+    context across the whole chain instead of just the immediate parent.
+    """
+    db = _db()
+    all_tasks = db.task_get_all()
+    siblings = [
+        t for t in all_tasks
+        if t.get("id") != current_failed_id
+        and (
+            (t.get("metadata") or {}).get("recovery_root_task_id") == branch_root_id
+            or t.get("id") == branch_root_id
+        )
+        and t.get("project") == project
+        and t.get("status") in ("failed", "completed")
+    ]
+    # Sort oldest first
+    siblings.sort(key=lambda t: t.get("created") or "")
+
+    parts = []
+    for t in siblings:
+        tid = t.get("id", "?")
+        meta = t.get("metadata") or {}
+        excerpt = (
+            meta.get("error_log_excerpt")
+            or meta.get("last_failure")
+            or t.get("metadata", {}).get("error_log_excerpt")
+            or ""
+        )
+        if excerpt:
+            parts.append(f"--- Attempt {tid[:40]} ---\n{excerpt[:600]}")
+
+    if not parts:
+        return ""
+    combined = "\n\n".join(parts)
+    if len(combined) > 4000:
+        combined = combined[-4000:]
+    return combined
+
+
+# ---------------------------------------------------------------------------
 # Dependency helpers for recovery/continuation tasks
 # ---------------------------------------------------------------------------
 
@@ -474,11 +522,41 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
     orig_desc_capped = orig_desc[:2000] + ("\n[... description truncated ...]" if len(orig_desc) > 2000 else "")
 
-    if orig_type in {"qa", "harness_qa", "hybrid_qa"}:
+    # Collect the full failure chain across all sibling recovery tasks
+    chain_history = _collect_branch_failure_history(branch_root_id, project, failed_id)
+    chain_section = (
+        f"\nFULL CHAIN FAILURE HISTORY (all previous attempts on this branch):\n{chain_history}\n"
+        if chain_history else ""
+    )
+
+    # At recovery_depth >= 2 the same bug has now failed 6+ times across
+    # multiple recovery generations.  Escalate to a research task that reads
+    # the full failure chain, diagnoses the root cause, and queues a properly-
+    # scoped fix — rather than spawning yet another blind bug agent.
+    escalate_to_research = _recovery_depth >= 2 and orig_type not in {"qa", "harness_qa", "hybrid_qa"}
+
+    if escalate_to_research:
+        recovery_desc = (
+            f"RESEARCH ESCALATION: A bug branch has failed {_recovery_depth + 1} recovery generations "
+            f"({attempts} attempts each) without resolving.\n\n"
+            f"ORIGINAL TASK ({branch_root_id}):\n{orig_desc_capped}\n\n"
+            f"LATEST FAILURE ({failed_id}):\n{failure_excerpt}\n"
+            f"{chain_section}\n"
+            f"YOUR JOB (read-only diagnosis + queue a fix):\n"
+            f"1. Read every file mentioned in the failure history above.\n"
+            f"2. Reproduce the failure locally with a minimal run_command to confirm the root cause.\n"
+            f"3. Identify exactly what is wrong and why previous attempts failed to fix it.\n"
+            f"4. Queue ONE well-scoped bug task with a precise description of the fix needed.\n"
+            f"   Include in that task: exact files to change, what to change, and why.\n"
+            f"5. Do NOT commit code yourself — diagnosis and task creation only.\n\n"
+            f"{note}"
+        )
+    elif orig_type in {"qa", "harness_qa", "hybrid_qa"}:
         recovery_desc = (
             f"RECOVERY TASK: Complete the QA run that failed {attempts} times.\n\n"
             f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-            f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
+            f"LATEST FAILURE:\n{failure_excerpt}\n"
+            f"{chain_section}\n"
             f"YOUR JOB:\n"
             f"1. Read the failure history above and understand what went wrong.\n"
             f"2. Re-run the QA investigation using the available QA tools.\n"
@@ -492,9 +570,10 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         recovery_desc = (
             f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
             f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-            f"FAILURE HISTORY (excerpt -- full log in metadata.error_log):\n{failure_excerpt}\n\n"
+            f"LATEST FAILURE:\n{failure_excerpt}\n"
+            f"{chain_section}\n"
             f"YOUR JOB:\n"
-            f"1. Read the failure history above and understand what went wrong.\n"
+            f"1. Read ALL failure history above — understand what was tried and why it didn't work.\n"
             f"2. Inspect the codebase to understand the current state.\n"
             f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
             f"   Do NOT just document the failure. The project is incomplete without this work.\n"
@@ -503,9 +582,13 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
             f"{note}"
         )
 
+    # Research escalation tasks are NOT marked is_recovery_task so they can
+    # call create_task to queue the diagnosed fix.  They do carry the root ID
+    # so the dep-graph stays connected.
     recovery_meta: dict = {
-        "is_review_task": True,
-        "is_recovery_task": True,
+        "is_review_task": not escalate_to_research,
+        "is_recovery_task": not escalate_to_research,
+        "escalated_to_research": escalate_to_research,
         "recovery_depth": _recovery_depth + 1,
         "error_log_excerpt": failure_excerpt,
         "error_log_chars": output_chars,
@@ -514,7 +597,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         "dependent_count": len(dependents),
         **branch_intent_metadata(failed_task),
     }
-    if failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
+    if not escalate_to_research and failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
         wt_p = Path(failed_meta["worktree_path"])
         if wt_p.exists():
             recovery_meta["worktree_path"] = str(wt_p)
@@ -525,12 +608,12 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     recovery_task = {
         "id": recovery_id,
         "project": project,
-        "type": orig_type,
+        "type": "research" if escalate_to_research else orig_type,
         "description": recovery_desc,
-        "priority": orig_priority,
+        "priority": 80 if escalate_to_research else orig_priority,
         "status": "pending",
         "attempts": 0,
-        "max_attempts": 3,
+        "max_attempts": 2 if escalate_to_research else 3,
         "dependencies": _replacement_task_dependencies(
             failed_task,
             new_task_id=recovery_id,
@@ -539,7 +622,10 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         "created": datetime.now().isoformat(),
     }
     db.task_upsert(recovery_task)
-    print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id}")
+    if escalate_to_research:
+        print(f"[Swarm] ESCALATED to research {recovery_id} for {project} — branch {branch_root_id[:12]} depth {_recovery_depth + 1}")
+    else:
+        print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id} (depth {_recovery_depth + 1})")
 
     proj = db.project_get(project) if project else None
     if proj and proj.get("head_task_id") == failed_id:

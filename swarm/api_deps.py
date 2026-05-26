@@ -1125,3 +1125,238 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
             for t in tasks
         ]
         return jsonify({"results": results, "total": total})
+
+    # ---------- Dep Graph Playback ----------
+
+    def _parse_iso(s):
+        """Parse ISO timestamp string to datetime, return None on failure."""
+        from datetime import datetime, timezone
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    def _ts_to_iso(s):
+        """Normalise a raw timestamp field to ISO string, or return None."""
+        if not s:
+            return None
+        if isinstance(s, (int, float)):
+            from datetime import datetime, timezone
+            return datetime.fromtimestamp(float(s), tz=timezone.utc).isoformat()
+        return str(s)
+
+    @app.route("/api/dependencies/playback-events", methods=["GET"])
+    def get_playback_events():
+        """Return a sorted list of timeline events for dep graph playback.
+
+        Query params:
+          project=<name>  (required)
+
+        Response:
+          {events: [{timestamp, iso, label, kind, task_id, project}], first, last, total_tasks}
+
+        Event kinds: task_created, task_started, task_completed, task_failed
+        Interesting callouts: first_task, first_completion, sprint_burst, recovery_spawn
+        """
+        from datetime import datetime, timezone
+
+        project = (_req.args.get("project") or "").strip()
+        if not project:
+            return jsonify({"error": "project parameter required"}), 400
+
+        # Gather all tasks: live DB (all statuses) + JSONL history (pre-migration)
+        db_tasks = [dict(t) for t in db.task_get_all() if t.get("project") == project]
+        jsonl_tasks = _load_history_tasks(data_dir, project=project, max_entries=2000)
+        db_ids = {t["id"] for t in db_tasks}
+        all_tasks = db_tasks + [t for t in jsonl_tasks if t.get("id") not in db_ids]
+
+        # Build raw events from timestamps on each task
+        raw_events = []
+        for t in all_tasks:
+            tid = t.get("id", "")
+            ttype = t.get("type", "")
+            desc = (t.get("description") or "").split("\n")[0][:60]
+            short = tid[len(project) + 1:] if tid.startswith(project + "-") else tid
+            if len(short) > 22:
+                short = short[:20] + ".."
+
+            created = _ts_to_iso(t.get("created"))
+            started = _ts_to_iso(t.get("started"))
+            completed = _ts_to_iso(t.get("completed") or t.get("completed_at"))
+            status = t.get("status", "")
+
+            if created:
+                raw_events.append({
+                    "iso": created,
+                    "kind": "task_created",
+                    "task_id": tid,
+                    "label": f"Created: {short} ({ttype})",
+                    "desc": desc,
+                    "project": project,
+                })
+            if started:
+                raw_events.append({
+                    "iso": started,
+                    "kind": "task_started",
+                    "task_id": tid,
+                    "label": f"Started: {short} ({ttype})",
+                    "desc": desc,
+                    "project": project,
+                })
+            if completed:
+                kind = "task_failed" if status == "failed" else "task_completed"
+                raw_events.append({
+                    "iso": completed,
+                    "kind": kind,
+                    "task_id": tid,
+                    "label": f"{'Failed' if kind == 'task_failed' else 'Done'}: {short} ({ttype})",
+                    "desc": desc,
+                    "project": project,
+                })
+
+        # Sort by iso timestamp
+        raw_events.sort(key=lambda e: e["iso"] or "")
+
+        # Add callout labels for interesting moments
+        first_created = False
+        first_completed = False
+        completion_times = []  # for sprint_burst detection
+
+        for ev in raw_events:
+            ev["callout"] = None
+            if ev["kind"] == "task_created" and not first_created:
+                first_created = True
+                ev["callout"] = "first_task"
+            if ev["kind"] == "task_completed":
+                if not first_completed:
+                    first_completed = True
+                    ev["callout"] = "first_completion"
+                completion_times.append(_parse_iso(ev["iso"]))
+            # recovery_spawn: task IDs containing 'recovery'
+            if ev["kind"] == "task_created" and "recovery" in ev["task_id"]:
+                ev["callout"] = "recovery_spawn"
+
+        # Sprint burst: >3 completions within any 60-second window
+        completion_times_sorted = sorted(t for t in completion_times if t)
+        burst_isos = set()
+        for i, t in enumerate(completion_times_sorted):
+            window = [s for s in completion_times_sorted[i:] if (s - t).total_seconds() <= 60]
+            if len(window) > 3:
+                burst_isos.add(t.isoformat())
+
+        for ev in raw_events:
+            if ev["kind"] == "task_completed" and ev["iso"] in burst_isos and not ev["callout"]:
+                ev["callout"] = "sprint_burst"
+
+        # Add unix timestamp for easier JS use
+        for ev in raw_events:
+            dt = _parse_iso(ev["iso"])
+            ev["timestamp"] = dt.timestamp() if dt else None
+
+        first_iso = raw_events[0]["iso"] if raw_events else None
+        last_iso = raw_events[-1]["iso"] if raw_events else None
+
+        return jsonify({
+            "events": raw_events,
+            "first": first_iso,
+            "last": last_iso,
+            "total_tasks": len(all_tasks),
+        })
+
+    @app.route("/api/dependencies/dot-at", methods=["GET"])
+    def get_dependency_dot_at():
+        """Return the dep graph DOT as it looked at a given point in time.
+
+        Query params:
+          project=<name>  (required)
+          at=<ISO>        (required) — reconstruct graph state at this timestamp
+
+        Nodes are classified by their status at time `at`:
+          - pending   (created <= at, not yet started)
+          - in_progress (started <= at, not yet completed/failed)
+          - completed / failed (completed <= at)
+          - future    (created > at — not shown)
+
+        Returns same {dot: '...'} shape as /api/dependencies/dot.
+        """
+        project = (_req.args.get("project") or "").strip()
+        at_str = (_req.args.get("at") or "").strip()
+        if not project:
+            return jsonify({"error": "project parameter required"}), 400
+        if not at_str:
+            return jsonify({"error": "at parameter required"}), 400
+
+        at_dt = _parse_iso(at_str)
+        if not at_dt:
+            return jsonify({"error": f"invalid at timestamp: {at_str!r}"}), 400
+
+        # Gather all tasks for the project (live + JSONL)
+        db_tasks = [dict(t) for t in db.task_get_all() if t.get("project") == project]
+        jsonl_tasks = _load_history_tasks(data_dir, project=project, max_entries=2000)
+        db_ids = {t["id"] for t in db_tasks}
+        all_tasks = db_tasks + [t for t in jsonl_tasks if t.get("id") not in db_ids]
+
+        # Classify each task's status at time `at`
+        def _classify(t):
+            created = _parse_iso(_ts_to_iso(t.get("created")))
+            started = _parse_iso(_ts_to_iso(t.get("started")))
+            completed = _parse_iso(_ts_to_iso(t.get("completed") or t.get("completed_at")))
+            real_status = t.get("status", "")
+
+            if not created or created > at_dt:
+                return None  # doesn't exist yet
+            if completed and completed <= at_dt:
+                return "failed" if real_status == "failed" else "completed"
+            if started and started <= at_dt:
+                return "in_progress"
+            return "pending"
+
+        # Status colours matching the live graph palette
+        _STATUS_COLORS = {
+            "pending":     ("#161b22", "#e6edf3", "#58a6ff", "filled", 1.5),
+            "in_progress": ("#161b22", "#e6edf3", "#d29922", "filled", 2.0),
+            "completed":   ("#0d1117", "#3fb950", "#3fb950", "dashed,filled", 1.2),
+            "failed":      ("#0d1117", "#da3633", "#da3633", "dashed,filled", 1.2),
+        }
+
+        visible = {}  # id -> (status_at_time, task_dict)
+        for t in all_tasks:
+            s = _classify(t)
+            if s is not None:
+                visible[t["id"]] = (s, t)
+
+        if not visible:
+            return jsonify({"dot": "digraph {}", "task_count": 0})
+
+        lines = [
+            'digraph G {',
+            '  rankdir=LR;',
+            '  bgcolor="transparent";',
+            '  node [shape=box, fontname="sans-serif", fontsize=11];',
+            '  edge [fontname="sans-serif", fontsize=9, color="#58a6ff"];',
+        ]
+
+        for tid, (status, t) in visible.items():
+            fc, tc, bc, style, pw = _STATUS_COLORS[status]
+            short = tid[len(project) + 1:] if tid.startswith(project + "-") else tid
+            if len(short) > 24:
+                short = short[:22] + ".."
+            suffix = {"completed": " ok", "failed": " x", "in_progress": " ▶", "pending": ""}.get(status, "")
+            label = short + suffix
+            lines.append(
+                f"  {_dot_quote(tid)} [label={_dot_quote(label)}, "
+                f'fillcolor="{fc}", fontcolor="{tc}", color="{bc}", '
+                f'style="{style}", penwidth={pw}];'
+            )
+
+        # Edges: only between visible nodes
+        for tid, (_, t) in visible.items():
+            for dep in (t.get("dependencies") or []):
+                if dep in visible:
+                    lines.append(f"  {_dot_quote(dep)} -> {_dot_quote(tid)};")
+
+        lines.append("}")
+        dot = "\n".join(lines)
+        return jsonify({"dot": dot, "task_count": len(visible)})

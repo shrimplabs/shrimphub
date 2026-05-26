@@ -1660,6 +1660,111 @@ button, .btn {
     letter-spacing: 0.02em;
 }
 
+/* Dep graph playback bar */
+#depsPlaybackBar {
+    margin-bottom: 8px;
+}
+
+.playback-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px;
+    background: rgba(88, 166, 255, 0.04);
+    border: 1px solid rgba(88, 166, 255, 0.12);
+    border-radius: 6px;
+}
+
+.playback-btn {
+    flex-shrink: 0;
+}
+
+.playback-scrubber-wrap {
+    flex: 1;
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.playback-scrubber {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #30363d;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.playback-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #58a6ff;
+    cursor: pointer;
+    border: 2px solid #0d1117;
+}
+
+.playback-scrubber::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #58a6ff;
+    cursor: pointer;
+    border: 2px solid #0d1117;
+}
+
+.playback-markers {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.playback-marker {
+    position: absolute;
+    top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f0883e;
+    opacity: 0.8;
+    pointer-events: auto;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.playback-marker.sprint_burst { background: #3fb950; }
+.playback-marker.first_completion { background: #58a6ff; }
+.playback-marker.first_task { background: #58a6ff; }
+.playback-marker.recovery_spawn { background: #da3633; }
+
+.playback-timestamp {
+    font-size: 11px;
+    color: #8b949e;
+    white-space: nowrap;
+    min-width: 120px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.playback-callout {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #f0883e;
+    padding: 4px 8px;
+    background: rgba(240, 136, 62, 0.08);
+    border-left: 2px solid #f0883e;
+    border-radius: 0 4px 4px 0;
+}
+
 #depsSvg {
     background:
         linear-gradient(rgba(var(--accent-rgb), 0.06) 1px, transparent 1px),

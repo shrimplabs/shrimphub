@@ -50,9 +50,10 @@ class Task:
     agent_id: Optional[str] = None
     dependencies: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    acceptance_test: Optional[Dict[str, Any]] = None  # {"lang": "gdscript"|"python", "code": "..."}
     attempts: int = 0
     max_attempts: int = 3
-    run_after: Optional[str] = None  # ISO timestamp — skip until this time passes
+    run_after: Optional[str] = None  # ISO timestamp -- skip until this time passes
     plan_id: Optional[str] = None  # References a plan in the plans table
 
     def to_dict(self) -> Dict[str, Any]:
@@ -68,11 +69,12 @@ class Task:
             "completed": self.completed,
             "agent_id": self.agent_id,
             "dependencies": self.dependencies,
-            "metadata": self.metadata,
-            "attempts": self.attempts,
-            "max_attempts": self.max_attempts,
-            "run_after": self.run_after,
-            "plan_id": self.plan_id,
+            "metadata":        self.metadata,
+            "acceptance_test":  self.acceptance_test,
+            "attempts":         self.attempts,
+            "max_attempts":     self.max_attempts,
+            "run_after":        self.run_after,
+            "plan_id":          self.plan_id,
         }
 
     @classmethod
@@ -90,6 +92,7 @@ class Task:
             agent_id=data.get("agent_id"),
             dependencies=data.get("dependencies", []),
             metadata=data.get("metadata", {}),
+            acceptance_test=data.get("acceptance_test"),
             attempts=data.get("attempts", 0),
             max_attempts=data.get("max_attempts", 3),
             run_after=data.get("run_after"),

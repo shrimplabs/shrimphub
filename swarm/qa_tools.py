@@ -391,7 +391,9 @@ def launch_game(project_path: str) -> dict:
         # The game window may briefly appear on screen; this is expected.
         # Clicks go through StateServer press_button/input commands (no window focus needed).
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--path", project_path, "--",
+            [godot_bin, "--path", project_path,
+             "--resolution", "1280x720",
+             "--",
              "--state-port", str(_state_port),
              "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,

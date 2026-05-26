@@ -39,6 +39,157 @@ def _read_core():
     return _c.PROJECT, _c.TASK_TYPE, _c.TASK_ID, _c.TASK_PRIORITY, _c.API_PORT
 
 
+def create_subtask(description: str, task_type: str = 'feature',
+                  priority: int = 50, files_touched: list = None,
+                  depends_on_current: bool = True, max_depth: int = 2,
+                  project: str = None, metadata: dict = None) -> dict:
+    """Create a real sub-task via POST /api/tasks with parent linkage and depth guard.
+
+    This tool spawns a child task that runs as a first-class task in the swarm
+    controller. It is the recommended way to parallelise independent work within
+    a parent task.
+
+    Key behaviour:
+    - parent_task_id is automatically stored in task metadata
+    - max_depth (default 2) prevents infinite spawning chains
+    - files_touched is checked against all active sub-tasks of the parent; if
+      any active sub-task already touches one of the same files, creation is
+      blocked to prevent parallel write conflicts
+    - The new sub-task depends on the current TASK_ID so the orchestrator picks
+      it up only after the parent chain is satisfied
+
+    Args:
+        description: human-readable task description
+        task_type: feature | bug | refactor | polish | qa | plan (default: feature)
+        priority: 1-90, capped at 90 (default: 50)
+        files_touched: list of file paths the sub-task will modify.
+        depends_on_current: if True, the new sub-task depends on the current
+                            TASK_ID (ensures parent completes before child runs).
+        max_depth: max depth of the spawning chain (default: 2).
+                   Pass 0 to allow unlimited depth.
+        project: project name (defaults to current project)
+        metadata: extra key/value metadata to store on the sub-task
+
+    Returns:
+        {"ok": True, "task_id": "<id>", "depth": N} on success
+        {"ok": False, "error": "<reason>"} on failure
+    """
+    import urllib.request as _ur
+    import time as _time
+    _proj, _type, _tid, _prio, _port = _read_core()
+    VALID_TYPES = {"feature", "bug", "polish", "refactor", "qa", "python_plan", "plan"}
+    if task_type not in VALID_TYPES:
+        return {
+            "ok": False,
+            "error": (
+                f"Invalid task type: '{task_type}'. "
+                f"Must be one of: {', '.join(VALID_TYPES)}"
+            ),
+        }
+    priority = min(int(priority), 90)
+    proj = project or _proj
+
+    if not _tid or _tid == "unknown":
+        return {
+            "ok": False,
+            "error": (
+                "create_subtask requires a valid TASK_ID; "
+                "task was not launched with an ID in the runtime context"
+            ),
+        }
+
+    task_metadata = dict(metadata) if metadata else {}
+
+    # Depth enforcement
+    if max_depth > 0:
+        try:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+                all_tasks = json.loads(resp.read()).get("tasks", [])
+            parent = next((t for t in all_tasks if t.get("id") == _tid), None)
+            parent_meta = dict(parent.get("metadata", {})) if parent else {}
+            parent_depth = parent_meta.get("task_depth", 0)
+            if parent_depth >= max_depth:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"max sub-task depth ({max_depth}) reached — "
+                        f"this task is at depth {parent_depth}"
+                    ),
+                }
+            task_metadata["parent_task_id"] = _tid
+            task_metadata["task_depth"] = parent_depth + 1
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to resolve parent depth: {str(e)}"}
+
+    # File conflict detection across active sibling sub-tasks
+    files = [f.strip() for f in (files_touched or []) if isinstance(f, str) and f.strip()]
+    if files:
+        try:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+                all_tasks = json.loads(resp.read()).get("tasks", [])
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to fetch tasks for conflict check: {str(e)}"}
+        active_subtasks = [
+            t for t in all_tasks
+            if t.get("metadata", {}).get("parent_task_id") == _tid
+            and t.get("status") in ("pending", "in_progress")
+        ]
+        for sub in active_subtasks:
+            sub_files = set(sub.get("metadata", {}).get("delegated_files", []))
+            if sub_files:
+                overlap = set(files) & sub_files
+                if overlap:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"file conflict detected: sub-task '{sub['id']}' "
+                            f"(status={sub['status']}) already touches {sorted(overlap)}. "
+                            "Parallel sub-tasks cannot share file ownership."
+                        ),
+                    }
+
+    # Build dependencies
+    deps = []
+    if depends_on_current:
+        deps.append(_tid)
+
+    # Create via POST /api/tasks
+    generated_id = f"{task_type}-{int(_time.time() * 1000) % 10**9}-sub"
+    task = {
+        "id": generated_id,
+        "project": proj,
+        "type": task_type,
+        "priority": priority,
+        "description": description,
+        "dependencies": deps,
+        "max_attempts": 3,
+    }
+    if files:
+        task_metadata["delegated_files"] = files
+    if task_metadata:
+        task["metadata"] = task_metadata
+
+    try:
+        body = json.dumps(task).encode()
+        req = _ur.Request(
+            f"http://localhost:{_port}/api/tasks",
+            data=body, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with _ur.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+        task_id = result.get("task", {}).get("id", generated_id)
+        _log(f"[create_subtask] Created {task_type} sub-task {task_id}: {description[:60]}")
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "depth": task_metadata.get("task_depth", 0),
+            "files_touched": files,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def create_task(description: str, task_type: str = "feature", priority: int = 50,
                 dependencies: list = None, project: str = None,
                 parent_task_id: str = None, metadata: dict = None) -> dict:

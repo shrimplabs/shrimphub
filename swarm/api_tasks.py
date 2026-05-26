@@ -266,7 +266,7 @@ def register_routes(app, task_source, db, workspace):
         dep_error = _validate_dependency_ids(project_name, deps, task_id)
         if dep_error:
             return jsonify({"error": dep_error}), 400
-        # Auto-chain to project HEAD when no deps supplied — keeps dep graph history connected
+        # Auto-chain to project HEAD when no deps supplied -- keeps dep graph history connected
         warning = None
         if task_type == "harness_qa" and project_name and not _project_supports_harness(project_name):
             install_result = _install_canonical_harness(project_name)
@@ -286,7 +286,7 @@ def register_routes(app, task_source, db, workspace):
             deps = chain_to_project_head(db, project_name, deps, task_id=task_id, ensure_head=True)
             head = deps[0] if deps else None
             if head:
-                # Always chain to head when no deps supplied — keeps history connected
+                # Always chain to head when no deps supplied -- keeps history connected
                 warning = f"Task {task_id} auto-chained to project head '{head}'."
         task = Task(
             id=task_id,
@@ -297,7 +297,8 @@ def register_routes(app, task_source, db, workspace):
             status="pending",
             max_attempts=data.get("max_attempts", 3),
             dependencies=deps,
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
+            acceptance_test=data.get("acceptance_test")
         )
         try:
             task_source.add_task(task)
@@ -312,11 +313,11 @@ def register_routes(app, task_source, db, workspace):
         """Create multiple tasks at once with reliable dependency wiring.
 
         Body:
-          project        str   — default project for all items (overridable per item)
-          chain          bool  — each task automatically depends on the previous one
-          tasks          list  — task objects; each may include:
-            depends_on  list[int]  — indices into this batch (resolved to IDs before creation)
-            dependencies list[str] — explicit task IDs (merged with depends_on)
+          project        str   -- default project for all items (overridable per item)
+          chain          bool  -- each task automatically depends on the previous one
+          tasks          list  -- task objects; each may include:
+            depends_on  list[int]  -- indices into this batch (resolved to IDs before creation)
+            dependencies list[str] -- explicit task IDs (merged with depends_on)
 
         Two-pass approach: all IDs are generated upfront so depends_on index
         references never collide and always resolve correctly.
@@ -328,12 +329,12 @@ def register_routes(app, task_source, db, workspace):
         data = request.json or {}
         task_list = data.get("tasks", [])
         chain = data.get("chain", False)
-        chain_to_head = True  # always on — off-chain task creation is not allowed
+        chain_to_head = True  # always on -- off-chain task creation is not allowed
         default_project = data.get("project", "")
         if not isinstance(task_list, list) or not task_list:
             return jsonify({"error": "Expected {tasks: [...]}"}), 400
 
-        # Pass 1: generate all IDs upfront — index suffix prevents same-millisecond collisions
+        # Pass 1: generate all IDs upfront -- index suffix prevents same-millisecond collisions
         ts = int(time.time() * 1000) % 10**9
         task_ids = []
         for i, item in enumerate(task_list):
@@ -414,6 +415,7 @@ def register_routes(app, task_source, db, workspace):
                 max_attempts=item.get("max_attempts", 3),
                 dependencies=deps,
                 metadata=item.get("metadata", {}),
+                acceptance_test=item.get("acceptance_test"),
             )
             try:
                 task_source.add_task(task)
@@ -523,16 +525,16 @@ def register_routes(app, task_source, db, workspace):
         if task is None:
             return jsonify({"error": "Task not found"}), 404
         data = request.json or {}
-        # Warn if description is updated on an already-running task — the agent
+        # Warn if description is updated on an already-running task -- the agent
         # has a baked copy of the old description and won't see the change.
         warning = None
         if "description" in data and task.status == "in_progress":
             warning = (
-                f"Task {task_id} is currently in_progress — the running agent "
+                f"Task {task_id} is currently in_progress -- the running agent "
                 "already has the old description baked into its script and will "
                 "not see this update until its next attempt."
             )
-        for key in ["status", "priority", "description", "type", "project", "agent_id", "max_attempts", "dependencies", "metadata"]:
+        for key in ["status", "priority", "description", "type", "project", "agent_id", "max_attempts", "dependencies", "metadata", "acceptance_test"]:
             if key in data:
                 if key == "dependencies":
                     deps = _normalize_dependencies(data[key])
@@ -643,10 +645,10 @@ def register_routes(app, task_source, db, workspace):
     def reset_task(task_id):
         """Reset a failed/stuck task so it can be retried.
         Body (all optional):
-          reset_attempts  bool   — set attempts back to 0 (default true)
-          note            str    — guidance prepended to description for next agent
-          description     str    — replace description entirely
-          max_attempts    int    — raise the attempt cap
+          reset_attempts  bool   -- set attempts back to 0 (default true)
+          note            str    -- guidance prepended to description for next agent
+          description     str    -- replace description entirely
+          max_attempts    int    -- raise the attempt cap
         """
         task = db.task_get(task_id)
         if not task:
