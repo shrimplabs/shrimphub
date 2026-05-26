@@ -1146,20 +1146,32 @@ def _spawn_validation_bug_task(
     chain_depth = bug_task_id.count("bug-")
     deep_chain = chain_depth >= 4
     if deep_chain:
-        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} is {chain_depth} levels deep -- marking for human review, not spawning further")
-        # Mark the original task as needing human review instead of spawning another bug task
+        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} is {chain_depth} levels deep -- routing to recovery task instead of spawning further bug tasks")
+        # Don't mark the original task failed directly — that leaves attempts=0 and blocks the chain
+        # forever with no recovery. Instead, exhaust its attempts so _spawn_review_task fires and
+        # reparents dependents to a recovery task.
         try:
+            orig = db.task_get(original_task_id) or {}
+            max_att = orig.get("max_attempts", 3)
+            meta = dict(orig.get("metadata") or {})
+            meta["needs_human_review"] = True
+            meta["deep_chain_depth"] = chain_depth
+            meta["deep_chain_stopped_at"] = bug_task_id
+            meta["last_failure"] = error_output[:2000]
             db.task_update(original_task_id, {
                 "status": "failed",
-                "metadata": {
-                    **(db.task_get(original_task_id) or {}).get("metadata", {}),
-                    "needs_human_review": True,
-                    "deep_chain_depth": chain_depth,
-                    "deep_chain_stopped_at": bug_task_id,
-                },
+                "attempts": max_att,  # exhaust attempts so _spawn_review_task fires
+                "metadata": meta,
             })
+            # Trigger recovery task spawning so dependents unblock
+            from swarm.agent_recovery import _spawn_review_task
+            _spawn_review_task(
+                {**orig, "attempts": max_att, "metadata": meta},
+                max_att,
+                f"Deep bug chain stopped at depth {chain_depth}. Last error:\n{error_output[:1000]}",
+            )
         except Exception as _e:
-            print(f"[Swarm] Failed to mark task for human review: {_e}")
+            print(f"[Swarm] Failed to trigger recovery for deep chain: {_e}")
         return None
 
     metadata: dict = {

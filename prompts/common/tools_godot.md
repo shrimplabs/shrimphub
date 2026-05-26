@@ -28,6 +28,27 @@ AVAILABLE TOOLS (use EXACTLY these names):
 - get_game_state(): Read live structured state from the running game (score, positions, scene tree, any fields from get_game_state()). Use to verify game logic is correct after launch_game().
 - wait(seconds): Wait N seconds (use after launch_game to let the game initialise before reading state).
 
+GODOT UI ANCHORING RULES (violations cause elements stuck in top-left corner):
+- NEVER set `position` directly on a Control node without also setting anchors. Raw position with default anchors (0,0,0,0) always places elements at the top-left corner.
+- Always set an anchor preset in `_ready()` for any Control node you create:
+    $MyControl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)           # centered
+    $MyControl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)        # fills parent
+    $MyControl.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)       # top-center
+- For full-screen UI (menus, HUDs), structure scenes as: CanvasLayer → root Control with PRESET_FULL_RECT → children inside.
+- For centered popups/labels: use a CenterContainer or set PRESET_CENTER on the Control.
+- When writing .tscn files directly, always include anchor values:
+    [node name="MyLabel" type="Label"]
+    anchors_preset = 8   # 8 = PRESET_CENTER
+    anchor_left = 0.5
+    anchor_top = 0.5
+    anchor_right = 0.5
+    anchor_bottom = 0.5
+    offset_left = -50.0
+    offset_top = -20.0
+    offset_right = 50.0
+    offset_bottom = 20.0
+- After adding any UI node, verify position with get_game_state() or a screenshot — do not assume it is correctly placed.
+
 ADAPTIVE GRAPH TOOLS — call these before TASK_COMPLETE to improve downstream work:
 - list_tasks(project): List all tasks for the project with their IDs and status — use to see what's downstream
 - annotate_downstream_tasks(findings, task_ids): Prepend a context block to downstream pending tasks sharing what you learned (API shapes, constraints, architectural decisions, gotchas)

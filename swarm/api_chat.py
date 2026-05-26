@@ -457,7 +457,7 @@ def _execute_graph_tool(tool: str, args: dict, project: str, db) -> str:
 
     elif tool == "create_task":
         _valid_types = {"feature","bug","refactor","polish","qa","harness_qa",
-                        "art_pass","audit","research","plan","project_plan"}
+                        "art_pass","audit","research","plan","project_plan","scenario_qa"}
         task_type = args.get("type", "")
         if not task_type:
             return "Error: type is required (e.g. feature, bug, art_pass, qa)"
@@ -748,6 +748,7 @@ BEHAVIOUR GUIDELINES:
 - When asked what to work on, use get_critical_path for the most relevant project
 - Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
 - CRITICAL: project names must exactly match the KNOWN PROJECTS list in the state snapshot. If the user gives a name that doesn't match exactly, pick the closest match and confirm before creating anything — never silently create a task on a misspelled or invented project name
+- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English — one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
 
 TOOL USAGE:
 {tools}
@@ -769,6 +770,7 @@ BEHAVIOUR GUIDELINES:
 - You have full write access: use write_file and git_commit when the user asks you to make changes
 - When you find a bug or issue worth tracking, offer to create a task for it
 - Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
+- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English — one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
 
 TOOL USAGE:
 {tools}
@@ -947,7 +949,7 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
 
     if tool == "create_task":
         _valid_types = {"feature","bug","refactor","polish","qa","harness_qa",
-                        "art_pass","audit","research","plan","project_plan"}
+                        "art_pass","audit","research","plan","project_plan","scenario_qa"}
         project = args.get("project", scope if scope != _UNIFIED_GLOBAL_SCOPE else "")
         task_type = args.get("type", "")
         if not project:
@@ -963,21 +965,32 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
             close = [p for p in known_projects if project.lower().replace('-','') in p.lower().replace('-','') or p.lower().replace('-','') in project.lower().replace('-','')]
             suggestion = f" Did you mean: {', '.join(close[:3])}?" if close else f" Known projects: {', '.join(sorted(known_projects)[:10])}..."
             return f"Error: project '{project}' not found.{suggestion}", False
-        task_id = f"{task_type}-{uuid.uuid4().hex[:8]}"
-        task = {
-            "id": task_id,
+        task_payload = {
             "project": project,
             "type": task_type,
             "description": args.get("description", ""),
             "priority": int(args.get("priority", 50)),
-            "status": "pending",
-            "attempts": 0,
             "max_attempts": 3,
             "metadata": {"created_by": "unified-chat"},
             "dependencies": args.get("dependencies", []),
         }
-        db.task_upsert(task)
-        return f"Created task {task_id}", False
+        try:
+            resp = requests.post(
+                "http://localhost:5001/api/tasks",
+                json=task_payload,
+                timeout=10,
+            )
+            result = resp.json()
+            if "error" in result:
+                return f"Error creating task: {result['error']}", False
+            task_id = result.get("task", {}).get("id", "unknown")
+            warning = result.get("warning", "")
+            msg = f"Created task {task_id}"
+            if warning:
+                msg += f" ({warning})"
+            return msg, False
+        except Exception as e:
+            return f"Error creating task: {e}", False
 
     if tool == "update_task":
         task_id = args.get("task_id", "")

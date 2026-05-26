@@ -170,6 +170,8 @@ HARNESS_QA_SYSTEM: str = ""
 HARNESS_QA_USER: str = ""
 HYBRID_QA_SYSTEM: str = ""
 HYBRID_QA_USER: str = ""
+SCENARIO_QA_SYSTEM: str = ""
+SCENARIO_QA_USER: str = ""
 
 # LLM provider config — set by the wrapper
 LLM_PROVIDER: str = "minimax"
@@ -356,6 +358,8 @@ def main() -> int:
             system_prompt, user_prompt = RESEARCH_SYSTEM, RESEARCH_USER
         elif TASK_TYPE == "harness_qa":
             system_prompt, user_prompt = HARNESS_QA_SYSTEM, HARNESS_QA_USER
+        elif TASK_TYPE == "scenario_qa":
+            system_prompt, user_prompt = SCENARIO_QA_SYSTEM, SCENARIO_QA_USER
         elif TASK_TYPE == "hybrid_qa":
             system_prompt, user_prompt = HYBRID_QA_SYSTEM, HYBRID_QA_USER
         elif TASK_TYPE == "feature":
@@ -399,7 +403,7 @@ def main() -> int:
     log(f"Description: {TASK_DESC}")
 
     # Pull latest (skip for virtual/qa tasks and worktree agents on their own branches)
-    _skip_pull_types = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "python_plan", "plan", "research", "harness_qa", "hybrid_qa"}
+    _skip_pull_types = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "python_plan", "plan", "research", "harness_qa", "hybrid_qa", "scenario_qa"}
     if TASK_TYPE not in _skip_pull_types and not PROJECT_PATH_OVERRIDE:
         log("Pulling latest...")
         code, out, err = run("git pull origin main --ff-only")
@@ -954,7 +958,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     # Cap: 40 calls. Nudge at 35 to wrap up.
     # Skipped for read-only, qa, manager, project_create, audit, triage, project_plan.
     # ---------------------------------------------------------------------------
-    _REFLECTION_SKIP_TYPES = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "harness_qa"}
+    _REFLECTION_SKIP_TYPES = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "harness_qa", "scenario_qa"}
     _REFLECTION_ALLOWED_TOOLS = {
         "list_tasks", "annotate_downstream_tasks", "split_task",
         "prune_task", "insert_dependency", "set_task_complexity",

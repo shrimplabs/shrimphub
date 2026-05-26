@@ -210,6 +210,17 @@ def _tool_authority_denial(tool: str, args: dict) -> dict | None:
             "project planners must inspect the repo and delegate through create_tasks_file_aware() only",
         )
 
+    if task_type == "scenario_qa":
+        if tool in {"patch_file", "append_file", "git_commit", "git_push", "run_command", "create_task", "create_tasks_file_aware"}:
+            return _task_tool_authority_error(
+                tool,
+                "scenario_qa tasks are read-only; use write_scenario to save scenario JSON files",
+            )
+        if tool == "write_file":
+            report_path = _normalized_report_path(args.get("path", ""))
+            if not report_path.startswith("test/scenarios/"):
+                return _task_tool_authority_error(tool, "scenario_qa may only write files under test/scenarios/")
+
     if task_type in ("qa", "hybrid_qa", "harness_qa"):
         if tool in {"patch_file", "append_file", "git_commit", "git_push", "run_command", "create_task", "create_tasks_file_aware"}:
             return _task_tool_authority_error(
@@ -382,8 +393,27 @@ def execute_tool(tool_call: dict) -> dict:
 # Handlers are module-level functions taking (args, workspace, project).
 # Availability (task_types, godot_only) is declared on the ToolSpec.
 
-_QA_TYPES = {"qa", "art_pass", "hybrid_qa", "polish"}
+_QA_TYPES = {"qa", "art_pass", "hybrid_qa", "polish", "scenario_qa"}
 _HARNESS_TYPES = {"harness_qa", "hybrid_qa"}
+_SCENARIO_QA_TYPES = {"scenario_qa"}
+
+
+def _write_scenario_file(a: dict, workspace: Path, project: str) -> dict:
+    """Write a scenario JSON dict to test/scenarios/<path> in the project directory."""
+    import json as _json
+    import swarm.agent_runtime as _rt
+    from pathlib import Path as _Path
+    rel_path = a.get("path", "")
+    scenario = a.get("scenario")
+    if not rel_path:
+        return {"ok": False, "error": "write_scenario requires 'path'"}
+    if not isinstance(scenario, dict):
+        return {"ok": False, "error": "write_scenario requires 'scenario' to be a dict"}
+    proj_path = _Path(_rt.PROJECT_PATH_OVERRIDE) if _rt.PROJECT_PATH_OVERRIDE else (workspace / project)
+    abs_path = proj_path / rel_path
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_text(_json.dumps(scenario, indent=2))
+    return {"ok": True, "path": str(abs_path)}
 
 
 def _populate_registry():
@@ -517,6 +547,68 @@ def _populate_registry():
     # create_bug_task + requeue_self also available in harness_qa
     _reg("create_bug_task_harness", lambda a, ws, p: qa_create_bug_task(a.get("description", ""), a.get("evidence_path", ""), a.get("priority", 80), a.get("dependencies", None)), task_types={"harness_qa"}, aliases=["create_bug_task"])
     _reg("requeue_self_harness",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                              task_types={"harness_qa"}, aliases=["requeue_self"])
+
+    # --- Scenario QA tools ---
+    def _run_scenario(a, ws, p):
+        """Execute a scenario JSON file via ScenarioExecutor. Returns pass/fail + trace path."""
+        import os
+        import subprocess
+        import sys
+        scenario_path = a.get("scenario_path", "")
+        project_path_arg = a.get("project_path", "")
+        swarm_url = a.get("swarm_url", "http://localhost:5001")
+        out_dir = a.get("out_dir", "/tmp/scenario_qa")
+        if not scenario_path:
+            return {"ok": False, "error": "run_scenario requires 'scenario_path'"}
+        # Resolve relative to project path
+        import swarm.agent_runtime as _rt
+        _proj_path = project_path_arg or str(ws / p)
+        scenario_abs = os.path.join(_proj_path, scenario_path) if not os.path.isabs(scenario_path) else scenario_path
+        if not os.path.exists(scenario_abs):
+            return {"ok": False, "error": f"scenario file not found: {scenario_abs}"}
+        try:
+            from swarm.tools.scenario_qa import ScenarioExecutor, StateServerClient
+            import json, tempfile
+            from pathlib import Path as _Path
+            scenario = json.loads(open(scenario_abs).read())
+            client = StateServerClient(port=11009)
+            out = _Path(out_dir) / _Path(scenario_abs).stem
+            out.mkdir(parents=True, exist_ok=True)
+            # Try to reuse the running game process from qa_tools if available
+            try:
+                from swarm import qa_tools as _qt
+                game_process = _qt._qa_game_process
+                client = StateServerClient(port=_qt._state_port)
+            except Exception:
+                game_process = None
+            # Vision function
+            try:
+                from swarm.qa_tools import vision_query as _vq
+                def vision_fn(image_path, question):
+                    result = _vq(image_path, question, model_tier="fast")
+                    if isinstance(result, dict):
+                        if "error" in result:
+                            return result
+                        return result.get("answer", result.get("text", str(result)))
+                    return str(result)
+            except Exception:
+                vision_fn = None
+            executor = ScenarioExecutor(
+                scenario=scenario,
+                client=client,
+                out_dir=out,
+                game_process=game_process,
+                vision_fn=vision_fn,
+                project=_rt.PROJECT,
+                swarm_url=swarm_url,
+                project_path=_proj_path,
+            )
+            return executor.run()
+        except Exception as e:
+            return {"ok": False, "error": f"run_scenario exception: {e}"}
+
+    _reg("run_scenario", _run_scenario, required_args=["scenario_path"], task_types=_SCENARIO_QA_TYPES)
+    _reg("write_scenario", lambda a, ws, p: _write_scenario_file(a, ws, p), required_args=["path", "scenario"], task_types=_SCENARIO_QA_TYPES)
 
     # Aliases — model sometimes hallucinates tool names from other prompt variants
     # (applied via the aliases= field on existing specs rather than separate entries)

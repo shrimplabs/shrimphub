@@ -906,6 +906,11 @@ def generate_task_script(task: dict) -> str:
         project_path=str(project_path),
         task_description=description,
     )
+    # ---- Scenario QA prompts ----
+    scenario_qa_system, scenario_qa_user = _load_prompt(
+        "scenario_qa",
+        **_common,
+    )
 
     # ---- Vision provider config (passed to QA agent for vision model dispatch) ----
     qa_config = {
@@ -1034,6 +1039,8 @@ rt.RESEARCH_SYSTEM          = {repr(research_system)}
 rt.RESEARCH_USER            = {repr(research_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
+rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
+rt.SCENARIO_QA_USER         = {repr(scenario_qa_user)}
 
 if __name__ == "__main__":
     exit_code = rt.main()

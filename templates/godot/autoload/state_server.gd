@@ -531,9 +531,11 @@ func _inject_drag(x1: float, y1: float, x2: float, y2: float, duration: float) -
 func _move_mouse(x: float, y: float) -> void:
 	var viewport := get_viewport()
 	var pos := Vector2(x, y)
-	var window_pos := Vector2i(int(round(x)), int(round(y)))
 
-	DisplayServer.warp_mouse(window_pos)
+	# Do NOT call DisplayServer.warp_mouse() — that moves the user's real system
+	# cursor and steals focus from other applications. viewport.warp_mouse() +
+	# Input.parse_input_event is sufficient for all in-game logic since Godot
+	# games read mouse position from InputEvent, not DisplayServer.
 	if viewport != null:
 		viewport.warp_mouse(pos)
 

@@ -64,7 +64,7 @@ def task_graph_quality_errors(tasks, allowed_external_roots=None, project_type: 
     # Exclude sprint-close tail tasks (art_pass, polish, qa/harness_qa/hybrid_qa, audit)
     # from graph-shape heuristics. These are system-appended after the plan DAG and always
     # form a linear tail — they must not penalise an otherwise well-structured plan.
-    _tail_types = {"art_pass", "polish", "qa", "harness_qa", "hybrid_qa", "audit"}
+    _tail_types = {"art_pass", "polish", "qa", "harness_qa", "hybrid_qa", "audit", "scenario_qa"}
     plan_tasks = [t for t in tasks if t.get("type") not in _tail_types]
     plan_ids = {t.get("id", "") for t in plan_tasks if t.get("id")}
 
