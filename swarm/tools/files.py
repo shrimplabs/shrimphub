@@ -275,6 +275,11 @@ def write_file(path_arg: str, content: str) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.write_text(_sanitize_text(content), encoding='utf-8', newline="\n")
+        try:
+            from swarm.tools.shell import invalidate_shell_cache
+            invalidate_shell_cache(_core.PROJECT)
+        except Exception:
+            pass
         return {"ok": True, "path": str(path)}
     except Exception as e:
         return {"ok": False, "error": str(e)}

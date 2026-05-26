@@ -7,6 +7,8 @@ _sync_core_globals() in agent_runtime before each agent run.
 """
 
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 from swarm.platform import kill_process_tree, popen_session_kwargs, shell_quote_command_arg
@@ -16,6 +18,63 @@ from swarm.tools.path_guard import (
     _command_attempts_protected_write,
     _protected_path_error,
 )
+
+# ---------------------------------------------------------------------------
+# Concurrency gate — cap simultaneous shell subprocesses so 12+ agents don't
+# all spawn `find` / `grep` at the same time and thrash the filesystem.
+# Godot validation runs in the monitor thread via a separate code path and is
+# not affected by this gate.
+# ---------------------------------------------------------------------------
+_SHELL_SLOTS = int(__import__("os").environ.get("SWARM_SHELL_SLOTS", "6"))
+_shell_semaphore = threading.Semaphore(_SHELL_SLOTS)
+
+# ---------------------------------------------------------------------------
+# Result cache — keyed on (command, cwd), TTL 30s.
+# Invalidated when write_file / git_commit fires (see invalidate_shell_cache).
+# Only read-only-ish commands are cached (find, grep, git log, ls, wc, cat).
+# ---------------------------------------------------------------------------
+_CACHE_TTL = 30  # seconds
+_cache: dict[tuple, tuple] = {}  # key -> (result, expires_at)
+_cache_lock = threading.Lock()
+
+_CACHEABLE_PREFIXES = ("find ", "grep ", "git log", "git show", "git diff",
+                       "ls ", "ls\n", "wc ", "cat ", "head ", "tail ",
+                       "git status", "git branch")
+
+
+def _is_cacheable(cmd: str) -> bool:
+    stripped = cmd.strip()
+    return any(stripped.startswith(p) for p in _CACHEABLE_PREFIXES)
+
+
+def _cache_get(key):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and entry[1] > time.monotonic():
+            return entry[0]
+        if entry:
+            del _cache[key]
+    return None
+
+
+def _cache_set(key, value):
+    with _cache_lock:
+        _cache[key] = (value, time.monotonic() + _CACHE_TTL)
+
+
+def invalidate_shell_cache(project: str = None):
+    """Call after write_file / git_commit to flush stale entries.
+
+    If project is given, only evict entries whose command contains the
+    project name. Otherwise flush everything.
+    """
+    with _cache_lock:
+        if project:
+            evict = [k for k in _cache if project in k[0]]
+        else:
+            evict = list(_cache.keys())
+        for k in evict:
+            del _cache[k]
 
 
 
@@ -88,14 +147,32 @@ def run_command(cmd: str, timeout: int = 120) -> dict:
         reason, path_hint = protected_write
         return _protected_path_error(path_hint, reason)
     timeout = min(int(timeout), 300)
-    code, out, err = run(cmd, timeout=timeout)
+
+    # Cache hit — skip the semaphore entirely for repeated read-only commands
+    cache_key = (cmd.strip(), str(_safe_cwd(None)))
+    if _is_cacheable(cmd):
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    # Semaphore gate — wait for a shell slot before spawning a subprocess
+    with _shell_semaphore:
+        code, out, err = run(cmd, timeout=timeout)
+
     if code != 0 and "timed out" in err.lower():
         return {"ok": False, "stdout": out, "stderr": f"Command timed out after {timeout}s. For long-running commands like Godot headless tests, pass a higher timeout e.g. run_command(cmd, timeout=300)"}
     godot_error = _godot_runtime_error(out, err) if _looks_like_godot_command(cmd) else None
     if godot_error:
         err = "\n".join(part for part in ((err or "").strip(), f"Godot runtime error detected: {godot_error}") if part)
         return {"ok": False, "stdout": out, "stderr": err}
-    return {"ok": code == 0, "stdout": out, "stderr": err}
+
+    result = {"ok": code == 0, "stdout": out, "stderr": err}
+
+    # Cache successful read-only results
+    if _is_cacheable(cmd) and code == 0:
+        _cache_set(cache_key, result)
+
+    return result
 
 
 def git_commit(message: str, files: list = None) -> dict:
@@ -134,6 +211,12 @@ def git_commit(message: str, files: list = None) -> dict:
     code, out, err = run(f'git commit -m "{message}"')
     if code != 0:
         return {"ok": False, "error": f"git commit failed: {err}"}
+    # Invalidate cache — filesystem state changed after a commit
+    try:
+        import swarm.tools.core as _core2
+        invalidate_shell_cache(_core2.PROJECT)
+    except Exception:
+        pass
     return {"ok": True, "message": "Committed", "output": out}
 
 
