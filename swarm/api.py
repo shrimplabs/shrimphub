@@ -960,6 +960,13 @@ def create_app(
             project_registry.set_managed(_proj, True)
 
     orchestrator.MANAGED_PROJECTS = _managed_projects_from_registry()
+    # Merge: keep anything in config.json that failed to register (don't drop it)
+    config_managed = set(config.get("managed_projects", []))
+    registry_managed = set(orchestrator.MANAGED_PROJECTS)
+    if config_managed - registry_managed:
+        for _missing in config_managed - registry_managed:
+            print(f"[Startup] WARNING: {_missing} in config but not in registry — preserving in managed list")
+        orchestrator.MANAGED_PROJECTS = sorted(config_managed | registry_managed)
     config["managed_projects"] = orchestrator.MANAGED_PROJECTS
 
     try:
