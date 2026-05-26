@@ -597,12 +597,16 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
         # Snapshot the task now, before status mutations or prune_history() races.
         task_snapshot_early = db.task_get(task_id)
 
+        # Phase 5a -- reparent any continuation task the agent spawned, regardless of
+        # success or failure. If this runs only on success, a failed task leaves the
+        # continuation depending on the failed task itself — permanent deadlock.
+        spawned_continuation = _phase_reparent_continuation(task_id, full_output)
+
         if success:
-            # Phase 5a -- success path.
-            spawned_continuation = _phase_reparent_continuation(task_id, full_output)
+            # Phase 5b -- success path.
             task_snapshot_pre_complete = _phase_complete_task(task_id, project, diff_stat)
         else:
-            # Phase 5b -- failure path.
+            # Phase 5c -- failure path.
             if validation_failed_in_worktree and project and wt_path_str and wt_branch:
                 _phase_handle_worktree_validation_failure(
                     agent_id, task_id, project,
