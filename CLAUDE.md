@@ -410,7 +410,7 @@ Creates multiple tasks in one call with reliable dep wiring. Use this instead of
 - **`dependencies`** -- explicit task ID strings; merged with `depends_on` results
 - **`project`** -- top-level default; per-item `project` overrides it
 - **`chain: true`** -- each task automatically depends on the previous one (linear sequence)
-- **`chain_to_head`** -- default `true`; root tasks (no deps) are automatically chained to the project's current HEAD task, preserving a complete build history. Pass `false` to create floating tasks intentionally.
+- **`chain_to_head`** -- always `true` (hardcoded); root tasks (no deps) are automatically chained to the project's current HEAD task. Off-chain task creation is not allowed.
 - IDs are generated upfront with an index suffix so same-millisecond creation never collides
 - Response includes `id_map: {"0": "<id>", "1": "<id>", ...}` for referencing generated IDs afterward
 

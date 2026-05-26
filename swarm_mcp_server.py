@@ -194,7 +194,6 @@ def swarm_project_health(project: str) -> str:
 def swarm_create_tasks(
     project: str,
     tasks: list[dict],
-    chain_to_head: bool = False,
 ) -> str:
     """
     Create multiple tasks in one call with reliable DAG dependency wiring.
@@ -210,10 +209,8 @@ def swarm_create_tasks(
       - "depends_on": list[int] — indices into THIS tasks list (resolved to IDs before creation)
       - "dependencies": list[str] — explicit task IDs from outside this batch (merged with depends_on)
 
-    Args:
-      chain_to_head: if True, the first task in the batch with no other deps automatically
-                     depends on the project's current HEAD task (last completed task).
-                     Use this to attach a new batch to the existing history chain.
+    Root tasks (no deps) are automatically chained to the project HEAD so the
+    history chain is never broken. This is always on — off-chain creation is not allowed.
 
     Example — three tasks where the third waits for both of the first two:
       tasks=[
@@ -230,7 +227,6 @@ def swarm_create_tasks(
     body = {
         "project": project,
         "tasks": tasks,
-        "chain_to_head": chain_to_head,
     }
     result = _post("/api/tasks/batch", body)
     if "error" in result:

@@ -29,7 +29,6 @@ async function spawnArtSprint(event, name) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 project: name,
-                chain_to_head: true,
                 tasks: [
                     {
                         type: 'art_pass',
