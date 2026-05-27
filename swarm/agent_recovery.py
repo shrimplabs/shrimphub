@@ -514,12 +514,12 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         orig_priority = max(50, orig_priority - 5 * _recovery_depth)
 
         # Hard cap: if we already have too many recovery attempts on this branch,
-        # stop creating new ones entirely.
+        # force escalation to research rather than silently stopping.
         total_branch_tasks = len(all_branch_recovery_tasks)
-        if total_branch_tasks >= _MAX_RECOVERY_TASKS_PER_BRANCH:
+        if total_branch_tasks >= _MAX_RECOVERY_TASKS_PER_BRANCH and orig_type not in {"qa", "harness_qa", "hybrid_qa"}:
             print(f"[Swarm] Recovery cap reached ({total_branch_tasks}/{_MAX_RECOVERY_TASKS_PER_BRANCH}) "
-                  f"for branch {branch_root_id[:12]} — skipping new recovery task")
-            return
+                  f"for branch {branch_root_id[:12]} — forcing research escalation")
+            _recovery_depth = max(_recovery_depth, 1)  # ensure escalation triggers below
 
         # Find live (pending/in_progress) recovery OR research-escalation tasks for this branch.
         # Include escalated_to_research so we don't duplicate research tasks either.
