@@ -620,6 +620,7 @@ h2 {
 .status.completed    { background: rgba(63, 185, 80, 0.1);   color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
 .status.failed       { background: rgba(255, 0, 128, 0.1); color: var(--red); border: 1px solid rgba(255, 0, 128, 0.3);  box-shadow: 0 0 12px rgba(255, 0, 128, 0.4); }
 .deep-chain-warning  { border-color: rgba(255, 0, 128, 0.5) !important; box-shadow: 0 0 8px rgba(255, 0, 128, 0.4); }
+.needs-human-review  { border-color: rgba(218, 54, 51, 0.7) !important; box-shadow: 0 0 10px rgba(218, 54, 51, 0.35); }
 
 /* ─── Stats ─────────────────────────────────────────────────────── */
 .stat {

@@ -865,13 +865,20 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
     return research_id
 
 
-def _apply_research_feeder_result(research_task_id: str, research_output: str, db_conn=None):
-    """Called when a research feeder task completes.
+def _apply_research_feeder_result(research_task_id: str, research_output: str, db_conn=None,
+                                   needs_human_review: bool = False):
+    """Called when a research feeder task completes (successfully or exhausted).
 
     Injects research findings into the original task's metadata, removes the
     research dependency, and resets the original task to pending so it can
-    retry with enriched context. This is the completion hook for research feeders.
+    retry with enriched context.
+
+    If needs_human_review=True (research feeder exhausted without resolving):
+    - Sets metadata.needs_human_review = True
+    - Sets run_after = 24h from now so the task doesn't immediately re-enter
+      the queue and burn more agent cycles while waiting for human attention
     """
+    from datetime import timedelta
     al = _lc()
     al._lazy_imports()
     db_ref = db_conn or al.db
@@ -907,14 +914,30 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
     orig_deps = list(original_task.get("dependencies") or [])
     orig_deps = [d for d in orig_deps if d != research_task_id]
 
-    db_ref.task_update(original_task_id, {
+    update: dict = {
         "status": "pending",
         "attempts": 0,
         "dependencies": orig_deps,
         "metadata": orig_meta,
-    })
+    }
 
-    print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} — task reset to pending with research context")
+    if needs_human_review:
+        orig_meta["needs_human_review"] = True
+        orig_meta["human_review_reason"] = (
+            f"Research feeder {research_task_id[:12]} exhausted all attempts without resolving. "
+            f"Agent and research both failed — needs human diagnosis."
+        )
+        # Snooze for 24h so it doesn't immediately re-enter the queue
+        run_after = (datetime.now() + timedelta(hours=24)).isoformat()
+        update["run_after"] = run_after
+        print(
+            f"[Swarm] Research feeder {research_task_id[:8]} exhausted — "
+            f"flagged {original_task_id[:12]} needs_human_review, snoozed 24h"
+        )
+    else:
+        print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} — task reset to pending with research context")
+
+    db_ref.task_update(original_task_id, update)
 
 
 # ---------------------------------------------------------------------------
@@ -981,12 +1004,11 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             # Legacy recovery task (pre-feeder) — continue with terminal continuation
             _spawn_terminal_recovery_continuation(task, attempts, agent_output)
         elif task_meta.get("is_research_feeder"):
-            # Research feeder exhausted — mark cancelled, original task stays blocked
-            # with whatever context we gathered; the original will need manual reset
-            print(f"[Swarm] Research feeder {task_id} exhausted {attempts} attempts — original task may need manual reset")
+            # Research feeder exhausted — mark cancelled, flag original for human review
+            print(f"[Swarm] Research feeder {task_id} exhausted {attempts} attempts — flagging original task for human review")
             db.task_update(task_id, {"status": "cancelled"})
-            # Inject partial findings into original so it has some context
-            _apply_research_feeder_result(task_id, agent_output)
+            # Inject partial findings + human review flag into original
+            _apply_research_feeder_result(task_id, agent_output, needs_human_review=True)
         elif project and on_exhaust == "research":
             # New path: spawn research feeder, original task stays in place
             _spawn_research_feeder(task, attempts, agent_output)

@@ -512,7 +512,7 @@ function createTaskCard(task, isActive, isParent, activeBadge, isChild) {
     const chainDepth = meta.chain_depth || 0;
     const needsHumanReview = meta.needs_human_review === true;
     const deepChainBadge = deepChain ? `<span title="Bug chain is ${chainDepth} levels deep — needs review" style="background:#f85149;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px">⚠ chain:${chainDepth}</span>` : '';
-    const humanReviewBadge = needsHumanReview ? `<span title="Automatic recovery stopped — requires human intervention (chain depth ${meta.deep_chain_depth || '?'})" style="background:#da3633;color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:600">🛑 needs review</span>` : '';
+    const humanReviewBadge = needsHumanReview ? `<span title="${escapeHtml(meta.human_review_reason || 'Agent and research both failed — needs human diagnosis')}" style="background:#da3633;color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:600">🛑 needs review</span>` : '';
     const delegatedMode = meta.delegation_mode || '';
     const delegatedChildren = Array.isArray(meta.delegated_child_task_ids) ? meta.delegated_child_task_ids.length : 0;
     const helperDelegations = Array.isArray(meta.helper_delegations) ? meta.helper_delegations.length : 0;
@@ -530,7 +530,7 @@ function createTaskCard(task, isActive, isParent, activeBadge, isChild) {
     const taskJson = isActive ? '' : JSON.stringify(task).replace(/'/g, "&#39;");
     const cardAttr = isActive ? '' : `data-task='${taskJson}' onclick="openEditTaskModalFromCard(this)"`;
     return `
-        <div class="card ${deepChain ? 'deep-chain-warning' : ''}" data-project="${escapeHtml(task.project)}" ${cardAttr} style="${isActive ? '' : 'cursor:pointer'}">
+        <div class="card ${deepChain ? 'deep-chain-warning' : ''} ${needsHumanReview ? 'needs-human-review' : ''}" data-project="${escapeHtml(task.project)}" ${cardAttr} style="${isActive ? '' : 'cursor:pointer'}">
             <div class="card-header"${isParent ? ` onclick="toggleChildren('${task.id}')"` : ''}>
                 <span class="project-name">${isChild ? '<span class="task-id-prefix">&#8618;</span>' : ''}${escapeHtml(task.project)}</span>
                 ${isParent ? '<span class="collapse-toggle" id="toggle-' + task.id + '">[-] hide</span>' : ''}
