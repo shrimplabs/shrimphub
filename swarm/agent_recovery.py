@@ -15,7 +15,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set
 
+import threading
+from collections import defaultdict
+
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
+
+# Per-branch-root lock: serialises the check-then-create in _spawn_review_task
+# so concurrent daemon threads can't all race past the canonical_recovery guard.
+# Keyed by branch_root_id (more precise than project — unrelated failures in the
+# same project don't block each other).
+_recovery_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_recovery_locks_guard = threading.Lock()
+
+# Hard cap: max recovery+research tasks allowed per branch root before we stop
+# creating new ones entirely.  Safety net if the lock somehow slips.
+_MAX_RECOVERY_TASKS_PER_BRANCH = 3
+
+
+def _get_recovery_lock(branch_root_id: str) -> threading.Lock:
+    with _recovery_locks_guard:
+        return _recovery_locks[branch_root_id]
 
 
 # ---------------------------------------------------------------------------
@@ -466,187 +485,224 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     orig_desc = failed_task.get("description", "")
     orig_priority = failed_task.get("priority", 70)
 
-    all_tasks = db.task_get_all()
-    dependents = [t for t in all_tasks if failed_id in (t.get("dependencies") or [])]
+    # Compute branch_root_id before acquiring the lock (only needs failed_task metadata).
     failed_meta = failed_task.get("metadata") or {}
     branch_root_id = failed_meta.get("recovery_root_task_id") or failed_meta.get("failed_task_id") or failed_id
-    # Count ALL failed/cancelled recovery tasks on this branch — not just depth from metadata.
-    # This catches chains created before the depth counter was added, and is more robust.
-    _branch_failures = sum(
-        1 for t in all_tasks
-        if (t.get("metadata") or {}).get("recovery_root_task_id") == branch_root_id
-        and t.get("status") in ("failed", "cancelled")
-    )
-    _recovery_depth = max(int(failed_meta.get("recovery_depth") or 0), _branch_failures)
-    orig_priority = max(50, orig_priority - 5 * _recovery_depth)
 
-    live_branch_recoveries = [
-        t for t in all_tasks
-        if (t.get("metadata") or {}).get("is_recovery_task")
-        and (t.get("metadata") or {}).get("recovery_root_task_id") == branch_root_id
-        and t.get("status") in ("pending", "in_progress")
-    ]
-    canonical_recovery = None
-    if live_branch_recoveries:
-        live_branch_recoveries.sort(
-            key=lambda t: (
-                0 if t.get("status") == "in_progress" else 1,
-                t.get("created") or "",
-                t.get("id") or "",
-            )
+    # Serialise the check-then-create for this branch root.  Without this lock,
+    # concurrent daemon threads all read the same stale task snapshot, see no
+    # existing recovery tasks, and each independently create one — causing an
+    # exponential cascade of parallel recovery tasks.
+    with _get_recovery_lock(branch_root_id):
+        # Re-read inside the lock so we see any recovery tasks created by threads
+        # that acquired the lock before us.
+        all_tasks = db.task_get_all()
+        dependents = [t for t in all_tasks if failed_id in (t.get("dependencies") or [])]
+
+        # Count ALL recovery+research tasks on this branch (failed, cancelled, pending, in_progress).
+        # Used for depth tracking and the hard cap.  Counts both is_recovery_task and
+        # escalated_to_research tasks so research escalations also dedupe correctly.
+        all_branch_recovery_tasks = [
+            t for t in all_tasks
+            if (t.get("metadata") or {}).get("recovery_root_task_id") == branch_root_id
+        ]
+        _branch_failures = sum(
+            1 for t in all_branch_recovery_tasks
+            if t.get("status") in ("failed", "cancelled")
         )
-        canonical_recovery = live_branch_recoveries[0]
-        for stale in live_branch_recoveries[1:]:
-            if stale.get("status") == "pending":
-                db.task_update_status(stale["id"], "cancelled")
-                print(f"[Swarm] Cancelled stale recovery task {stale['id'][:8]} for branch {branch_root_id[:8]}")
+        _recovery_depth = max(int(failed_meta.get("recovery_depth") or 0), _branch_failures)
+        orig_priority = max(50, orig_priority - 5 * _recovery_depth)
 
-    recovery_id = f"recovery-{_uuid.uuid4().hex[:8]}"
+        # Hard cap: if we already have too many recovery attempts on this branch,
+        # stop creating new ones entirely.
+        total_branch_tasks = len(all_branch_recovery_tasks)
+        if total_branch_tasks >= _MAX_RECOVERY_TASKS_PER_BRANCH:
+            print(f"[Swarm] Recovery cap reached ({total_branch_tasks}/{_MAX_RECOVERY_TASKS_PER_BRANCH}) "
+                  f"for branch {branch_root_id[:12]} — skipping new recovery task")
+            return
 
-    if canonical_recovery:
-        canonical_id = canonical_recovery["id"]
+        # Find live (pending/in_progress) recovery OR research-escalation tasks for this branch.
+        # Include escalated_to_research so we don't duplicate research tasks either.
+        live_branch_recoveries = [
+            t for t in all_branch_recovery_tasks
+            if t.get("status") in ("pending", "in_progress")
+        ]
+        canonical_recovery = None
+        if live_branch_recoveries:
+            live_branch_recoveries.sort(
+                key=lambda t: (
+                    0 if t.get("status") == "in_progress" else 1,
+                    t.get("created") or "",
+                    t.get("id") or "",
+                )
+            )
+            canonical_recovery = live_branch_recoveries[0]
+            for stale in live_branch_recoveries[1:]:
+                if stale.get("status") == "pending":
+                    db.task_update_status(stale["id"], "cancelled")
+                    print(f"[Swarm] Cancelled stale recovery task {stale['id'][:8]} for branch {branch_root_id[:8]}")
+
+        recovery_id = f"recovery-{_uuid.uuid4().hex[:8]}"
+
+        if canonical_recovery:
+            canonical_id = canonical_recovery["id"]
+            proj = db.project_get(project) if project else None
+            if proj and proj.get("head_task_id") == failed_id:
+                db.project_update(project, {"head_task_id": canonical_id})
+                print(f"[Swarm] Advanced head to reused recovery {canonical_id} for {project}")
+            for dep_task in dependents:
+                new_deps = al._task_mutations.replace_task_dependencies(
+                    db,
+                    dep_task["id"],
+                    {failed_id: canonical_id},
+                )
+                if new_deps is not None:
+                    print(f"[Swarm] Reparented {dep_task['id']}: dependency {failed_id} → recovery {canonical_id}")
+            print(f"[Swarm] Reusing existing recovery task {canonical_id} for branch {branch_root_id[:8]}")
+            return
+
+        # Compute linear chain deps: new recovery depends on the most recent previous
+        # recovery task on this branch (not on the failed task's upstream deps).
+        # This ensures recoveries run sequentially, each seeing the previous attempt's outcome.
+        previous_branch_tasks = [
+            t for t in all_branch_recovery_tasks
+            if t.get("id") != recovery_id
+        ]
+        if previous_branch_tasks:
+            previous_branch_tasks.sort(key=lambda t: t.get("created") or "")
+            latest_previous = previous_branch_tasks[-1]
+            _linear_chain_deps = [latest_previous["id"]]
+        else:
+            _linear_chain_deps = None  # first recovery — use normal dep logic below
+
+        note = (
+            f"NOTE: {len(dependents)} other task(s) are waiting on this work to complete."
+            if dependents
+            else "NOTE: No tasks depend on this one, but the feature is still missing from the project."
+        )
+
+        failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
+        orig_desc_capped = orig_desc[:2000] + ("\n[... description truncated ...]" if len(orig_desc) > 2000 else "")
+
+        # Collect the full failure chain across all sibling recovery tasks
+        chain_history = _collect_branch_failure_history(branch_root_id, project, failed_id)
+        chain_section = (
+            f"\nFULL CHAIN FAILURE HISTORY (all previous attempts on this branch):\n{chain_history}\n"
+            if chain_history else ""
+        )
+
+        escalate_to_research = _recovery_depth >= 1 and orig_type not in {"qa", "harness_qa", "hybrid_qa"}
+
+        if escalate_to_research:
+            recovery_desc = (
+                f"RESEARCH ESCALATION: Bug branch failed {_recovery_depth + 1} recovery generations "
+                f"({attempts} attempts each) without resolving.\n\n"
+                f"ORIGINAL TASK ({branch_root_id}):\n{orig_desc_capped}\n\n"
+                f"LATEST FAILURE ({failed_id}):\n{failure_excerpt}\n"
+                f"{chain_section}\n"
+                f"YOUR JOB (read-only diagnosis + queue a fix):\n"
+                f"1. Read every file mentioned in the failure history above.\n"
+                f"2. Reproduce the failure locally with a minimal run_command to confirm the root cause.\n"
+                f"3. Identify exactly what is wrong and why previous attempts failed to fix it.\n"
+                f"4. Queue ONE well-scoped bug task with a precise description of the fix needed.\n"
+                f"   Include in that task: exact files to change, what to change, and why.\n"
+                f"5. Do NOT commit code yourself — diagnosis and task creation only.\n\n"
+                f"{note}"
+            )
+        elif orig_type in {"qa", "harness_qa", "hybrid_qa"}:
+            recovery_desc = (
+                f"RECOVERY TASK: Complete the QA run that failed {attempts} times.\n\n"
+                f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
+                f"LATEST FAILURE:\n{failure_excerpt}\n"
+                f"{chain_section}\n"
+                f"YOUR JOB:\n"
+                f"1. Read the failure history above and understand what went wrong.\n"
+                f"2. Re-run the QA investigation using the available QA tools.\n"
+                f"3. If you confirm project bugs, create bug tasks with clear reproduction steps and evidence.\n"
+                f"4. If bug-task creation is unavailable, write QA_REPORT.md with the confirmed findings and finish.\n"
+                f"5. Do NOT implement project code fixes, patch gameplay files, or commit code from this QA recovery task.\n"
+                f"6. Kill any launched game process before finishing.\n\n"
+                f"{note}"
+            )
+        else:
+            recovery_desc = (
+                f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
+                f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
+                f"LATEST FAILURE:\n{failure_excerpt}\n"
+                f"{chain_section}\n"
+                f"YOUR JOB:\n"
+                f"1. Read ALL failure history above — understand what was tried and why it didn't work.\n"
+                f"2. Inspect the codebase to understand the current state.\n"
+                f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
+                f"   Do NOT just document the failure. The project is incomplete without this work.\n"
+                f"4. Avoid the mistakes from previous attempts (described in failure history above).\n"
+                f"5. Validate, commit, and push when done.\n\n"
+                f"{note}"
+            )
+
+        # Research escalation tasks are NOT marked is_recovery_task so they can
+        # call create_task to queue the diagnosed fix.  They do carry the root ID
+        # so the dep-graph stays connected.
+        recovery_meta: dict = {
+            "is_review_task": not escalate_to_research,
+            "is_recovery_task": not escalate_to_research,
+            "escalated_to_research": escalate_to_research,
+            "recovery_depth": _recovery_depth + 1,
+            "error_log_excerpt": failure_excerpt,
+            "error_log_chars": output_chars,
+            "failed_task_id": failed_id,
+            "recovery_root_task_id": branch_root_id,
+            "dependent_count": len(dependents),
+            **branch_intent_metadata(failed_task),
+        }
+        if not escalate_to_research and failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
+            wt_p = Path(failed_meta["worktree_path"])
+            if wt_p.exists():
+                recovery_meta["worktree_path"] = str(wt_p)
+                recovery_meta["worktree_branch"] = failed_meta["worktree_branch"]
+                recovery_meta["worktree_inherited"] = True
+                print(f"[Swarm] Recovery task will inherit worktree {wt_p.name} from {failed_id}")
+
+        # Use linear chain deps if we have a previous recovery to chain to,
+        # otherwise fall back to normal dependency wiring.
+        task_deps = (
+            _linear_chain_deps
+            if _linear_chain_deps is not None
+            else _replacement_task_dependencies(failed_task, new_task_id=recovery_id)
+        )
+
+        recovery_task = {
+            "id": recovery_id,
+            "project": project,
+            "type": "research" if escalate_to_research else orig_type,
+            "description": recovery_desc,
+            "priority": 80 if escalate_to_research else orig_priority,
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 2 if escalate_to_research else 3,
+            "dependencies": task_deps,
+            "metadata": recovery_meta,
+            "created": datetime.now().isoformat(),
+        }
+        db.task_upsert(recovery_task)
+        if escalate_to_research:
+            print(f"[Swarm] ESCALATED to research {recovery_id} for {project} — branch {branch_root_id[:12]} depth {_recovery_depth + 1}")
+        else:
+            print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id} (depth {_recovery_depth + 1})")
+
         proj = db.project_get(project) if project else None
         if proj and proj.get("head_task_id") == failed_id:
-            db.project_update(project, {"head_task_id": canonical_id})
-            print(f"[Swarm] Advanced head to reused recovery {canonical_id} for {project}")
+            db.project_update(project, {"head_task_id": recovery_id})
+            print(f"[Swarm] Advanced head to recovery {recovery_id} for {project}")
+
         for dep_task in dependents:
             new_deps = al._task_mutations.replace_task_dependencies(
                 db,
                 dep_task["id"],
-                {failed_id: canonical_id},
+                {failed_id: recovery_id},
             )
             if new_deps is not None:
-                print(f"[Swarm] Reparented {dep_task['id']}: dependency {failed_id} → recovery {canonical_id}")
-        print(f"[Swarm] Reusing existing recovery task {canonical_id} for branch {branch_root_id[:8]}")
-        return
-
-    note = (
-        f"NOTE: {len(dependents)} other task(s) are waiting on this work to complete."
-        if dependents
-        else "NOTE: No tasks depend on this one, but the feature is still missing from the project."
-    )
-
-    failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
-    orig_desc_capped = orig_desc[:2000] + ("\n[... description truncated ...]" if len(orig_desc) > 2000 else "")
-
-    # Collect the full failure chain across all sibling recovery tasks
-    chain_history = _collect_branch_failure_history(branch_root_id, project, failed_id)
-    chain_section = (
-        f"\nFULL CHAIN FAILURE HISTORY (all previous attempts on this branch):\n{chain_history}\n"
-        if chain_history else ""
-    )
-
-    # At recovery_depth >= 2 the same bug has now failed 6+ times across
-    # multiple recovery generations.  Escalate to a research task that reads
-    # the full failure chain, diagnoses the root cause, and queues a properly-
-    # scoped fix — rather than spawning yet another blind bug agent.
-    escalate_to_research = _recovery_depth >= 1 and orig_type not in {"qa", "harness_qa", "hybrid_qa"}
-
-    if escalate_to_research:
-        recovery_desc = (
-            f"RESEARCH ESCALATION: A bug branch has failed {_recovery_depth + 1} recovery generations "
-            f"({attempts} attempts each) without resolving.\n\n"
-            f"ORIGINAL TASK ({branch_root_id}):\n{orig_desc_capped}\n\n"
-            f"LATEST FAILURE ({failed_id}):\n{failure_excerpt}\n"
-            f"{chain_section}\n"
-            f"YOUR JOB (read-only diagnosis + queue a fix):\n"
-            f"1. Read every file mentioned in the failure history above.\n"
-            f"2. Reproduce the failure locally with a minimal run_command to confirm the root cause.\n"
-            f"3. Identify exactly what is wrong and why previous attempts failed to fix it.\n"
-            f"4. Queue ONE well-scoped bug task with a precise description of the fix needed.\n"
-            f"   Include in that task: exact files to change, what to change, and why.\n"
-            f"5. Do NOT commit code yourself — diagnosis and task creation only.\n\n"
-            f"{note}"
-        )
-    elif orig_type in {"qa", "harness_qa", "hybrid_qa"}:
-        recovery_desc = (
-            f"RECOVERY TASK: Complete the QA run that failed {attempts} times.\n\n"
-            f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-            f"LATEST FAILURE:\n{failure_excerpt}\n"
-            f"{chain_section}\n"
-            f"YOUR JOB:\n"
-            f"1. Read the failure history above and understand what went wrong.\n"
-            f"2. Re-run the QA investigation using the available QA tools.\n"
-            f"3. If you confirm project bugs, create bug tasks with clear reproduction steps and evidence.\n"
-            f"4. If bug-task creation is unavailable, write QA_REPORT.md with the confirmed findings and finish.\n"
-            f"5. Do NOT implement project code fixes, patch gameplay files, or commit code from this QA recovery task.\n"
-            f"6. Kill any launched game process before finishing.\n\n"
-            f"{note}"
-        )
-    else:
-        recovery_desc = (
-            f"RECOVERY TASK: Complete the work that failed {attempts} times.\n\n"
-            f"ORIGINAL TASK ({failed_id}):\n{orig_desc_capped}\n\n"
-            f"LATEST FAILURE:\n{failure_excerpt}\n"
-            f"{chain_section}\n"
-            f"YOUR JOB:\n"
-            f"1. Read ALL failure history above — understand what was tried and why it didn't work.\n"
-            f"2. Inspect the codebase to understand the current state.\n"
-            f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
-            f"   Do NOT just document the failure. The project is incomplete without this work.\n"
-            f"4. Avoid the mistakes from previous attempts (described in failure history above).\n"
-            f"5. Validate, commit, and push when done.\n\n"
-            f"{note}"
-        )
-
-    # Research escalation tasks are NOT marked is_recovery_task so they can
-    # call create_task to queue the diagnosed fix.  They do carry the root ID
-    # so the dep-graph stays connected.
-    recovery_meta: dict = {
-        "is_review_task": not escalate_to_research,
-        "is_recovery_task": not escalate_to_research,
-        "escalated_to_research": escalate_to_research,
-        "recovery_depth": _recovery_depth + 1,
-        "error_log_excerpt": failure_excerpt,
-        "error_log_chars": output_chars,
-        "failed_task_id": failed_id,
-        "recovery_root_task_id": branch_root_id,
-        "dependent_count": len(dependents),
-        **branch_intent_metadata(failed_task),
-    }
-    if not escalate_to_research and failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
-        wt_p = Path(failed_meta["worktree_path"])
-        if wt_p.exists():
-            recovery_meta["worktree_path"] = str(wt_p)
-            recovery_meta["worktree_branch"] = failed_meta["worktree_branch"]
-            recovery_meta["worktree_inherited"] = True
-            print(f"[Swarm] Recovery task will inherit worktree {wt_p.name} from {failed_id}")
-
-    recovery_task = {
-        "id": recovery_id,
-        "project": project,
-        "type": "research" if escalate_to_research else orig_type,
-        "description": recovery_desc,
-        "priority": 80 if escalate_to_research else orig_priority,
-        "status": "pending",
-        "attempts": 0,
-        "max_attempts": 2 if escalate_to_research else 3,
-        "dependencies": _replacement_task_dependencies(
-            failed_task,
-            new_task_id=recovery_id,
-        ),
-        "metadata": recovery_meta,
-        "created": datetime.now().isoformat(),
-    }
-    db.task_upsert(recovery_task)
-    if escalate_to_research:
-        print(f"[Swarm] ESCALATED to research {recovery_id} for {project} — branch {branch_root_id[:12]} depth {_recovery_depth + 1}")
-    else:
-        print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id} (depth {_recovery_depth + 1})")
-
-    proj = db.project_get(project) if project else None
-    if proj and proj.get("head_task_id") == failed_id:
-        db.project_update(project, {"head_task_id": recovery_id})
-        print(f"[Swarm] Advanced head to recovery {recovery_id} for {project}")
-
-    for dep_task in dependents:
-        new_deps = al._task_mutations.replace_task_dependencies(
-            db,
-            dep_task["id"],
-            {failed_id: recovery_id},
-        )
-        if new_deps is not None:
-            print(f"[Swarm] Reparented {dep_task['id']}: dependency {failed_id} → {recovery_id}")
+                print(f"[Swarm] Reparented {dep_task['id']}: dependency {failed_id} → {recovery_id}")
 
 
 # ---------------------------------------------------------------------------
