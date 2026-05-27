@@ -639,6 +639,15 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
         if success:
             # Phase 5b -- success path.
             task_snapshot_pre_complete = _phase_complete_task(task_id, project, diff_stat)
+
+            # Research feeder completion: if this task was a research feeder,
+            # inject its findings into the original task and reset it to pending.
+            if task_snapshot_early and (task_snapshot_early.get("metadata") or {}).get("is_research_feeder"):
+                try:
+                    from swarm.agent_recovery import _apply_research_feeder_result
+                    _apply_research_feeder_result(task_id, full_output or output)
+                except Exception as _rfe:
+                    print(f"[Swarm] WARNING: research feeder result injection failed for {task_id[:8]}: {_rfe}")
         else:
             # Phase 5c -- failure path.
             if validation_failed_in_worktree and project and wt_path_str and wt_branch:

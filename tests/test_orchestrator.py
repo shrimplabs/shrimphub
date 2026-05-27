@@ -68,20 +68,43 @@ class TestHandleTaskFailure:
         assert t["started"] is None
         assert t["agent_id"] is None
 
-    def test_marks_failed_after_max_attempts(self):
+    def test_spawns_research_feeder_after_max_attempts_for_bug_type(self):
+        # bug/feature tasks with on_exhaust=research reset to pending (blocked on research feeder)
         _insert_task("t1", attempts=2, max_attempts=3)
         orchestrator._handle_task_failure("t1", "proj", "still failing")
         t = db.task_get("t1")
+        # Original task is reset to pending, blocked on the research feeder dep
+        assert t["status"] == "pending"
+        assert t["attempts"] == 0
+        # A research feeder task should have been spawned
+        all_tasks = db.task_get_all()
+        feeders = [x for x in all_tasks if (x.get("metadata") or {}).get("feeds_into_task_id") == "t1"]
+        assert len(feeders) == 1
+        assert feeders[0]["type"] == "research"
+
+    def test_cancels_qa_type_after_max_attempts(self):
+        # qa tasks with on_exhaust=cancel stay failed (no research feeder spawned)
+        db.task_upsert({
+            "id": "t1", "project": "proj", "type": "qa", "description": "x",
+            "priority": 50, "status": "in_progress", "dependencies": [], "metadata": {},
+            "attempts": 2, "max_attempts": 3,
+        })
+        orchestrator._handle_task_failure("t1", "proj", "still failing")
+        t = db.task_get("t1")
         assert t["status"] == "failed"
+        all_tasks = db.task_get_all()
+        feeders = [x for x in all_tasks if (x.get("metadata") or {}).get("feeds_into_task_id") == "t1"]
+        assert len(feeders) == 0
 
     def test_no_crash_on_missing_task(self):
         orchestrator._handle_task_failure("ghost", "proj", "error")  # must not raise
 
-    def test_max_attempts_one_fails_immediately(self):
+    def test_max_attempts_one_spawns_research_feeder(self):
         _insert_task("t1", attempts=0, max_attempts=1)
         orchestrator._handle_task_failure("t1", "proj", "error")
         t = db.task_get("t1")
-        assert t["status"] == "failed"
+        # feature type → research feeder, task reset to pending
+        assert t["status"] == "pending"
 
     def test_failure_attempt_counter_increments(self):
         _insert_task("t1", attempts=1, max_attempts=5)

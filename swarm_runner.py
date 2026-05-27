@@ -744,7 +744,20 @@ def generate_task_script(task: dict) -> str:
             + json.dumps(retry_context, indent=2)
             + "\n```\n\n"
         )
-    description = retry_prefix + description
+    # Research feeder context: inject root-cause findings when this task was
+    # reset after a research feeder completed. Takes precedence over generic
+    # retry context because it contains a targeted diagnosis.
+    if metadata.get("research_context"):
+        research_prefix = (
+            "\n```\n// RESEARCH DIAGNOSIS (read before anything else)\n"
+            "A dedicated research agent investigated why previous attempts failed.\n"
+            "Apply this diagnosis — do not repeat the same approaches that failed.\n\n"
+            + metadata["research_context"][:2000]
+            + "\n```\n\n"
+        )
+        description = research_prefix + description
+    else:
+        description = retry_prefix + description
 
     try:
         context_packet = _project_context_packet(task, project_path)

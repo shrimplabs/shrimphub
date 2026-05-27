@@ -740,6 +740,184 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
 
 
 # ---------------------------------------------------------------------------
+# Research-feeder: spawn research that feeds back into the original task
+# ---------------------------------------------------------------------------
+
+def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -> Optional[str]:
+    """Spawn a research task that feeds findings back into the original failed task.
+
+    This is the NEW escalation path (replaces _spawn_review_task for non-QA tasks).
+
+    Key properties:
+    - Original task stays as the authoritative dep-graph node. Dependents NEVER move.
+    - Research task depends on nothing (runs immediately), carries feeds_into_task_id.
+    - Original task gets a temporary dependency on the research task (blocks it until
+      research completes), then is reset to pending with enriched context.
+    - On research completion, _apply_research_feeder_result() in agent_finish.py
+      injects findings, resets attempts to 0, removes the research dep.
+    - Dedupe guard: only one pending/in_progress research feeder per original task ID.
+    """
+    import uuid as _uuid
+    al = _lc()
+    al._lazy_imports()
+    db = al.db
+
+    failed_id = failed_task.get("id", "unknown")
+    project = failed_task.get("project", "")
+    orig_type = failed_task.get("type", "bug")
+    orig_desc = (failed_task.get("description") or "")[:2000]
+    failed_meta = failed_task.get("metadata") or {}
+    branch_root_id = failed_meta.get("research_root_task_id") or failed_id
+
+    if project in al.PAUSED_PROJECTS:
+        print(f"[Swarm] Skipping research feeder — {project} is paused")
+        return None
+
+    # Dedupe: only one live research feeder per original task
+    all_tasks = db.task_get_all()
+    live_feeders = [
+        t for t in all_tasks
+        if (t.get("metadata") or {}).get("feeds_into_task_id") == failed_id
+        and t.get("status") in ("pending", "in_progress")
+    ]
+    if live_feeders:
+        existing_id = live_feeders[0]["id"]
+        print(f"[Swarm] Research feeder {existing_id} already live for {failed_id[:8]} — skipping duplicate")
+        return existing_id
+
+    # Accumulate attempt history in metadata (survives the attempts=0 reset)
+    attempt_history = list(failed_meta.get("attempt_history") or [])
+    failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)
+    attempt_history.append({
+        "attempt": attempts,
+        "excerpt": failure_excerpt[:600],
+        "chars": output_chars,
+    })
+
+    # Keep history bounded: last 5 entries + rolling summary of earlier ones
+    if len(attempt_history) > 5:
+        attempt_history = attempt_history[-5:]
+
+    chain_history = _collect_branch_failure_history(branch_root_id, project, failed_id)
+    chain_section = (
+        f"\nFULL FAILURE HISTORY (all previous attempts):\n{chain_history}\n"
+        if chain_history else ""
+    )
+
+    research_id = f"research-feeder-{_uuid.uuid4().hex[:8]}"
+    research_desc = (
+        f"RESEARCH FEEDER: Diagnose why '{orig_type}' task {failed_id[:12]} has failed "
+        f"{attempts} time(s) without resolving.\n\n"
+        f"ORIGINAL TASK:\n{orig_desc}\n\n"
+        f"LATEST FAILURE:\n{failure_excerpt}\n"
+        f"{chain_section}\n"
+        f"YOUR JOB (read-only diagnosis only):\n"
+        f"1. Read every file mentioned in the failure history above.\n"
+        f"2. Understand exactly why previous attempts failed.\n"
+        f"3. Identify the root cause and what a correct fix looks like.\n"
+        f"4. Write your findings to the scratchpad — be specific: exact files, exact lines, exact fix.\n"
+        f"5. Do NOT commit code. Do NOT create new tasks. Your output feeds directly back into the "
+        f"   original task so it can retry with your diagnosis as context.\n"
+        f"6. End with TASK_COMPLETE.\n"
+    )
+
+    research_meta = {
+        "feeds_into_task_id": failed_id,
+        "research_root_task_id": branch_root_id,
+        "is_research_feeder": True,
+        "failure_attempts": attempts,
+        "error_log_excerpt": failure_excerpt,
+    }
+
+    db.task_upsert({
+        "id": research_id,
+        "project": project,
+        "type": "research",
+        "description": research_desc,
+        "priority": 85,  # high — unblocks the original task
+        "status": "pending",
+        "attempts": 0,
+        "max_attempts": 2,
+        "dependencies": [],  # runs immediately
+        "metadata": research_meta,
+        "created": datetime.now().isoformat(),
+    })
+
+    # Block the original task on research completion: add research_id as a dependency.
+    # Also store the updated attempt_history so future agents see the full picture.
+    current_task = db.task_get(failed_id)
+    if current_task:
+        current_deps = list(current_task.get("dependencies") or [])
+        if research_id not in current_deps:
+            current_deps.append(research_id)
+        updated_meta = dict(current_task.get("metadata") or {})
+        updated_meta["attempt_history"] = attempt_history
+        updated_meta["awaiting_research_feeder"] = research_id
+        # Reset to pending (unblocked when research completes via _apply_research_feeder_result)
+        db.task_update(failed_id, {
+            "status": "pending",
+            "attempts": 0,
+            "dependencies": current_deps,
+            "metadata": updated_meta,
+        })
+
+    print(f"[Swarm] Spawned research feeder {research_id} for {failed_id[:8]} (attempt {attempts}) — original task reset to pending, blocked on research")
+    return research_id
+
+
+def _apply_research_feeder_result(research_task_id: str, research_output: str, db_conn=None):
+    """Called when a research feeder task completes.
+
+    Injects research findings into the original task's metadata, removes the
+    research dependency, and resets the original task to pending so it can
+    retry with enriched context. This is the completion hook for research feeders.
+    """
+    al = _lc()
+    al._lazy_imports()
+    db_ref = db_conn or al.db
+
+    research_task = db_ref.task_get(research_task_id)
+    if not research_task:
+        return
+    research_meta = research_task.get("metadata") or {}
+    original_task_id = research_meta.get("feeds_into_task_id")
+    if not original_task_id:
+        return  # not a feeder task
+
+    original_task = db_ref.task_get(original_task_id)
+    if not original_task:
+        print(f"[Swarm] Research feeder {research_task_id[:8]} complete but original task {original_task_id[:12]} not found (may already be completed)")
+        return
+
+    original_status = original_task.get("status")
+    if original_status == "completed":
+        print(f"[Swarm] Research feeder {research_task_id[:8]} complete but original task {original_task_id[:12]} already completed — self-cancelling")
+        return
+
+    # Summarise research output (bounded)
+    research_summary = research_output[-3000:] if research_output else "(no output)"
+
+    # Inject findings into original task metadata
+    orig_meta = dict(original_task.get("metadata") or {})
+    orig_meta["research_context"] = research_summary
+    orig_meta["research_feeder_id"] = research_task_id
+    orig_meta.pop("awaiting_research_feeder", None)
+
+    # Remove the research dep from the original task's dependency list
+    orig_deps = list(original_task.get("dependencies") or [])
+    orig_deps = [d for d in orig_deps if d != research_task_id]
+
+    db_ref.task_update(original_task_id, {
+        "status": "pending",
+        "attempts": 0,
+        "dependencies": orig_deps,
+        "metadata": orig_meta,
+    })
+
+    print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} — task reset to pending with research context")
+
+
+# ---------------------------------------------------------------------------
 # Task failure handler (orchestrates retry vs. recovery)
 # ---------------------------------------------------------------------------
 
@@ -794,7 +972,27 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             attempts=attempts,
             max_attempts=max_attempts,
         )
-        if project and (task.get("metadata") or {}).get("is_recovery_task"):
+        task_type = task.get("type", "")
+        task_meta = task.get("metadata") or {}
+        escalation = get_escalation_policy(task_type)
+        on_exhaust = escalation.get("on_exhaust", "cancel")
+
+        if task_meta.get("is_recovery_task"):
+            # Legacy recovery task (pre-feeder) — continue with terminal continuation
             _spawn_terminal_recovery_continuation(task, attempts, agent_output)
+        elif task_meta.get("is_research_feeder"):
+            # Research feeder exhausted — mark cancelled, original task stays blocked
+            # with whatever context we gathered; the original will need manual reset
+            print(f"[Swarm] Research feeder {task_id} exhausted {attempts} attempts — original task may need manual reset")
+            db.task_update(task_id, {"status": "cancelled"})
+            # Inject partial findings into original so it has some context
+            _apply_research_feeder_result(task_id, agent_output)
+        elif project and on_exhaust == "research":
+            # New path: spawn research feeder, original task stays in place
+            _spawn_research_feeder(task, attempts, agent_output)
+        elif project and on_exhaust == "cancel":
+            # QA/research/plan types: cancel cleanly, don't recurse
+            print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelling per escalation policy")
         elif project:
+            # Fallback to legacy recovery for unknown types
             _spawn_review_task(task, attempts, agent_output)
