@@ -22,7 +22,8 @@ def test_default_project_spec_uses_profile_defaults():
 
     assert godot["profile"] == "godot"
     assert godot["verification"]["smoke_checks"][0]["type"] == "command"
-    assert "gut_cmdln.gd" in godot["verification"]["smoke_checks"][0]["command"]
+    assert godot["verification"]["smoke_checks"][0]["id"] == "boot"
+    assert godot["verification"]["smoke_checks"][0]["command"] == "godot --headless --path . --quit"
     assert python["verification"]["smoke_checks"][0]["type"] == "command"
     assert typescript["verification"]["smoke_checks"][0]["type"] == "browser"
     assert python["mode"] == "build"
