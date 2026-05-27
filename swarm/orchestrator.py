@@ -443,13 +443,15 @@ def _get_next_task() -> Optional[Dict]:
 
     paused = set(PAUSED_PROJECTS)
 
-    # Only one vision QA task may run globally at a time -- local mlx-vlm can't
-    # handle concurrent vision inference. harness_qa has no vision dependency so
-    # it is not restricted. Port collisions are handled by dynamic allocation.
-    qa_active = any(
-        t["status"] == "in_progress" and t.get("type") == "qa"
-        for t in all_tasks
+    # Limit concurrent vision QA (type="qa") to avoid overloading mlx-vlm.
+    # Count in_progress vision QA tasks; cap at 2 to allow some parallelism
+    # while preventing a flood. harness_qa/hybrid_qa have no vision dependency
+    # and are not restricted. Port collisions handled by dynamic allocation.
+    qa_active_count = sum(
+        1 for t in all_tasks
+        if t["status"] == "in_progress" and t.get("type") == "qa"
     )
+    _MAX_CONCURRENT_VISION_QA = 2
 
     # Collect worktree paths currently in use by active agents -- tasks that inherit
     # the same worktree must wait until the current occupant finishes.
@@ -481,21 +483,9 @@ def _get_next_task() -> Optional[Dict]:
                 project_rows[proj] = project_row
         if project_row and not project_row.get("managed", True) and t.get("type") not in ("manager", "project_create"):
             continue
-        # Block all QA picks while any QA task is running
-        if t.get("type") == "qa" and qa_active:
+        # Cap concurrent vision QA agents to avoid overloading mlx-vlm.
+        if t.get("type") == "qa" and qa_active_count >= _MAX_CONCURRENT_VISION_QA:
             continue
-        # Don't schedule QA/harness/scenario while a bug agent is actively running
-        # for that project — QA racing with an in_progress bug causes dep violations
-        # and immediate kills. Pending bugs are fine; they're just queued.
-        if t.get("type") in ("qa", "harness_qa", "hybrid_qa", "scenario_qa"):
-            proj_bugs_active = any(
-                other["project"] == proj
-                and other.get("type") == "bug"
-                and other.get("status") == "in_progress"
-                for other in all_tasks
-            )
-            if proj_bugs_active:
-                continue
         # Skip tasks scheduled for the future
         run_after = t.get("run_after")
         if run_after and run_after > now_iso:
