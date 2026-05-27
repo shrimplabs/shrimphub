@@ -721,43 +721,68 @@ def generate_task_script(task: dict) -> str:
         or (_base_project_path / "tsconfig.app.json").exists()
     )
 
-    # Retry context: structured JSON block with failure info + recent commits
+    # Tiered retry context: richer context on each successive attempt.
+    # Research feeder results always take precedence (they contain a targeted diagnosis).
+    #
+    # Attempt 1: description only (no prefix)
+    # Attempt 2: description + last_failure excerpt
+    # Attempt 3+: description + last_failure + git diff stat + "try a fundamentally different approach"
+    # Post-research: description + research_context diagnosis (overrides all of the above)
     retry_prefix = ""
-    if metadata.get("last_failure") and metadata.get("failure_attempt", 0) > 0:
-        git_log_lines = []
-        try:
-            import subprocess as _sp
-            _r = _sp.run(["git", "log", "--oneline", "-10"],
-                         capture_output=True, text=True, cwd=str(project_path), timeout=5)
-            if _r.returncode == 0:
-                git_log_lines = _r.stdout.strip().splitlines()
-        except Exception:
-            pass
-        retry_context = {
-            "attempt": metadata["failure_attempt"],
-            "max_attempts": task.get("max_attempts", 3),
-            "previous_error": metadata["last_failure"],
-            "recent_commits": git_log_lines,
-        }
-        retry_prefix = (
-            "\n```json\n// RETRY CONTEXT\n"
-            + json.dumps(retry_context, indent=2)
-            + "\n```\n\n"
-        )
-    # Research feeder context: inject root-cause findings when this task was
-    # reset after a research feeder completed. Takes precedence over generic
-    # retry context because it contains a targeted diagnosis.
+    attempt_number = metadata.get("failure_attempt", 0)
+
     if metadata.get("research_context"):
-        research_prefix = (
+        # Post-research tier: targeted diagnosis from a research feeder
+        retry_prefix = (
             "\n```\n// RESEARCH DIAGNOSIS (read before anything else)\n"
             "A dedicated research agent investigated why previous attempts failed.\n"
             "Apply this diagnosis — do not repeat the same approaches that failed.\n\n"
             + metadata["research_context"][:2000]
             + "\n```\n\n"
         )
-        description = research_prefix + description
-    else:
-        description = retry_prefix + description
+    elif attempt_number >= 3 and metadata.get("last_failure"):
+        # Attempt 3+: last failure + git diff of what attempt 2 changed + directive
+        git_log_lines = []
+        git_diff_stat = ""
+        try:
+            import subprocess as _sp
+            _r = _sp.run(["git", "log", "--oneline", "-5"],
+                         capture_output=True, text=True, cwd=str(project_path), timeout=5)
+            if _r.returncode == 0:
+                git_log_lines = _r.stdout.strip().splitlines()
+            _d = _sp.run(["git", "diff", "HEAD~1", "--stat"],
+                         capture_output=True, text=True, cwd=str(project_path), timeout=5)
+            if _d.returncode == 0 and _d.stdout.strip():
+                git_diff_stat = _d.stdout.strip()
+        except Exception:
+            pass
+        retry_context = {
+            "attempt": attempt_number,
+            "max_attempts": task.get("max_attempts", 3),
+            "previous_error": metadata["last_failure"],
+            "what_changed_last_attempt": git_diff_stat or "(no committed changes)",
+            "recent_commits": git_log_lines,
+            "directive": "Previous approaches have not worked. Try a fundamentally different approach.",
+        }
+        retry_prefix = (
+            "\n```json\n// RETRY CONTEXT (attempt %d — try a different approach)\n" % attempt_number
+            + json.dumps(retry_context, indent=2)
+            + "\n```\n\n"
+        )
+    elif attempt_number >= 1 and metadata.get("last_failure"):
+        # Attempt 2: last failure excerpt only
+        retry_context = {
+            "attempt": attempt_number,
+            "max_attempts": task.get("max_attempts", 3),
+            "previous_error": metadata["last_failure"],
+        }
+        retry_prefix = (
+            "\n```json\n// RETRY CONTEXT\n"
+            + json.dumps(retry_context, indent=2)
+            + "\n```\n\n"
+        )
+
+    description = retry_prefix + description
 
     try:
         context_packet = _project_context_packet(task, project_path)
