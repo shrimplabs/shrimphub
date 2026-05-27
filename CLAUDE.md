@@ -185,12 +185,53 @@ Two independent limits apply to agents:
 - **Loop limit** (`MAX_TOOL_LOOPS = 200` in `swarm/constants.py`) -- the primary governor; agents exit cleanly at loop 200
 - **Wall-clock watchdog** (`AGENT_TIMEOUT = 7200s` default in `constants.py`, overridable via `config.json`) -- safety net for truly hung processes only; should not fire on working agents
 
-### Recovery and self-healing
+### Escalation and self-healing (progressive refinement model)
 
-- When a task exhausts `max_attempts`, `_spawn_review_task()` creates a recovery task with full failure history and reparents all dependents to it
-- Recovery tasks have `is_recovery_task: True` in metadata -- they never spawn further recovery tasks (prevents infinite chains)
+A task that fails its first attempt is not a failure — it is the first pass of a multi-pass process. The system uses **progressive refinement** rather than recovery task replacement.
+
+#### Normal retry (attempts < max_attempts)
+Task resets to `pending` with `metadata.last_failure` set. Prompt context is tiered by attempt number:
+- Attempt 1: description only (clean first try)
+- Attempt 2: description + `last_failure` excerpt
+- Attempt 3+: description + `last_failure` + git diff of what changed last attempt + directive to try a fundamentally different approach
+
+#### Exhaustion → research feeder (bug/feature/refactor)
+When attempts are exhausted for implementation task types (`on_exhaust: "research"` in escalation policy):
+1. A **research feeder task** is spawned (`type: "research"`, `metadata.feeds_into_task_id=<original_id>`)
+2. The **original task** is reset to `pending` (attempts=0), with the research task added as a temporary dependency
+3. **Dependents never move** — the original task stays the authoritative dep-graph node. No reparenting.
+4. When research completes, `_apply_research_feeder_result()` injects findings into `metadata.research_context`, removes the research dep, and unblocks the original task
+5. Original task retries with the research diagnosis prepended to its prompt
+
+Dedupe guard: only one pending/in_progress research feeder per original task ID. `attempt_history` in metadata accumulates across all resets so agents can see the full failure chain.
+
+#### Exhaustion → cancel (QA/research/plan types)
+Task types with `on_exhaust: "cancel"` in escalation policy (qa, harness_qa, hybrid_qa, scenario_qa, research, plan, project_plan, art_pass, audit) simply stay `failed` — no feeder spawned. QA agents use their own `requeue_self()` mechanism.
+
+#### Escalation policy
+Defined in `swarm/agent_recovery.py:_DEFAULT_ESCALATION_POLICY` and overridable per-type in `config.json` under `escalation_policy`:
+```json
+{
+  "escalation_policy": {
+    "bug":        {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "qa":         {"max_attempts": 2, "on_exhaust": "cancel"}
+  }
+}
+```
+
+#### Pre-flight baseline validation
+Before an agent starts (at worktree creation), `capture_validation_baseline()` runs validation and records which errors already exist as normalised signatures. After the agent finishes, `filter_new_errors()` diffs the post-agent output — only **new** errors introduced by the agent count as failures. Pre-existing errors are reported as inherited blockers and do not block the merge.
+
+This eliminates false-positive validation cascades caused by environmental issues (e.g. missing `class_name` declarations, removed Godot 4 properties) that pre-date the agent's work.
+
+#### What is NOT used anymore
+- `_spawn_review_task()` / recovery task creation for bug/feature/refactor types (replaced by research feeder)
+- Dep reparenting on exhaustion (dependents stay on original task)
+- `is_recovery_task` flag (legacy only — pre-feeder recovery tasks already in DB still run to completion via `_spawn_terminal_recovery_continuation`)
+
+Legacy: `_spawn_review_task()` is still present for the terminal continuation path of `is_recovery_task` rows already in the DB. It will be removed once the DB has no active legacy recovery tasks.
+
 - `_get_next_task()` treats a dep as "met" if its status is `completed` in the tasks table, OR if it is entirely absent from the tasks table (escape hatch for manually deleted tasks). Failed and cancelled tasks block their dependents
-- Recovery task creation is NOT gated on MANAGED_PROJECTS (only PAUSED_PROJECTS skip) -- recovery always fires
 
 ### Continuation task dependency reparenting
 
