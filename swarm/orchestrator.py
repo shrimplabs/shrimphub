@@ -484,14 +484,14 @@ def _get_next_task() -> Optional[Dict]:
         # Block all QA picks while any QA task is running
         if t.get("type") == "qa" and qa_active:
             continue
-        # Don't schedule any QA/harness/scenario task while bug tasks are active
-        # for that project — QA racing with open bugs causes dep violations and
-        # immediate kills. Let bugs finish first.
+        # Don't schedule QA/harness/scenario while a bug agent is actively running
+        # for that project — QA racing with an in_progress bug causes dep violations
+        # and immediate kills. Pending bugs are fine; they're just queued.
         if t.get("type") in ("qa", "harness_qa", "hybrid_qa", "scenario_qa"):
             proj_bugs_active = any(
                 other["project"] == proj
                 and other.get("type") == "bug"
-                and other.get("status") in ("pending", "in_progress")
+                and other.get("status") == "in_progress"
                 for other in all_tasks
             )
             if proj_bugs_active:
