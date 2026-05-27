@@ -470,7 +470,14 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     dependents = [t for t in all_tasks if failed_id in (t.get("dependencies") or [])]
     failed_meta = failed_task.get("metadata") or {}
     branch_root_id = failed_meta.get("recovery_root_task_id") or failed_meta.get("failed_task_id") or failed_id
-    _recovery_depth = int(failed_meta.get("recovery_depth") or 0)
+    # Count ALL failed/cancelled recovery tasks on this branch — not just depth from metadata.
+    # This catches chains created before the depth counter was added, and is more robust.
+    _branch_failures = sum(
+        1 for t in all_tasks
+        if (t.get("metadata") or {}).get("recovery_root_task_id") == branch_root_id
+        and t.get("status") in ("failed", "cancelled")
+    )
+    _recovery_depth = max(int(failed_meta.get("recovery_depth") or 0), _branch_failures)
     orig_priority = max(50, orig_priority - 5 * _recovery_depth)
 
     live_branch_recoveries = [
@@ -533,7 +540,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     # multiple recovery generations.  Escalate to a research task that reads
     # the full failure chain, diagnoses the root cause, and queues a properly-
     # scoped fix — rather than spawning yet another blind bug agent.
-    escalate_to_research = _recovery_depth >= 2 and orig_type not in {"qa", "harness_qa", "hybrid_qa"}
+    escalate_to_research = _recovery_depth >= 1 and orig_type not in {"qa", "harness_qa", "hybrid_qa"}
 
     if escalate_to_research:
         recovery_desc = (
