@@ -491,6 +491,7 @@ func _initialize():
                             if re.search(r"\bfailed\b", ln, re.IGNORECASE)
                             and "nothing failed" not in ln.lower()
                             and not ln.strip().startswith("[Passed]")
+                            and not re.match(r"\s*WARNING:", ln)
                         ]
                         if fail_lines:
                             validation_failed = True
