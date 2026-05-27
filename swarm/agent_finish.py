@@ -121,7 +121,41 @@ def _finish_worktree_phase(agent_id: str, success: bool, project: Optional[str],
         if _task_for_val_early and _task_type_early not in _skip_types:
             _val_failed, _val_err = _validation._post_task_validation_in_worktree(project, task_id, worktree_path)
             if _val_failed:
-                print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} -- skipping merge, preserving worktree")
+                # Baseline diff: only fail if NEW errors were introduced by this agent.
+                # Pre-existing errors (captured at spawn time) are inherited blockers,
+                # not charged to the current agent's work.
+                _baseline = (_task_for_val_early.get("metadata") or {}).get("validation_baseline")
+                if _baseline is not None:
+                    _project_path = al.WORKSPACE / project
+                    _ptype = "godot" if (_project_path / "project.godot").exists() else "python"
+                    _new_errs, _inherited = _validation.filter_new_errors(_val_err, _baseline, _ptype)
+                    if not _new_errs:
+                        # All errors are pre-existing — agent did not make things worse.
+                        # Report inherited blockers but do NOT block the merge.
+                        if _inherited:
+                            print(
+                                f"[Swarm] Pre-merge validation: {len(_inherited)} inherited pre-existing error(s) "
+                                f"for agent {agent_id[:8]} — not charged to this agent, proceeding with merge"
+                            )
+                        else:
+                            print(f"[Swarm] Pre-merge validation: no new errors for agent {agent_id[:8]} — proceeding with merge")
+                        _val_failed = False  # treat as pass
+                    else:
+                        print(
+                            f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]}: "
+                            f"{len(_new_errs)} NEW error(s) introduced "
+                            f"({len(_inherited)} inherited/pre-existing) — skipping merge, preserving worktree"
+                        )
+                        _val_err = (
+                            f"NEW errors introduced by this agent ({len(_new_errs)}):\n"
+                            + "\n".join(_new_errs)
+                            + (f"\n\nPre-existing errors NOT charged to this agent ({len(_inherited)}):\n"
+                               + "\n".join(_inherited) if _inherited else "")
+                        )
+                else:
+                    print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} — no baseline available, treating all errors as new")
+
+            if _val_failed:
                 return _WorktreeFinishResult(
                     success=False,
                     validation_failed=True,

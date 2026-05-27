@@ -29,5 +29,20 @@
   "disable_remote_repo": true,
   "login_required": false,
   "meta_investigation": true,
-  "auto_replan_projects": []
+  "auto_replan_projects": [],
+  "escalation_policy": {
+    "bug":        {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "feature":    {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "refactor":   {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "polish":     {"max_attempts": 3, "on_exhaust": "cancel"},
+    "qa":         {"max_attempts": 2, "on_exhaust": "cancel"},
+    "harness_qa": {"max_attempts": 2, "on_exhaust": "cancel"},
+    "hybrid_qa":  {"max_attempts": 2, "on_exhaust": "cancel"},
+    "scenario_qa":{"max_attempts": 2, "on_exhaust": "cancel"},
+    "art_pass":   {"max_attempts": 2, "on_exhaust": "cancel"},
+    "audit":      {"max_attempts": 2, "on_exhaust": "cancel"},
+    "research":   {"max_attempts": 2, "on_exhaust": "cancel"},
+    "plan":       {"max_attempts": 2, "on_exhaust": "cancel"},
+    "project_plan":{"max_attempts": 2, "on_exhaust": "cancel"}
+  }
 }

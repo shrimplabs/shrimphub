@@ -36,6 +36,142 @@ from swarm.task_mutations import reparent_dependents
 CONTROLLER_CONFIG_BLOCKER_PREFIX = "CONTROLLER CONFIGURATION BLOCKER:"
 
 
+# ---------------------------------------------------------------------------
+# Pre-flight baseline validation
+# ---------------------------------------------------------------------------
+# Before an agent starts, we snapshot which errors already exist in the project.
+# After the agent finishes, we only fail if NEW errors were introduced.
+# This eliminates false-positive validation cascades caused by pre-existing
+# environmental issues (e.g. missing class_name declarations, removed Godot 4
+# properties) that the agent cannot fix because they pre-date the task.
+#
+# Error signatures are normalised so whitespace/line-number drift doesn't break
+# comparisons between the pre- and post-agent runs.
+# ---------------------------------------------------------------------------
+
+def _normalise_error_line(line: str) -> str:
+    """Normalise a single error line to a stable signature for comparison.
+
+    Strips: absolute paths (keep filename only), line numbers, memory addresses,
+    leading whitespace, and common noise prefixes so two logically identical
+    errors produced by different Godot runs compare equal.
+    """
+    import hashlib as _hashlib
+    # Strip leading/trailing whitespace
+    s = line.strip()
+    # Drop memory addresses (0x...)
+    s = re.sub(r'\b0x[0-9a-fA-F]+\b', '<addr>', s)
+    # Normalise absolute paths to basename only
+    s = re.sub(r'(?:/[^\s:,]+)+/([^\s:/,]+\.(?:gd|tscn|py|cs|ts|swift|go|rs))', r'\1', s)
+    # Drop :NNN line-number suffixes that vary between runs
+    s = re.sub(r':\d+(?::\d+)?(?=\s|$|,)', '', s)
+    return s
+
+
+def _extract_error_signatures(output: str, project_type: str) -> list[str]:
+    """Extract normalised error signatures from raw validator output.
+
+    Returns a list of stable strings that can be set-diffed between two runs.
+    Filters out known noise lines that are always present regardless of code
+    correctness (e.g. Godot renderer warnings, RID allocations).
+    """
+    _NOISE_PATTERNS = [
+        r"RID allocations",
+        r"PN18TextServer",
+        r"TextServer: Primary interface",
+        r"Godot Engine v",
+        r"^$",                      # blank lines
+        r"^\s+$",                   # whitespace-only lines
+        r"All scripts OK",
+        r"All scenes OK",
+        r"Main scene startup OK",
+    ]
+    sigs: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Only capture lines that look like errors/warnings
+        is_error = any(marker in line for marker in (
+            "ERROR:", "SCRIPT ERROR:", "SCENE ERROR:", "FAILED", "Error:", "error:",
+        ))
+        if not is_error:
+            continue
+        # Drop known noise
+        if any(re.search(pat, line) for pat in _NOISE_PATTERNS):
+            continue
+        sigs.append(_normalise_error_line(line))
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in sigs:
+        if s not in seen:
+            seen.add(s)
+            result.append(s)
+    return result
+
+
+def capture_validation_baseline(
+    project: str,
+    task_id: str,
+    worktree_path: Optional[Path] = None,
+) -> list[str]:
+    """Run validation and capture the current error signatures as a baseline.
+
+    The baseline is stored in task metadata under ``validation_baseline`` so
+    post-task validation can diff against it.  Returns the list of signatures
+    (may be empty if project is clean).
+
+    Safe to call even if validation itself fails — errors are caught and an
+    empty baseline is returned (conservative: no baseline means all errors are
+    treated as new).
+    """
+    try:
+        failed, output = _post_task_validation_in_worktree(
+            project, task_id, worktree_path=worktree_path, timeout=60
+        )
+        # Determine project type for signature extraction
+        from swarm import orchestrator as _orch
+        project_path = worktree_path if worktree_path is not None else (_orch.WORKSPACE / project)
+        if (project_path / "project.godot").exists():
+            ptype = "godot"
+        elif (project_path / "requirements.txt").exists() or (project_path / "pyproject.toml").exists():
+            ptype = "python"
+        else:
+            ptype = "unknown"
+        sigs = _extract_error_signatures(output, ptype)
+        # Persist to task metadata
+        task = db.task_get(task_id)
+        if task:
+            meta = dict(task.get("metadata") or {})
+            meta["validation_baseline"] = sigs
+            meta["validation_baseline_captured"] = True
+            db.task_update(task_id, {"metadata": meta})
+        print(f"[PreFlight] Baseline captured for {project} {task_id[:8]}: {len(sigs)} pre-existing error(s)")
+        return sigs
+    except Exception as e:
+        print(f"[PreFlight] WARNING: baseline capture failed for {project} {task_id[:8]}: {e}")
+        return []
+
+
+def filter_new_errors(
+    output: str,
+    baseline_sigs: list[str],
+    project_type: str = "unknown",
+) -> tuple[list[str], list[str]]:
+    """Diff post-agent validation output against the baseline.
+
+    Returns (new_errors, inherited_errors) where:
+    - new_errors: signatures present after agent run but NOT in baseline → real failures
+    - inherited_errors: signatures in both baseline and current output → pre-existing, not charged to agent
+    """
+    baseline_set = set(baseline_sigs)
+    current_sigs = _extract_error_signatures(output, project_type)
+    new_errors = [s for s in current_sigs if s not in baseline_set]
+    inherited = [s for s in current_sigs if s in baseline_set]
+    return new_errors, inherited
+
+
 def is_controller_config_blocker(error_output: str | None) -> bool:
     return bool(error_output and error_output.startswith(CONTROLLER_CONFIG_BLOCKER_PREFIX))
 

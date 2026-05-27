@@ -31,6 +31,40 @@ _recovery_locks_guard = threading.Lock()
 # creating new ones entirely.  Safety net if the lock somehow slips.
 _MAX_RECOVERY_TASKS_PER_BRANCH = 3
 
+# ---------------------------------------------------------------------------
+# Escalation policy
+# ---------------------------------------------------------------------------
+# Defines how each task type behaves when attempts are exhausted.
+# on_exhaust: "research" → spawn a research feeder task (future Phase B)
+#             "cancel"   → mark task cancelled, unblock dependents
+# This dict is the source of truth; config.json can override individual entries.
+
+_DEFAULT_ESCALATION_POLICY: dict[str, dict] = {
+    "bug":         {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "feature":     {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "refactor":    {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
+    "polish":      {"max_attempts": 3, "on_exhaust": "cancel"},
+    "qa":          {"max_attempts": 2, "on_exhaust": "cancel"},
+    "harness_qa":  {"max_attempts": 2, "on_exhaust": "cancel"},
+    "hybrid_qa":   {"max_attempts": 2, "on_exhaust": "cancel"},
+    "scenario_qa": {"max_attempts": 2, "on_exhaust": "cancel"},
+    "art_pass":    {"max_attempts": 2, "on_exhaust": "cancel"},
+    "audit":       {"max_attempts": 2, "on_exhaust": "cancel"},
+    "research":    {"max_attempts": 2, "on_exhaust": "cancel"},
+    "plan":        {"max_attempts": 2, "on_exhaust": "cancel"},
+    "project_plan":{"max_attempts": 2, "on_exhaust": "cancel"},
+}
+
+
+def get_escalation_policy(task_type: str, config: dict | None = None) -> dict:
+    """Return the escalation policy for a task type, merging config overrides."""
+    base = _DEFAULT_ESCALATION_POLICY.get(task_type, {"max_attempts": 3, "on_exhaust": "cancel"})
+    if config:
+        overrides = config.get("escalation_policy", {}).get(task_type, {})
+        if overrides:
+            base = {**base, **overrides}
+    return base
+
 
 def _get_recovery_lock(branch_root_id: str) -> threading.Lock:
     with _recovery_locks_guard:

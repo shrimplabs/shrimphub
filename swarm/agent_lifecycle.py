@@ -322,6 +322,18 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
                 meta["worktree_branch"] = worktree_branch
                 task["metadata"] = meta
 
+    # Pre-flight baseline: capture which validation errors exist BEFORE the agent
+    # touches anything.  Post-task validation diffs against this so only NEW errors
+    # count as failures.  Only runs for task types that go through post-validation.
+    _BASELINE_SKIP_TYPES = {"manager", "project_create", "qa", "research",
+                            "harness_qa", "hybrid_qa", "project_plan", "audit",
+                            "triage", "art_pass", "scenario_qa"}
+    if task.get("id") and task.get("type") not in _BASELINE_SKIP_TYPES and worktree_path is not None:
+        try:
+            _validation.capture_validation_baseline(project, task["id"], worktree_path)
+        except Exception as _blerr:
+            print(f"[Swarm] WARNING: pre-flight baseline failed for {task['id'][:8]}: {_blerr}")
+
     script_content = generate_script_fn(task)
     script_path = _get_data_dir() / f"agent_{agent_id}.py"
     script_path.write_text(script_content, encoding="utf-8")
