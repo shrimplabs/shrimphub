@@ -124,3 +124,6 @@ Report at: `data/AUDIT_LEARNINGS_REPORT.md`
 - `plan` and `python_plan` task types: blocks `mutating_tools | {run_command}` with "planning tasks are read-only"
 - `project_plan`: special-case block for `{mutating_tools} | {run_command, create_task, create_tasks}` with "must use create_tasks_file_aware() only"
 - Bug was: `run_command` was missing from the `plan`/`python_plan` block set — agents bypassed write restrictions via shell
+
+---
+swarm/gardener_knowledge.py: standalone knowledge store. JSONL at data/swarm_knowledge.jsonl, markdown view at data/SWARM_KNOWLEDGE.md. Public API: load(), append_entry(), update_confidence(), expire_stale(), render_markdown(). Uses module-level Path constants (JSONL_PATH, MARKDOWN_PATH, _DATA_DIR) — patch these with monkeypatch in tests (pytest.fixture with autouse=True). Entry schema: id, pattern_signature, confidence (confirmed/suspected/disputed), godot_version, first_seen, last_seen, ttl_days, affected_projects, evidence_task_ids, fix_summary, status (active/expired), created_by. Confidence defaults to "suspected" on append. TTL check in _is_expired() uses datetime with timezone.utc.
