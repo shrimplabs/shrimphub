@@ -4,7 +4,7 @@ An agent orchestration platform that spawns LLM-powered agents to build, refacto
 
 Supports Godot, Python, and TypeScript projects out of the box. Extensible to any language via the plugin system.
 
-![System Diagram](system_diagram.svg)
+![System Diagram](https://raw.githubusercontent.com/shrimplabs/shrimphub/main/system_diagram.svg)
 
 ## Features
 
