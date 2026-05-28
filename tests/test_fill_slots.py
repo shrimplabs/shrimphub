@@ -41,12 +41,15 @@ def isolated_orc(tmp_path):
         lifecycle._active_handles.clear()
 
     # Mock LLM connectivity check so tests don't make real network calls.
-    # Also mock spawn_agent in the orchestrator because fill_slots calls
-    # orchestrator.spawn_agent (module-level alias of lifecycle.spawn_agent).
-    # Patch the orchestrator's own name so fill_slots uses the mock.
+    # Mock spawn_agent in both orchestrator (the name fill_slots uses)
+    # and agent_lifecycle (for any test that calls lifecycle.spawn_agent
+    # directly or through orc's module-level alias).
+    orig_spawn = lifecycle.spawn_agent
+    lifecycle.spawn_agent = _fake_spawn
     with patch("swarm.orchestrator._check_llm_connectivity", return_value=True):
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             yield
+    lifecycle.spawn_agent = orig_spawn
 
     conn = getattr(db._local, "conn", None)
     if conn:
@@ -125,6 +128,7 @@ class TestGetNextTask:
         _task(task_id="low", priority=10)
         _task(task_id="high", priority=90)
 
+        orc.TASK_SELECTION_STRATEGY = "priority"
         orc.MAX_ACTIVE_AGENTS = 1
         orc.fill_slots(lambda t: "", max_spawn=1)
 
@@ -172,7 +176,7 @@ class TestGetNextTask:
 
     def test_skips_task_with_unmet_dependency(self, isolated_orc):
         _project()
-        parent = _task(task_id="parent", priority=50)
+        _task(task_id="parent", priority=50)
         _task(task_id="child", priority=90, deps=["parent"])
 
         orc.MAX_ACTIVE_AGENTS = 1
@@ -186,9 +190,9 @@ class TestGetNextTask:
     def test_picks_task_with_met_dependency(self, isolated_orc):
         _project()
         # Mark parent as completed
-        parent = _task(task_id="parent", status="completed")
+        _task(task_id="parent", status="completed")
         db.task_update_status("parent", "completed")
-        child = _task(task_id="child", deps=["parent"], priority=50)
+        _task(task_id="child", deps=["parent"], priority=50)
 
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             spawned, _ = orc.fill_slots(lambda t: "")
@@ -369,7 +373,7 @@ class TestFillSlots:
 
     def test_generate_script_fn_called_with_task(self, isolated_orc):
         _project()
-        t = _task(task_id="specific-task")
+        _task(task_id="specific-task")
         received = []
 
         def capturing_fn(task):
