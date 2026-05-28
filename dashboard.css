@@ -39,7 +39,7 @@
     --text-log:         #a8d8a8;
 
     --accent:           #e0a3ff;
-    --accent2:          #ff69b4;
+    --accent2:          #ff5b9c;
     --accent-rgb:       224, 163, 255;
     --cyan:             #00ffff;
     --green:            #3fb950;
@@ -54,10 +54,10 @@
     --border-task-row:  rgba(255,255,255,0.06);
     --border-log:       rgba(0,255,255,0.12);
 
-    --grad-accent:      linear-gradient(135deg, #e0a3ff, #ff69b4);
-    --grad-title:       linear-gradient(135deg, #e0a3ff, #ff69b4);
-    --grad-progress:    linear-gradient(90deg, #e0a3ff, #ff69b4);
-    --grad-working:     linear-gradient(90deg, #00ffff, #ff69b4);
+    --grad-accent:      linear-gradient(135deg, #e0a3ff, #ff5b9c);
+    --grad-title:       linear-gradient(135deg, #e0a3ff, #ff5b9c);
+    --grad-progress:    linear-gradient(90deg, #e0a3ff, #ff5b9c);
+    --grad-working:     linear-gradient(90deg, #00ffff, #ff5b9c);
     --grad-done:        linear-gradient(90deg, #3fb950, #00ff88);
 
     --shadow-card:      0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
@@ -65,7 +65,7 @@
     --shadow-btn:       0 4px 16px rgba(224, 163, 255, 0.3);
     --shadow-btn-hover: 0 8px 20px rgba(224, 163, 255, 0.4);
 
-    --scrollbar-thumb:  linear-gradient(#e0a3ff, #ff69b4);
+    --scrollbar-thumb:  linear-gradient(#e0a3ff, #ff5b9c);
 
     /* Animated bg shown only in cyberpunk */
     --animated-bg: block;
@@ -716,7 +716,7 @@ h2 {
     box-shadow: var(--shadow-btn);
 }
 .btn-wizard {
-    background: linear-gradient(135deg, #9370db, #ff69b4);
+    background: linear-gradient(135deg, #9370db, #ff5b9c);
     color: #fff;
 }
 [data-theme="dark"] .btn-wizard  { background: linear-gradient(135deg, #555, #777); }
