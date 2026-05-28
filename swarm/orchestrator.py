@@ -95,6 +95,16 @@ _qa_completion_counter: Dict[str, int] = {}
 # Sprint flow: queue empty → QA → bugs fixed → queue empty → planner → next sprint
 _projects_sprint_qa_done: set = set()
 
+# Gardener: automated maintenance agent
+# GARDENER_ENABLED gates idle-trigger and scheduling
+# GARDENER_MAX_TASKS limits tasks created per gardener run
+# GARDENER_SKIP_PROJECTS lists projects the gardener should ignore
+# LAST_GARDENER_RUN_TS is synced from config at startup and updated by api_gardener.py
+GARDENER_ENABLED: bool = False
+GARDENER_MAX_TASKS: int = 10
+GARDENER_SKIP_PROJECTS: list = []
+LAST_GARDENER_RUN_TS: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Webhook helper
@@ -399,6 +409,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
 
         if not spawned and get_active_count() == 0:
             _run_idle_closure_verification_cycle()
+            _fire_idle_gardener()
         return spawned, skipped
 
 
@@ -433,6 +444,79 @@ def _run_idle_closure_verification_cycle() -> list[str]:
         if run is not None:
             triggered.append(project_name)
     return triggered
+
+
+def _fire_idle_gardener() -> None:
+    """Fire the gardener agent when the system is idle and tasks keep failing.
+
+    Triggers when:
+    - gardener is enabled via config
+    - no agents are currently running
+    - max(last_failure_ts across all tasks) > LAST_GARDENER_RUN_TS
+
+    This catches projects that have been failing repeatedly without gardener
+    having run to prune stale knowledge and clean up dead code.
+    """
+    if not GARDENER_ENABLED:
+        return
+    if get_active_count() > 0:
+        return
+
+    all_tasks = db.task_get_all()
+    if not all_tasks:
+        return
+
+    # Find the most recent failure timestamp
+    failure_ts = 0.0
+    for t in all_tasks:
+        if t.get("status") == "failed":
+            # failure_ts stored in metadata or derived from updated_at
+            meta = t.get("metadata") or {}
+            fts = meta.get("failure_ts", 0.0)
+            if fts and fts > failure_ts:
+                failure_ts = fts
+
+    # If there's no stored failure_ts, fall back to the updated_at field
+    if not failure_ts:
+        for t in all_tasks:
+            if t.get("status") == "failed":
+                ts_str = t.get("updated_at", "") or t.get("created_at", "")
+                if ts_str:
+                    try:
+                        from datetime import datetime as _dt
+                        fts = _dt.fromisoformat(ts_str).timestamp()
+                        if fts > failure_ts:
+                            failure_ts = fts
+                    except Exception:
+                        pass
+
+    if failure_ts and failure_ts > LAST_GARDENER_RUN_TS:
+        # Don't fire if a gardener task is already pending or in_progress
+        already_running = any(
+            t.get("type") == "gardener"
+            and t.get("status") in ("pending", "in_progress")
+            for t in all_tasks
+        )
+        if not already_running:
+            task_id = f"gardener-{int(time.time())}"
+            db.task_upsert({
+                "id": task_id,
+                "project": "swarm-controller",
+                "type": "gardener",
+                "description": (
+                    "Run the gardener agent to audit, prune, and improve the swarm-controller "
+                    "project. Read prompts/gardener.yaml for the full prompt. "
+                    "Focus on knowledge cleanup, dead code removal, and test maintenance."
+                ),
+                "priority": 60,
+                "status": "pending",
+                "dependencies": [],
+                "metadata": {"auto_spawned": True, "idle_trigger": True},
+                "attempts": 0,
+                "max_attempts": 1,
+            })
+            print(f"[Gardener] Idle trigger fired -- created gardener task {task_id} "
+                  f"(last failure at {failure_ts}, last gardener at {LAST_GARDENER_RUN_TS})")
 
 
 def _get_next_task() -> Optional[Dict]:

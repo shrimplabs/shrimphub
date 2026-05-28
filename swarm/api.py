@@ -100,6 +100,10 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.LLM_PROVIDER        = config.get("llm_provider", "minimax")
     orchestrator.FALLBACK_PROVIDERS  = config.get("fallback_providers", [])
     orchestrator.WEBHOOK_URL         = config.get("completion_webhook_url", "")
+    orchestrator.GARDENER_ENABLED       = config.get("gardener_enabled", False)
+    orchestrator.GARDENER_MAX_TASKS      = config.get("gardener_max_tasks_per_run", 10)
+    orchestrator.GARDENER_SKIP_PROJECTS = config.get("gardener_skip_projects", [])
+    orchestrator.LAST_GARDENER_RUN_TS   = float(config.get("_gardener_last_run_ts", 0.0))
 
     agent_lifecycle.configure(
         workspace=workspace,
@@ -140,7 +144,7 @@ def _handle_startup_orphans(data_dir: Path, agent_timeout: float):
 
     After a server restart, agents that were 'active' have no live process handle.
     Those older than agent_timeout are marked failed and their tasks reset to pending.
-    Recent orphans are left alone — they will be reaped by the monitor on the next tick.
+    Recent orphans are left alone -- they will be reaped by the monitor on the next tick.
 
     Extracted from create_app so orphan handling can be tested independently.
     """
@@ -156,14 +160,14 @@ def _handle_startup_orphans(data_dir: Path, agent_timeout: float):
             age = agent_timeout + 1
         _aid = _a["id"]
         if age > agent_timeout:
-            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — marking failed")
+            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) -- marking failed")
             db.agent_update_status(_aid, "failed",
                                    completed_at=_now.isoformat(), exit_code=-1,
                                    output="[Swarm] Orphan: server restarted while agent was running")
             if _a.get("task_id"):
                 db.task_update_status(_a["task_id"], "pending")
         else:
-            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) — within timeout, will reap normally")
+            print(f"[API] Orphan agent {_aid[:8]} (age {int(age)}s) -- within timeout, will reap normally")
 
 
 def create_app(
@@ -390,7 +394,7 @@ def create_app(
 
     def _sweep_ghost_deps(db, data_dir) -> list:
         """Remove dep edges that point to task IDs absent from both the active DB
-        and task-history.jsonl.  These are true ghosts — deleted or never created —
+        and task-history.jsonl.  These are true ghosts -- deleted or never created --
         that permanently block their dependents.
 
         Returns a list of (task_id, removed_dep_id) tuples for logging.
@@ -548,13 +552,13 @@ def create_app(
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
                 # than the quota-suspension flag (which would immediately auto-resume).
-                # When auto-scale is on, skip the cooldown — the scaler handles rate
+                # When auto-scale is on, skip the cooldown -- the scaler handles rate
                 # reduction by stepping down MAX_ACTIVE_AGENTS directly.
                 rate_limited = orchestrator.check_rate_limit_flags()
                 if rate_limited and not orchestrator.AUTO_SCALE:
                     new_cooldown = time.time() + _rate_limit_cooldown_secs
                     _rate_limit_cooldown_until[0] = new_cooldown
-                    print(f"[Auto] {rate_limited} rate limited — spawn cooldown {_rate_limit_cooldown_secs}s")
+                    print(f"[Auto] {rate_limited} rate limited -- spawn cooldown {_rate_limit_cooldown_secs}s")
 
                 # Also check rolling 429 event pressure (agents write rl_events.jsonl)
                 _recent_429_count = 0
@@ -589,7 +593,7 @@ def create_app(
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")
                         if _recent_429_count >= 5 and time.time() >= _rate_limit_cooldown_until[0] and not orchestrator.AUTO_SCALE:
                             _rate_limit_cooldown_until[0] = time.time() + _rate_limit_cooldown_secs
-                            print(f"[Auto] {_recent_429_count} rate limit events in {_window}s — spawn cooldown {_rate_limit_cooldown_secs}s")
+                            print(f"[Auto] {_recent_429_count} rate limit events in {_window}s -- spawn cooldown {_rate_limit_cooldown_secs}s")
                 except Exception:
                     pass
 
@@ -602,14 +606,14 @@ def create_app(
                         if auto_mode_state["enabled"]:
                             auto_mode_state["enabled"] = False
                             auto_mode_state["suspended_for_quota"] = True
-                            print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) — auto mode suspended")
+                            print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) -- auto mode suspended")
                 else:
-                    # Quota cleared — resume if we suspended due to quota
+                    # Quota cleared -- resume if we suspended due to quota
                     with auto_mode_state["lock"]:
                         if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
                             auto_mode_state["enabled"] = True
                             auto_mode_state["suspended_for_quota"] = False
-                            print("[Auto] Quota OK — auto mode resumed")
+                            print("[Auto] Quota OK -- auto mode resumed")
 
                 if over_limit:
                     continue
@@ -620,7 +624,7 @@ def create_app(
                 _in_cooldown = time.time() < _rate_limit_cooldown_until[0]
                 if _in_cooldown:
                     _remaining = int(_rate_limit_cooldown_until[0] - time.time())
-                    print(f"[Auto] Rate limit cooldown — {_remaining}s remaining, skipping spawn")
+                    print(f"[Auto] Rate limit cooldown -- {_remaining}s remaining, skipping spawn")
                 elif _auto_on and generate_task_script is not None:
                     _spawned, _skipped = orchestrator.fill_slots(generate_task_script)
                     if _spawned:
@@ -685,7 +689,7 @@ def create_app(
                                     "Daily swarm health audit: scan all learnings under data/learnings/ "
                                     "across all projects and task types. Identify recurring patterns "
                                     "grouped by task type (not cross-type, to avoid poisoning). "
-                                    "Write a diagnostic report to data/AUDIT_LEARNINGS_REPORT.md — "
+                                    "Write a diagnostic report to data/AUDIT_LEARNINGS_REPORT.md -- "
                                     "do NOT create tasks automatically."
                                 ),
                                 "priority": 50,
@@ -710,7 +714,7 @@ def create_app(
                     continue
                 import traceback
                 traceback.print_exc()
-                # Sleep briefly and continue — never let an unhandled exception
+                # Sleep briefly and continue -- never let an unhandled exception
                 # (e.g. disk-full OSError during spawn) kill the monitor thread.
                 time.sleep(5)
                 continue
@@ -790,6 +794,17 @@ def create_app(
         config=config,
         db=db,
         agent_tracker=agent_tracker,
+    )
+
+    # ---------- Gardener ----------
+
+    from swarm.api_gardener import register_routes as _reg_gardener
+    _reg_gardener(
+        app,
+        config=config,
+        data_dir=data_dir,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
     )
 
     # ---------- Strategies ----------
@@ -970,7 +985,7 @@ def create_app(
     registry_managed = set(orchestrator.MANAGED_PROJECTS)
     if config_managed - registry_managed:
         for _missing in config_managed - registry_managed:
-            print(f"[Startup] WARNING: {_missing} in config but not in registry — preserving in managed list")
+            print(f"[Startup] WARNING: {_missing} in config but not in registry -- preserving in managed list")
         orchestrator.MANAGED_PROJECTS = sorted(config_managed | registry_managed)
     config["managed_projects"] = orchestrator.MANAGED_PROJECTS
 
