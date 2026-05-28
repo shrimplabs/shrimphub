@@ -59,6 +59,10 @@ IGNORE_EXTENSIONS: set = set()
 MANAGED_PROJECTS: list = []
 PAUSED_PROJECTS: list = []
 AUTO_REPLAN_PROJECTS: list = []  # projects that auto-get a project_plan when they run out of tasks
+# When False (default), the swarm-controller project itself is excluded from
+# managed work assignments. Set to True in config.json to enable self-modification.
+# End users should leave this off to prevent agents accidentally breaking their own instance.
+ALLOW_SELF_MODIFICATION: bool = False
 TASK_SELECTION_STRATEGY: str = "least_recently_worked"
 WEBHOOK_URL: str = ""
 LLM_PROVIDER: str = "minimax"
@@ -453,11 +457,6 @@ def _get_next_task() -> Optional[Dict]:
     )
     _MAX_CONCURRENT_VISION_QA = 2
 
-    # Global QA lock: when any QA is in_progress, block ALL new QA tasks.
-    # Non-QA tasks are not affected. This prevents concurrent QA sessions
-    # from clobbering each other's game state / screenshot fixtures.
-    _qa_lock_active = qa_active_count > 0
-
     # Collect worktree paths currently in use by active agents -- tasks that inherit
     # the same worktree must wait until the current occupant finishes.
     active_worktrees = {
@@ -481,6 +480,10 @@ def _get_next_task() -> Optional[Dict]:
         proj = t["project"]
         if proj in paused:
             continue
+        # Block self-modification unless explicitly enabled in config.
+        # Prevents agents from accidentally breaking their own swarm instance.
+        if proj == "swarm-controller" and not ALLOW_SELF_MODIFICATION:
+            continue
         project_row = project_rows.get(proj)
         if project_row is None and proj:
             project_row = db.project_get(proj)
@@ -489,7 +492,7 @@ def _get_next_task() -> Optional[Dict]:
         if project_row and not project_row.get("managed", True) and t.get("type") not in ("manager", "project_create"):
             continue
         # Cap concurrent vision QA agents to avoid overloading mlx-vlm.
-        if t.get("type") == "qa" and (_qa_lock_active or qa_active_count >= _MAX_CONCURRENT_VISION_QA):
+        if t.get("type") == "qa" and qa_active_count >= _MAX_CONCURRENT_VISION_QA:
             continue
         # Skip tasks scheduled for the future
         run_after = t.get("run_after")

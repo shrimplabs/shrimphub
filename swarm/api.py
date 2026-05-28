@@ -93,6 +93,7 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.MANAGED_PROJECTS         = config.get("managed_projects", [])
     orchestrator.TASK_SELECTION_STRATEGY  = config.get("task_selection_strategy", "priority")
     orchestrator.PAUSED_PROJECTS          = config.get("paused_projects", [])
+    orchestrator.ALLOW_SELF_MODIFICATION  = config.get("allow_self_modification", False)
     orchestrator.AUTO_REPLAN_PROJECTS     = config.get("auto_replan_projects", [])
     orchestrator._projects_sprint_qa_done.update(config.get("auto_replan_projects", []))
     orchestrator.MINIMAX_API_KEY     = os.environ.get("MINIMAX_API_KEY", "")

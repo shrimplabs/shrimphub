@@ -210,34 +210,18 @@ class TestGetNextTask:
         assert len(spawned) == 1
         assert db.task_get("pending-only")["status"] == "in_progress"
 
-    def test_global_qa_lock_blocks_second_qa(self, isolated_orc):
-        """A pending QA task must not be picked up while any QA task is active globally."""
+    def test_concurrent_vision_qa_cap_allows_one(self, isolated_orc):
+        """A pending QA task is picked up when fewer than 2 vision QA agents are active."""
         _project("proj-a")
         _project("proj-b")
-        # Simulate an active QA on proj-a
+        # One active vision QA — below the cap of 2
         db.task_upsert({
             "id": "qa-active", "project": "proj-a", "type": "qa",
             "description": "qa running", "priority": 75, "status": "in_progress",
             "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 2,
         })
-        # Pending QA on a different project
         db.task_upsert({
             "id": "qa-pending", "project": "proj-b", "type": "qa",
-            "description": "qa waiting", "priority": 75, "status": "pending",
-            "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 2,
-        })
-
-        with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
-            spawned, _ = orc.fill_slots(lambda t: "")
-
-        assert spawned == []
-        assert db.task_get("qa-pending")["status"] == "pending"
-
-    def test_global_qa_lock_allows_qa_when_none_active(self, isolated_orc):
-        """A pending QA task is picked up normally when no QA is currently running."""
-        _project()
-        db.task_upsert({
-            "id": "qa-pending", "project": "p", "type": "qa",
             "description": "qa waiting", "priority": 75, "status": "pending",
             "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 2,
         })
@@ -248,8 +232,31 @@ class TestGetNextTask:
         assert len(spawned) == 1
         assert db.task_get("qa-pending")["status"] == "in_progress"
 
-    def test_global_qa_lock_does_not_block_non_qa_tasks(self, isolated_orc):
-        """A running QA task must not block feature/bug tasks from being picked up."""
+    def test_concurrent_vision_qa_cap_blocks_at_limit(self, isolated_orc):
+        """A pending QA task is blocked when 2 vision QA agents are already active."""
+        _project("proj-a")
+        _project("proj-b")
+        _project("proj-c")
+        for i in range(2):
+            db.task_upsert({
+                "id": f"qa-active-{i}", "project": f"proj-{chr(97+i)}", "type": "qa",
+                "description": "qa running", "priority": 75, "status": "in_progress",
+                "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 2,
+            })
+        db.task_upsert({
+            "id": "qa-pending", "project": "proj-c", "type": "qa",
+            "description": "qa waiting", "priority": 75, "status": "pending",
+            "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 2,
+        })
+
+        with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
+            spawned, _ = orc.fill_slots(lambda t: "")
+
+        assert spawned == []
+        assert db.task_get("qa-pending")["status"] == "pending"
+
+    def test_vision_qa_cap_does_not_block_non_qa_tasks(self, isolated_orc):
+        """Vision QA cap must not block feature/bug tasks from being picked up."""
         _project()
         db.task_upsert({
             "id": "qa-active", "project": "p", "type": "qa",
