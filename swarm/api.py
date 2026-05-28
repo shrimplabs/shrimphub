@@ -753,6 +753,8 @@ def create_app(
         db=db,
         config=config,
         data_dir=data_dir,
+        config_file=config_file,
+        config_write_lock=_config_write_lock,
     )
 
     _reg_tasks(

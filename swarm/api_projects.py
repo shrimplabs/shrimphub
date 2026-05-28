@@ -158,6 +158,29 @@ def _get_handoff_lock(project: str) -> threading.Lock:
         return _handoff_locks[project]
 
 
+def _sync_managed_projects(config, project_registry, orchestrator, config_file=None, config_write_lock=None):
+    """Sync orchestrator.MANAGED_PROJECTS from registry state and persist to config.json.
+
+    Call this whenever a project is registered or its managed flag changes so that:
+    - dashboard sidebar shows the project immediately
+    - project survives server restarts
+    """
+    managed = sorted(
+        name for name, proj in project_registry.get_all().items()
+        if getattr(proj, "managed", True)
+    )
+    orchestrator.MANAGED_PROJECTS = managed
+    config["managed_projects"] = managed
+    if config_write_lock is not None and config_file is not None:
+        try:
+            with config_write_lock:
+                cfg_data = json.loads(config_file.read_text()) if config_file.exists() else {}
+                cfg_data["managed_projects"] = managed
+                config_file.write_text(json.dumps(cfg_data, indent=2))
+        except Exception as e:
+            print(f"[api_projects] Warning: could not persist managed_projects: {e}")
+
+
 def _normalize_handoff_dependencies(db, project_name: str, task_id: str, deps, owner_task_id: str) -> list[str]:
     """Keep reused lock-conflict continuations from retaining stale owner edges."""
     out: list[str] = []
@@ -177,7 +200,7 @@ def _normalize_handoff_dependencies(db, project_name: str, task_id: str, deps, o
     return out
 
 
-def register_routes(app, project_registry, workspace, task_source, orchestrator, generate_task_script, db, config, data_dir):
+def register_routes(app, project_registry, workspace, task_source, orchestrator, generate_task_script, db, config, data_dir, config_file=None, config_write_lock=None):
     """Register routes on the Flask app."""
 
     def _project_or_404(project_name: str):
@@ -248,14 +271,14 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             closure_mode=closure_proposal["closure_spec"].get("mode", "build"),
             closure_spec=closure_proposal["closure_spec"],
         )
-        # Auto-create genesis task — the root commit equivalent for every project
+        # Auto-create genesis task -- the root commit equivalent for every project
         _now = datetime.now().isoformat()
         _genesis_id = f"{name}-genesis"
         db.task_upsert({
             "id": _genesis_id,
             "project": name,
             "type": "feature",
-            "description": "Project registered — genesis anchor",
+            "description": "Project registered -- genesis anchor",
             "status": "completed",
             "created": _now,
             "completed": _now,
@@ -265,6 +288,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         project_registry.set_head_task_id(name, _genesis_id)
         project = project_registry.get(name) or project
         _write_live_closure_doc(name, profile=closure_proposal["profile"], source=closure_proposal.get("source", "proposal"))
+        _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"project": project.to_dict(), "closure_proposal": closure_proposal})
     @app.route("/api/projects/<project_name>", methods=["GET"])
     def get_project(project_name):
@@ -285,6 +309,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             else:
                 project_registry.unlock(project_name)
         project = project_registry.get(project_name)
+        _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"project": project.to_dict() if project else None})
     @app.route("/api/projects/<project_name>/closure", methods=["GET"])
     def get_project_closure(project_name):
@@ -484,16 +509,16 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
 
         Prevents fan-out when N agents hit the same lock simultaneously.
         All concurrent callers for (project, owner_task_id) get back the same
-        continuation task — one is created, the rest receive the existing one.
+        continuation task -- one is created, the rest receive the existing one.
 
         Body:
-          owner_task_id  – task that holds the lock (continuation depends on this)
-          blocked_task_id – the calling agent's task ID
-          locked_path    – the contested file path
-          task_type      – type of the continuation task
-          priority       – priority of the continuation task
-          description    – description for the continuation task
-          dependencies   – full dep list (incl. owner_task_id + inherited deps)
+          owner_task_id  - task that holds the lock (continuation depends on this)
+          blocked_task_id - the calling agent's task ID
+          locked_path    - the contested file path
+          task_type      - type of the continuation task
+          priority       - priority of the continuation task
+          description    - description for the continuation task
+          dependencies   - full dep list (incl. owner_task_id + inherited deps)
         """
         data = request.json or {}
         owner_task_id = data.get("owner_task_id")
@@ -615,6 +640,9 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             set(config.get("ignore_dirs", []))
         )
         project_registry.update_file_counts(project_name, files)
+        # Sync managed_projects in case this is the first time the project is registered
+        # via scan (update_file_counts may create the project with managed=True).
+        _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"files": files})
     @app.route("/api/projects/<project_name>/health", methods=["GET"])
     def get_project_health(project_name):
@@ -797,7 +825,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
 
         # Ghost dep pruning: remove stale dep edges that point to IDs absent from
         # both the active DB and task history.  Tasks in history completed or
-        # failed normally — their dependents already unblocked.  IDs absent from
+        # failed normally -- their dependents already unblocked.  IDs absent from
         # both are true ghosts (deleted / never created) and will never unblock
         # their dependents without this cleanup.
         pruned_ghost_deps = []
@@ -842,7 +870,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                 "id": dep_id,
                 "project": rec.get("project", project_name),
                 "type": rec.get("type", "feature"),
-                "description": rec.get("description", "(Resurrected by repair — original description unavailable)"),
+                "description": rec.get("description", "(Resurrected by repair -- original description unavailable)"),
                 "priority": rec.get("priority", 50),
                 "status": "pending",
                 "attempts": 0,
@@ -859,7 +887,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             resurrected.append(dep_id)
 
         # Floating node detection: pending tasks with no deps and nothing
-        # depending on them are disconnected islands — wire them to the project
+        # depending on them are disconnected islands -- wire them to the project
         # head so they run in the correct order rather than as rogue roots.
         depended_on = set()
         for task in project_tasks:
@@ -876,7 +904,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                 continue
             if task["id"] == project_head:
                 continue
-            # Genuine floating node — attach to project head
+            # Genuine floating node -- attach to project head
             new_deps = chain_to_project_head(
                 db,
                 project_name,
@@ -953,6 +981,8 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         task_type = data.get("task_type", "refactor")
         if not project_registry.get(project_name):
             project_registry.add_project(project_name)
+            # Sync managed_projects so the project is visible in dashboard and persists.
+            _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         if generate_task_script is None:
             return jsonify({"error": "generate_task_script not available"}), 500
         spawned = []
