@@ -127,3 +127,20 @@ Report at: `data/AUDIT_LEARNINGS_REPORT.md`
 
 ---
 swarm/gardener_knowledge.py: standalone knowledge store. JSONL at data/swarm_knowledge.jsonl, markdown view at data/SWARM_KNOWLEDGE.md. Public API: load(), append_entry(), update_confidence(), expire_stale(), render_markdown(). Uses module-level Path constants (JSONL_PATH, MARKDOWN_PATH, _DATA_DIR) — patch these with monkeypatch in tests (pytest.fixture with autouse=True). Entry schema: id, pattern_signature, confidence (confirmed/suspected/disputed), godot_version, first_seen, last_seen, ttl_days, affected_projects, evidence_task_ids, fix_summary, status (active/expired), created_by. Confidence defaults to "suspected" on append. TTL check in _is_expired() uses datetime with timezone.utc.
+
+---
+## Bug fix: managed_projects not synced on project registration (commit 2aa191e)
+
+**Problem**: When a project was registered via POST /api/projects or /api/projects/<name>/scan, it was added to the in-memory `project_registry` with `managed=True` but never synced to `orchestrator.MANAGED_PROJECTS` or persisted to `config.json`. The project was invisible in the dashboard sidebar and didn't survive restarts.
+
+**Fix** (swarm/api_projects.py):
+- Added `_sync_managed_projects(config, project_registry, orchestrator, config_file=None, config_write_lock=None)` helper. Reads registry state (managed flag) as canonical source of truth, updates both `orchestrator.MANAGED_PROJECTS` and `config["managed_projects"]`, and persists to config.json (if params provided). Tolerates None gracefully.
+- Called in 4 places: `add_project` (POST /api/projects), `update_project` (PUT /api/projects/<name>, when managed=True), `scan_project` (POST /api/projects/<name>/scan), `spawn_parallel` (POST /api/projects/<name>/spawn).
+- `register_routes` signature extended with `config_file=None, config_write_lock=None` params.
+
+**Fix** (swarm/api.py):
+- Passes `config_file=config_file, config_write_lock=_config_write_lock` to `api_projects.register_routes()` call.
+
+**Bug also existed in** `swarm/api_chat.py` and `swarm/api_wizard.py` — but those were already fixed (see broadcast log: "Auto-add project to managed_projects so it will be picked up", multiple agents fixing). Only `api_projects.py` registration endpoints were missing the sync.
+
+**Verified**: All 106 project-related tests pass. 7/7 managed-projects tests pass.
