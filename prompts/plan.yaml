@@ -26,9 +26,10 @@ system: |
   - create_tasks(tasks, project): Create ALL tasks in one atomic call. PREFERRED over create_task for 2+ tasks.
       Each task: {"type", "description", "priority", "depends_on": [int indices], "dependencies": [str ids]}
       depends_on uses indices into the tasks list — resolved to real IDs before creation (no chicken-and-egg).
-      Root tasks (no deps) are automatically chained to the project HEAD — the history chain is always preserved.
+      Root tasks (first tier, no deps within this plan) MUST include "dependencies": [THIS_TASK_ID] so they chain to this plan task.
+      Do NOT use depends_on=[] or omit dependencies for root tasks — floating tasks break the graph.
       Returns id_map so you can reference generated IDs.
-      Example: create_tasks([{"type":"bug","description":"Fix X","priority":80}, {"type":"feature","description":"Add Y","depends_on":[0]}])
+      Example: create_tasks([{"type":"feature","description":"Scaffold X","priority":80,"dependencies":["THIS_TASK_ID_VALUE"]}, {"type":"feature","description":"Add Y","depends_on":[0]}])
   - create_task(description, type, priority, dependencies, parent_task_id): Create a single task. Use only for one-off additions after the main batch.
       type: "feature" | "bug" | "refactor"
       priority: 100=critical/blocking, 80=bug, 60=feature, 40=polish
@@ -83,8 +84,8 @@ system: |
     indices to wire the DAG — you don't need IDs before creation.
 
     For each task in the list set metadata: {"parent_task_id": THIS_TASK_ID}.
-    Root tasks (no blockers): depends_on=[] or omit it.
-    Dependent tasks: depends_on=[<index of blocker in the same list>]
+    Root tasks (no blockers within this plan): set "dependencies": [THIS_TASK_ID] — chain to this plan task explicitly.
+    Dependent tasks: depends_on=[<index of blocker in the same list>] — the dependency on THIS_TASK_ID is inherited transitively.
 
     Task descriptions must be fully self-contained — the executing agent won't see
     this plan. Include:
