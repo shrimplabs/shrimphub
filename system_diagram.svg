@@ -1,241 +1,293 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1020" width="1600" height="1020">
 <defs>
   <style>
     text { font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif; }
-    .h1  { font-size: 16px; font-weight: 700; fill: #1A252F; }
+    .h1  { font-size: 18px; font-weight: 700; fill: #1A252F; }
     .h2  { font-size: 13px; font-weight: 600; fill: #2C3E50; }
     .h3  { font-size: 11px; font-weight: 600; fill: #34495E; }
     .sub { font-size: 11px; fill: #555; }
-    .lbl { font-size: 10px; fill: #777; }
+    .lbl { font-size: 10px; fill: #666; }
     .albl { font-size: 10px; fill: #888; font-style: italic; }
   </style>
-  <marker id="a0" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#666"/></marker>
-  <marker id="a-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#2980B9"/></marker>
-  <marker id="a-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#16A085"/></marker>
+  <marker id="a0"      markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#666"/></marker>
+  <marker id="a-blue"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#2980B9"/></marker>
+  <marker id="a-teal"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#16A085"/></marker>
   <marker id="a-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#27AE60"/></marker>
-  <marker id="a-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#7D3C98"/></marker>
-  <marker id="a-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#CA6F1E"/></marker>
-  <marker id="a-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#C0392B"/></marker>
+  <marker id="a-purple"markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#7D3C98"/></marker>
+  <marker id="a-orange"markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#CA6F1E"/></marker>
+  <marker id="a-red"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#C0392B"/></marker>
+  <marker id="a-slate" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#566573"/></marker>
   <filter id="sh"><feDropShadow dx="1" dy="2" stdDeviation="3" flood-opacity="0.12"/></filter>
 </defs>
 
 <!-- Background -->
-<rect width="1440" height="900" fill="#F0F2F5"/>
+<rect width="1600" height="1020" fill="#F0F2F5"/>
 
-<!-- Page title -->
-<text x="720" y="36" text-anchor="middle" style="font-size:22px;font-weight:700;fill:#1A252F;letter-spacing:-0.5px;">Swarm Controller — System Architecture</text>
+<!-- Title -->
+<text x="800" y="38" text-anchor="middle" class="h1">Swarm Controller — System Architecture</text>
 
 <!-- ═══════════════════════════════════════
      BROWSER / DASHBOARD
-     x=460 y=55 w=520 h=72
+     x=420 y=55 w=760 h=78
 ════════════════════════════════════════ -->
-<rect x="460" y="55" width="520" height="72" rx="10" fill="#EBF5FB" stroke="#2980B9" stroke-width="2" filter="url(#sh)"/>
-<text x="720" y="82" text-anchor="middle" class="h1">🌐  Browser / Dashboard</text>
-<text x="720" y="100" text-anchor="middle" class="sub">dashboard.html  ·  http://localhost:5001</text>
-<text x="720" y="116" text-anchor="middle" class="lbl">Task cards · Agent log streams · Manager chat · Kill / Repair / Restart controls</text>
+<rect x="420" y="55" width="760" height="78" rx="10" fill="#EBF5FB" stroke="#2980B9" stroke-width="2" filter="url(#sh)"/>
+<text x="800" y="80" text-anchor="middle" class="h2">🌐  Browser / Dashboard  ·  http://localhost:5001</text>
+<text x="800" y="97" text-anchor="middle" class="sub">Project cards · Agent cards · Dependency graph · Unified Chat co-pilot · Kill / Repair / Restart controls</text>
+<text x="800" y="114" text-anchor="middle" class="lbl">dashboard.html · dashboard-core.js · dashboard-projects.js · dashboard-utils.js · dashboard.css</text>
 
-<!-- Arrow Browser ↔ Flask API (down) -->
-<line x1="720" y1="127" x2="720" y2="162" stroke="#2980B9" stroke-width="2" marker-end="url(#a-blue)"/>
-<line x1="707" y1="162" x2="707" y2="127" stroke="#2980B9" stroke-width="1.5" marker-end="url(#a-blue)"/>
-<text x="730" y="152" class="albl">HTTP REST + SSE</text>
+<!-- Arrow Browser ↔ Flask (down) -->
+<line x1="800" y1="133" x2="800" y2="168" stroke="#2980B9" stroke-width="2" marker-end="url(#a-blue)"/>
+<line x1="787" y1="168" x2="787" y2="133" stroke="#2980B9" stroke-width="1.5" marker-end="url(#a-blue)"/>
+<text x="812" y="157" class="albl">HTTP REST + SSE</text>
 
 <!-- ═══════════════════════════════════════
      FLASK API
-     x=220 y=162 w=1000 h=140
+     x=200 y=168 w=1200 h=150
 ════════════════════════════════════════ -->
-<rect x="220" y="162" width="1000" height="140" rx="10" fill="#D6EAF8" stroke="#2980B9" stroke-width="2" filter="url(#sh)"/>
-<text x="720" y="185" text-anchor="middle" class="h2">Flask API  ·  swarm/api.py  ·  create_app()</text>
-<text x="720" y="201" text-anchor="middle" class="sub">/api/tasks · /api/agents · /api/projects · /api/spawn · /api/auto-mode · /api/providers · /api/managed-projects · ...</text>
+<rect x="200" y="168" width="1200" height="150" rx="10" fill="#D6EAF8" stroke="#2980B9" stroke-width="2" filter="url(#sh)"/>
+<text x="800" y="192" text-anchor="middle" class="h2">Flask API  ·  swarm/api.py  ·  create_app()</text>
+<text x="800" y="209" text-anchor="middle" class="sub">/api/tasks · /api/agents · /api/projects · /api/spawn · /api/unified-chat · /api/dependencies · /api/providers · /api/wizard · ...</text>
 
 <!-- Monitor Thread sub-box -->
-<rect x="238" y="212" width="230" height="78" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
-<text x="353" y="233" text-anchor="middle" class="h3">⏱ Monitor Thread</text>
-<text x="353" y="250" text-anchor="middle" class="lbl">5s loop (30s when idle)</text>
-<text x="353" y="265" text-anchor="middle" class="lbl">check_agent_status() → reap finished</text>
-<text x="353" y="280" text-anchor="middle" class="lbl">fill_slots() → spawn new agents</text>
+<rect x="218" y="220" width="250" height="85" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="343" y="240" text-anchor="middle" class="h3">⏱ Monitor Thread</text>
+<text x="343" y="257" text-anchor="middle" class="lbl">5s loop · check_dep_violations()</text>
+<text x="343" y="272" text-anchor="middle" class="lbl">check_agent_status() → reap finished</text>
+<text x="343" y="287" text-anchor="middle" class="lbl">fill_slots() → spawn new agents</text>
+<text x="343" y="302" text-anchor="middle" class="lbl">post-task validation (synchronous)</text>
+
+<!-- Plugin Loader sub-box -->
+<rect x="482" y="220" width="220" height="85" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="592" y="240" text-anchor="middle" class="h3">🔌 Plugin Loader</text>
+<text x="592" y="257" text-anchor="middle" class="lbl">plugins/*.yaml</text>
+<text x="592" y="272" text-anchor="middle" class="lbl">loaded once at startup</text>
+<text x="592" y="287" text-anchor="middle" class="lbl">task_type · role · permission</text>
+<text x="592" y="302" text-anchor="middle" class="lbl">prompt · context_providers</text>
+
+<!-- Unified Chat sub-box -->
+<rect x="716" y="220" width="250" height="85" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="841" y="240" text-anchor="middle" class="h3">💬 Unified Chat  ·  api_chat.py</text>
+<text x="841" y="257" text-anchor="middle" class="lbl">global + project scope</text>
+<text x="841" y="272" text-anchor="middle" class="lbl">persistent sessions · compaction</text>
+<text x="841" y="287" text-anchor="middle" class="lbl">two-tier memory injection</text>
+<text x="841" y="302" text-anchor="middle" class="lbl">emergency stop · action prevention</text>
 
 <!-- Config sub-box -->
-<rect x="780" y="212" width="415" height="78" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
-<text x="987" y="233" text-anchor="middle" class="h3">⚙️  Live Config  ·  config.json</text>
-<text x="987" y="250" text-anchor="middle" class="lbl">managed_projects · paused_projects · max_active_agents · lock_project</text>
-<text x="987" y="265" text-anchor="middle" class="lbl">llm_provider · agent_timeout · quota_limit_percent</text>
-<text x="987" y="280" text-anchor="middle" class="lbl">task_selection_strategy · mcp_servers</text>
+<rect x="980" y="220" width="400" height="85" rx="7" fill="#AED6F1" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="1180" y="240" text-anchor="middle" class="h3">⚙️  Live Config  ·  config.json</text>
+<text x="1180" y="257" text-anchor="middle" class="lbl">managed_projects · paused_projects · max_active_agents</text>
+<text x="1180" y="272" text-anchor="middle" class="lbl">llm_provider · agent_timeout · quota_limit_percent</text>
+<text x="1180" y="287" text-anchor="middle" class="lbl">escalation_policy · thinking_task_types</text>
+<text x="1180" y="302" text-anchor="middle" class="lbl">vision_provider · qa_max_cycles · auto_replan_projects</text>
 
 <!-- ═══════════════════════════════════════
-     SQLITE DB  (left of Flask API)
-     x=20 y=162 w=180 h=190
+     SQLITE DB  (left column)
+     x=20 y=168 w=162 h=210
 ════════════════════════════════════════ -->
-<rect x="20" y="162" width="180" height="190" rx="10" fill="#F4ECF7" stroke="#7D3C98" stroke-width="2" filter="url(#sh)"/>
-<text x="110" y="188" text-anchor="middle" class="h2">SQLite DB</text>
-<text x="110" y="205" text-anchor="middle" class="sub">swarm.db (WAL mode)</text>
-<text x="110" y="228" text-anchor="middle" class="lbl">📋 tasks</text>
-<text x="110" y="246" text-anchor="middle" class="lbl">🤖 agents</text>
-<text x="110" y="264" text-anchor="middle" class="lbl">📁 projects</text>
-<text x="110" y="286" text-anchor="middle" class="lbl">thread-local connections</text>
-<text x="110" y="303" text-anchor="middle" class="lbl">_evolve_schema() on boot</text>
-<text x="110" y="320" text-anchor="middle" class="lbl">agent-history.jsonl</text>
-<text x="110" y="337" text-anchor="middle" class="lbl">task-history.jsonl</text>
+<rect x="20" y="168" width="162" height="210" rx="10" fill="#F4ECF7" stroke="#7D3C98" stroke-width="2" filter="url(#sh)"/>
+<text x="101" y="193" text-anchor="middle" class="h2">SQLite DB</text>
+<text x="101" y="210" text-anchor="middle" class="sub">swarm.db (WAL)</text>
+<text x="101" y="232" text-anchor="middle" class="lbl">📋 tasks</text>
+<text x="101" y="250" text-anchor="middle" class="lbl">🤖 agents</text>
+<text x="101" y="268" text-anchor="middle" class="lbl">📁 projects</text>
+<text x="101" y="290" text-anchor="middle" class="lbl">thread-local connections</text>
+<text x="101" y="307" text-anchor="middle" class="lbl">_evolve_schema() on boot</text>
+<text x="101" y="327" text-anchor="middle" class="lbl">agent-history.jsonl</text>
+<text x="101" y="344" text-anchor="middle" class="lbl">task-history.jsonl</text>
+<text x="101" y="361" text-anchor="middle" class="lbl">chat sessions (7d TTL)</text>
 
 <!-- Arrow Flask ↔ SQLite -->
-<line x1="200" y1="240" x2="220" y2="240" stroke="#7D3C98" stroke-width="1.5" marker-end="url(#a-purple)"/>
-<line x1="220" y1="252" x2="200" y2="252" stroke="#7D3C98" stroke-width="1.5" marker-end="url(#a-purple)"/>
+<line x1="182" y1="248" x2="200" y2="248" stroke="#7D3C98" stroke-width="1.5" marker-end="url(#a-purple)"/>
+<line x1="200" y1="260" x2="182" y2="260" stroke="#7D3C98" stroke-width="1.5" marker-end="url(#a-purple)"/>
 
 <!-- ═══════════════════════════════════════
      ORCHESTRATOR
-     x=220 y=322 w=1000 h=82
+     x=200 y=338 w=1200 h=85
 ════════════════════════════════════════ -->
 <!-- Arrow Flask → Orchestrator -->
-<line x1="720" y1="302" x2="720" y2="322" stroke="#16A085" stroke-width="2" marker-end="url(#a-teal)"/>
+<line x1="800" y1="318" x2="800" y2="338" stroke="#16A085" stroke-width="2" marker-end="url(#a-teal)"/>
 <!-- Arrow Monitor → Orchestrator (dashed) -->
-<line x1="353" y1="302" x2="500" y2="322" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-blue)"/>
+<line x1="343" y1="305" x2="450" y2="338" stroke="#2980B9" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-blue)"/>
 
-<rect x="220" y="322" width="1000" height="82" rx="10" fill="#E8F8F5" stroke="#16A085" stroke-width="2" filter="url(#sh)"/>
-<text x="720" y="347" text-anchor="middle" class="h2">Orchestrator  ·  swarm/orchestrator.py</text>
-<text x="720" y="367" text-anchor="middle" class="sub">fill_slots() · spawn_agent() · _finish_agent() · _post_task_validation() · _spawn_review_task()</text>
-<text x="720" y="385" text-anchor="middle" class="lbl">Retry logic (max_attempts) · Recovery task spawn · Dependency self-healing · Auto-QA every 8 completions · Token tracking</text>
-<text x="720" y="400" text-anchor="middle" class="lbl">generate_task_script() → embeds prompt YAML + config into subprocess wrapper · swarm_runner.py</text>
+<rect x="200" y="338" width="1200" height="85" rx="10" fill="#E8F8F5" stroke="#16A085" stroke-width="2" filter="url(#sh)"/>
+<text x="800" y="362" text-anchor="middle" class="h2">Orchestrator  ·  swarm/orchestrator.py  +  agent_lifecycle.py  +  agent_finish.py  +  agent_recovery.py</text>
+<text x="800" y="380" text-anchor="middle" class="sub">fill_slots() · spawn_agent() · _finish_agent() · check_dep_violations() · _post_task_validation_in_worktree()</text>
+<text x="800" y="397" text-anchor="middle" class="lbl">Progressive refinement: attempt 1 clean · attempt 2 +last_failure · attempt 3+ +git_diff · post-research +diagnosis</text>
+<text x="800" y="412" text-anchor="middle" class="lbl">Exhaustion: bug/feature/refactor → research feeder spawned (original task stays, no reparenting) · qa/plan → cancel</text>
 
-<!-- Orchestrator ↔ SQLite (vertical line left side) -->
-<line x1="110" y1="352" x2="220" y2="380" stroke="#7D3C98" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#a-purple)"/>
-<line x1="220" y1="370" x2="110" y2="352" stroke="#7D3C98" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#a-purple)"/>
+<!-- Orchestrator ↔ SQLite -->
+<line x1="101" y1="378" x2="200" y2="395" stroke="#7D3C98" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#a-purple)"/>
+<line x1="200" y1="385" x2="101" y2="368" stroke="#7D3C98" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#a-purple)"/>
 
 <!-- Arrow Orchestrator → Agent Runtime -->
-<line x1="720" y1="404" x2="720" y2="435" stroke="#27AE60" stroke-width="2" marker-end="url(#a-green)"/>
-<text x="730" y="425" class="albl">subprocess spawn</text>
+<line x1="800" y1="423" x2="800" y2="455" stroke="#27AE60" stroke-width="2" marker-end="url(#a-green)"/>
+<text x="812" y="444" class="albl">subprocess spawn</text>
 
 <!-- ═══════════════════════════════════════
      AGENT RUNTIME
-     x=220 y=435 w=1000 h=120
+     x=200 y=455 w=1200 h=135
 ════════════════════════════════════════ -->
-<rect x="220" y="435" width="1000" height="120" rx="10" fill="#EAFAF1" stroke="#27AE60" stroke-width="2" filter="url(#sh)"/>
-<text x="720" y="460" text-anchor="middle" class="h2">Agent Runtime  ·  swarm/agent_runtime.py  ·  (up to N parallel agents)</text>
-<text x="720" y="480" text-anchor="middle" class="sub">main(): call_llm() → parse [TOOL_CALL] → execute tool → repeat  ·  max 120 loops  ·  stall detection</text>
-<text x="720" y="498" text-anchor="middle" class="lbl">Tools: read_file · write_file · bash · list_directory · create_task · requeue_self</text>
-<text x="720" y="514" text-anchor="middle" class="lbl">Vision tools: launch_game · vision_query · click_element · get_game_state (TCP 11009)</text>
-<text x="720" y="530" text-anchor="middle" class="lbl">Prompts: feature.yaml · bug.yaml · refactor.yaml · polish.yaml · qa.yaml · audit.yaml</text>
-<text x="720" y="546" text-anchor="middle" class="lbl">Writes token counts → data/agent_&lt;task_id&gt;_tokens.json · Reads on _finish_agent()</text>
+<rect x="200" y="455" width="1200" height="135" rx="10" fill="#EAFAF1" stroke="#27AE60" stroke-width="2" filter="url(#sh)"/>
+<text x="800" y="478" text-anchor="middle" class="h2">Agent Runtime  ·  swarm/agent_runtime.py  ·  (up to N parallel subprocesses)</text>
+<text x="800" y="496" text-anchor="middle" class="sub">main(): call_llm() → parse [TOOL_CALL] → execute_tool() → repeat · max 200 loops · stall detection (3× identical → redirect)</text>
+<text x="800" y="514" text-anchor="middle" class="lbl">Tool dispatch: swarm/tool_dispatch.py · permission_profile enforced before tool executes · plugin tools_blocked always wins</text>
+<text x="800" y="530" text-anchor="middle" class="lbl">Tools: read_file · write_file · patch_file · git_commit · git_push · run_command · create_task · web_search · broadcast_write · delegate_helper</text>
+<text x="800" y="546" text-anchor="middle" class="lbl">Vision tools (QA): launch_game · vision_query · click_element · get_game_state (TCP 11009) · press_button · a11y_tree</text>
+<text x="800" y="562" text-anchor="middle" class="lbl">Prompts: plugin prompt (if registered) → built-in YAML (feature/bug/polish/qa/harness_qa/scenario_qa/research/plan/project_plan/art_pass/audit...)</text>
+<text x="800" y="578" text-anchor="middle" class="lbl">Context compaction at ~120k tokens · token counts → data/agent_&lt;task_id&gt;_tokens.json · git worktree isolation per agent</text>
 
 <!-- ═══════════════════════════════════════
-     LLM PROVIDERS  (right)
-     x=1240 y=322 w=180 h=233
+     LLM PROVIDERS  (right column)
+     x=1420 y=338 w=162 h=252
 ════════════════════════════════════════ -->
-<rect x="1240" y="322" width="180" height="233" rx="10" fill="#FDF2E9" stroke="#CA6F1E" stroke-width="2" filter="url(#sh)"/>
-<text x="1330" y="347" text-anchor="middle" class="h2">LLM Providers</text>
+<rect x="1420" y="338" width="162" height="252" rx="10" fill="#FDF2E9" stroke="#CA6F1E" stroke-width="2" filter="url(#sh)"/>
+<text x="1501" y="362" text-anchor="middle" class="h2">LLM Providers</text>
 
-<rect x="1255" y="358" width="150" height="52" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
-<text x="1330" y="379" text-anchor="middle" class="h3">Minimax</text>
-<text x="1330" y="395" text-anchor="middle" class="lbl">anthropic format</text>
-<text x="1330" y="408" text-anchor="middle" class="lbl">Bearer · /messages</text>
+<rect x="1433" y="372" width="136" height="44" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
+<text x="1501" y="390" text-anchor="middle" class="h3">MiniMax M2.7</text>
+<text x="1501" y="407" text-anchor="middle" class="lbl">anthropic format · Bearer</text>
 
-<rect x="1255" y="420" width="150" height="52" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
-<text x="1330" y="441" text-anchor="middle" class="h3">Claude (Anthropic)</text>
-<text x="1330" y="457" text-anchor="middle" class="lbl">anthropic_native format</text>
-<text x="1330" y="470" text-anchor="middle" class="lbl">x-api-key · /messages</text>
+<rect x="1433" y="424" width="136" height="44" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
+<text x="1501" y="442" text-anchor="middle" class="h3">Claude (Anthropic)</text>
+<text x="1501" y="459" text-anchor="middle" class="lbl">x-api-key · /messages</text>
 
-<rect x="1255" y="482" width="150" height="52" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
-<text x="1330" y="503" text-anchor="middle" class="h3">OpenRouter</text>
-<text x="1330" y="519" text-anchor="middle" class="lbl">openai format</text>
-<text x="1330" y="532" text-anchor="middle" class="lbl">Bearer · /chat/completions</text>
+<rect x="1433" y="476" width="136" height="44" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
+<text x="1501" y="494" text-anchor="middle" class="h3">OpenRouter</text>
+<text x="1501" y="511" text-anchor="middle" class="lbl">openai format · Bearer</text>
 
-<!-- Arrow Agent → LLM Providers -->
-<line x1="1220" y1="495" x2="1240" y2="495" stroke="#CA6F1E" stroke-width="2" marker-end="url(#a-orange)"/>
-<text x="1175" y="488" class="albl">HTTP API</text>
+<rect x="1433" y="528" width="136" height="44" rx="6" fill="#FAD7A0" stroke="#CA6F1E" stroke-width="1.2"/>
+<text x="1501" y="546" text-anchor="middle" class="h3">Kimi (k2p5)</text>
+<text x="1501" y="563" text-anchor="middle" class="lbl">anthropic format · Bearer</text>
+
+<!-- Arrow Agent → LLM -->
+<line x1="1400" y1="522" x2="1420" y2="522" stroke="#CA6F1E" stroke-width="2" marker-end="url(#a-orange)"/>
+<text x="1340" y="515" class="albl">HTTP API</text>
 
 <!-- ═══════════════════════════════════════
      PROJECT REPOS  (bottom left)
-     x=20 y=440 w=180 h=115
+     x=20 y=460 w=162 h=130
 ════════════════════════════════════════ -->
-<rect x="20" y="440" width="180" height="115" rx="10" fill="#F2F3F4" stroke="#566573" stroke-width="2" filter="url(#sh)"/>
-<text x="110" y="465" text-anchor="middle" class="h2">Project Repos</text>
-<text x="110" y="482" text-anchor="middle" class="sub">workspace/</text>
-<text x="110" y="500" text-anchor="middle" class="lbl">🎮 Godot (25+ projects)</text>
-<text x="110" y="516" text-anchor="middle" class="lbl">🐍 Python projects</text>
-<text x="110" y="532" text-anchor="middle" class="lbl">📦 TypeScript projects</text>
-<text x="110" y="548" text-anchor="middle" class="lbl">git commit + push</text>
+<rect x="20" y="460" width="162" height="130" rx="10" fill="#F2F3F4" stroke="#566573" stroke-width="2" filter="url(#sh)"/>
+<text x="101" y="484" text-anchor="middle" class="h2">Project Repos</text>
+<text x="101" y="500" text-anchor="middle" class="sub">workspace/</text>
+<text x="101" y="520" text-anchor="middle" class="lbl">🎮 Godot (30+ projects)</text>
+<text x="101" y="537" text-anchor="middle" class="lbl">🐍 Python projects</text>
+<text x="101" y="554" text-anchor="middle" class="lbl">📦 TypeScript projects</text>
+<text x="101" y="571" text-anchor="middle" class="lbl">git worktree isolation</text>
+<text x="101" y="588" text-anchor="middle" class="lbl">git commit + push</text>
 
 <!-- Arrow Agent → Projects -->
-<line x1="220" y1="510" x2="200" y2="510" stroke="#566573" stroke-width="2" marker-end="url(#a0)"/>
-<text x="165" y="503" class="albl">write</text>
+<line x1="200" y1="530" x2="182" y2="530" stroke="#566573" stroke-width="2" marker-end="url(#a-slate)"/>
+<text x="128" y="522" class="albl">read/write</text>
 
 <!-- ═══════════════════════════════════════
-     MCP SERVERS  (bottom right of main area)
-     x=20 y=580 w=180 h=90
+     MCP SERVERS  (left column, below repos)
+     x=20 y=608 w=162 h=90
 ════════════════════════════════════════ -->
-<rect x="20" y="580" width="180" height="90" rx="10" fill="#FEF9E7" stroke="#D4AC0D" stroke-width="2" filter="url(#sh)"/>
-<text x="110" y="604" text-anchor="middle" class="h2">MCP Servers</text>
-<text x="110" y="622" text-anchor="middle" class="lbl">godot-mcp · custom</text>
-<text x="110" y="638" text-anchor="middle" class="lbl">MCPClient subprocess</text>
-<text x="110" y="654" text-anchor="middle" class="lbl">tools exposed to agent</text>
+<rect x="20" y="608" width="162" height="90" rx="10" fill="#FEF9E7" stroke="#D4AC0D" stroke-width="2" filter="url(#sh)"/>
+<text x="101" y="631" text-anchor="middle" class="h2">MCP Servers</text>
+<text x="101" y="649" text-anchor="middle" class="lbl">godot-mcp · custom</text>
+<text x="101" y="665" text-anchor="middle" class="lbl">MCPClient subprocess</text>
+<text x="101" y="681" text-anchor="middle" class="lbl">tools exposed to agent</text>
 
 <!-- Arrow Agent ↔ MCP (dashed) -->
-<line x1="220" y1="540" x2="145" y2="580" stroke="#D4AC0D" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a0)"/>
-<line x1="140" y1="576" x2="218" y2="536" stroke="#D4AC0D" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#a0)"/>
+<line x1="200" y1="565" x2="140" y2="608" stroke="#D4AC0D" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a0)"/>
+<line x1="136" y1="604" x2="198" y2="561" stroke="#D4AC0D" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#a0)"/>
 
 <!-- ═══════════════════════════════════════
-     POST-TASK VALIDATION  (below Orchestrator, left-center)
-     x=220 y=590 w=440 h=100
+     POST-TASK VALIDATION  (below agent, left-center)
+     x=200 y=612 w=480 h=105
 ════════════════════════════════════════ -->
-<rect x="220" y="590" width="440" height="100" rx="10" fill="#FDEDEC" stroke="#C0392B" stroke-width="2" filter="url(#sh)"/>
-<text x="440" y="614" text-anchor="middle" class="h2">Post-task Validation  (daemon thread)</text>
-<text x="440" y="633" text-anchor="middle" class="lbl">Godot: godot --headless --script check_scripts.gd  +  grep for ERROR:</text>
-<text x="440" y="649" text-anchor="middle" class="lbl">Python: python -m py_compile *.py</text>
-<text x="440" y="665" text-anchor="middle" class="lbl">QA agent (vision + get_game_state): every 8 completions</text>
-<text x="440" y="681" text-anchor="middle" class="lbl">Failure → auto-spawn priority-100 bug task</text>
+<rect x="200" y="612" width="480" height="105" rx="10" fill="#FDEDEC" stroke="#C0392B" stroke-width="2" filter="url(#sh)"/>
+<text x="440" y="635" text-anchor="middle" class="h2">Post-task Validation  ·  swarm/validation.py</text>
+<text x="440" y="653" text-anchor="middle" class="lbl">Pre-flight baseline: capture existing errors before agent runs</text>
+<text x="440" y="669" text-anchor="middle" class="lbl">Post-agent diff: only NEW errors count as failures</text>
+<text x="440" y="685" text-anchor="middle" class="lbl">Godot: --headless check_scripts.gd · GUT tests if addons/gut/ present</text>
+<text x="440" y="701" text-anchor="middle" class="lbl">Python: py_compile · pytest · Swift: swiftc · Rust: cargo check</text>
+<text x="440" y="717" text-anchor="middle" class="lbl">Failure → priority-100 bug task (dependents reparented to bug task)</text>
 
-<!-- Arrow Orchestrator → Validation -->
-<line x1="440" y1="555" x2="440" y2="590" stroke="#C0392B" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-red)"/>
-<text x="450" y="577" class="albl">on finish</text>
+<!-- Arrow Agent → Validation -->
+<line x1="500" y1="590" x2="460" y2="612" stroke="#C0392B" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-red)"/>
+<text x="468" y="606" class="albl">on finish</text>
 
 <!-- ═══════════════════════════════════════
-     TASK LIFECYCLE  (bottom right)
-     x=680 y=590 w=540 h=100
+     ESCALATION & TASK LIFECYCLE  (below agent, right-center)
+     x=700 y=612 w=700 h=105
 ════════════════════════════════════════ -->
-<rect x="680" y="590" width="540" height="100" rx="10" fill="#F8F9FA" stroke="#888" stroke-width="1.5" filter="url(#sh)"/>
-<text x="950" y="614" text-anchor="middle" class="h2">Task Lifecycle  ·  swarm/tasks.py</text>
-<text x="950" y="633" text-anchor="middle" class="lbl">pending → in_progress → completed | failed</text>
-<text x="950" y="649" text-anchor="middle" class="lbl">On failure: attempts++ · last_failure injected into next prompt</text>
-<text x="950" y="665" text-anchor="middle" class="lbl">On exhausted attempts: recovery task spawned · dependents reparented</text>
-<text x="950" y="681" text-anchor="middle" class="lbl">Dependencies: DAG (cycle-detected) · self-heal when dep pruned as failed</text>
+<rect x="700" y="612" width="700" height="105" rx="10" fill="#F8F9FA" stroke="#888" stroke-width="1.5" filter="url(#sh)"/>
+<text x="1050" y="635" text-anchor="middle" class="h2">Task Lifecycle &amp; Escalation  ·  swarm/agent_recovery.py</text>
+<text x="1050" y="653" text-anchor="middle" class="lbl">pending → in_progress → completed | failed | cancelled</text>
+<text x="1050" y="669" text-anchor="middle" class="lbl">Retry: attempts++ · tiered context (attempt 1: clean · 2: +last_failure · 3+: +git_diff+directive)</text>
+<text x="1050" y="685" text-anchor="middle" class="lbl">Exhausted bug/feature/refactor: research feeder spawned · original task reset to pending (blocked on feeder)</text>
+<text x="1050" y="701" text-anchor="middle" class="lbl">Feeder completes: findings injected into original · dep removed · original retries with diagnosis</text>
+<text x="1050" y="717" text-anchor="middle" class="lbl">Feeder exhausts: needs_human_review flag set · run_after +24h snooze · red border in dashboard</text>
+
+<!-- ═══════════════════════════════════════
+     STATE SERVER / QA  (right column, below LLM)
+     x=1420 y=608 w=162 h=109
+════════════════════════════════════════ -->
+<rect x="1420" y="608" width="162" height="109" rx="10" fill="#F0F4FF" stroke="#5B6EAE" stroke-width="2" filter="url(#sh)"/>
+<text x="1501" y="631" text-anchor="middle" class="h2">StateServer</text>
+<text x="1501" y="648" text-anchor="middle" class="sub">TCP port 11009</text>
+<text x="1501" y="666" text-anchor="middle" class="lbl">state · screenshot_b64</text>
+<text x="1501" y="682" text-anchor="middle" class="lbl">press_button · a11y_tree</text>
+<text x="1501" y="698" text-anchor="middle" class="lbl">input injection (click/action)</text>
+<text x="1501" y="714" text-anchor="middle" class="lbl">autoload/state_server.gd</text>
+
+<!-- Arrow Agent ↔ StateServer (dashed) -->
+<line x1="1400" y1="570" x2="1450" y2="608" stroke="#5B6EAE" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a0)"/>
+<line x1="1446" y1="604" x2="1397" y2="566" stroke="#5B6EAE" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#a0)"/>
+<text x="1402" y="594" class="albl">TCP</text>
 
 <!-- ═══════════════════════════════════════
      LEGEND
-     x=20 y=710 w=1400 h=165
+     x=20 y=740 w=1562 h=262
 ════════════════════════════════════════ -->
-<rect x="20" y="715" width="1400" height="160" rx="8" fill="white" stroke="#CCC" stroke-width="1.2"/>
-<text x="40" y="738" class="h3">Legend</text>
+<rect x="20" y="740" width="1562" height="262" rx="8" fill="white" stroke="#CCC" stroke-width="1.2"/>
+<text x="40" y="764" class="h3">Legend</text>
 
-<!-- Legend items row 1 -->
-<rect x="40" y="748" width="16" height="12" rx="3" fill="#EBF5FB" stroke="#2980B9" stroke-width="1.5"/>
-<text x="62" y="759" class="lbl">User-facing / Flask</text>
+<!-- Row 1: colour chips -->
+<rect x="40"   y="774" width="14" height="11" rx="2" fill="#EBF5FB" stroke="#2980B9" stroke-width="1.5"/>
+<text x="60"   y="784" class="lbl">User-facing / Flask</text>
 
-<rect x="180" y="748" width="16" height="12" rx="3" fill="#E8F8F5" stroke="#16A085" stroke-width="1.5"/>
-<text x="202" y="759" class="lbl">Orchestration</text>
+<rect x="190"  y="774" width="14" height="11" rx="2" fill="#E8F8F5" stroke="#16A085" stroke-width="1.5"/>
+<text x="210"  y="784" class="lbl">Orchestration</text>
 
-<rect x="310" y="748" width="16" height="12" rx="3" fill="#EAFAF1" stroke="#27AE60" stroke-width="1.5"/>
-<text x="332" y="759" class="lbl">Agent Runtime (subprocess)</text>
+<rect x="330"  y="774" width="14" height="11" rx="2" fill="#EAFAF1" stroke="#27AE60" stroke-width="1.5"/>
+<text x="350"  y="784" class="lbl">Agent Runtime (subprocess)</text>
 
-<rect x="490" y="748" width="16" height="12" rx="3" fill="#F4ECF7" stroke="#7D3C98" stroke-width="1.5"/>
-<text x="512" y="759" class="lbl">Persistence (SQLite)</text>
+<rect x="530"  y="774" width="14" height="11" rx="2" fill="#F4ECF7" stroke="#7D3C98" stroke-width="1.5"/>
+<text x="550"  y="784" class="lbl">Persistence (SQLite)</text>
 
-<rect x="640" y="748" width="16" height="12" rx="3" fill="#FDF2E9" stroke="#CA6F1E" stroke-width="1.5"/>
-<text x="662" y="759" class="lbl">External LLM APIs</text>
+<rect x="700"  y="774" width="14" height="11" rx="2" fill="#FDF2E9" stroke="#CA6F1E" stroke-width="1.5"/>
+<text x="720"  y="784" class="lbl">External LLM APIs</text>
 
-<rect x="780" y="748" width="16" height="12" rx="3" fill="#FDEDEC" stroke="#C0392B" stroke-width="1.5"/>
-<text x="802" y="759" class="lbl">Validation &amp; Error recovery</text>
+<rect x="860"  y="774" width="14" height="11" rx="2" fill="#FDEDEC" stroke="#C0392B" stroke-width="1.5"/>
+<text x="880"  y="784" class="lbl">Validation &amp; Escalation</text>
 
-<rect x="960" y="748" width="16" height="12" rx="3" fill="#F2F3F4" stroke="#566573" stroke-width="1.5"/>
-<text x="982" y="759" class="lbl">Project repos (workspace)</text>
+<rect x="1040" y="774" width="14" height="11" rx="2" fill="#F2F3F4" stroke="#566573" stroke-width="1.5"/>
+<text x="1060" y="784" class="lbl">Project repos (workspace)</text>
 
-<rect x="1130" y="748" width="16" height="12" rx="3" fill="#FEF9E7" stroke="#D4AC0D" stroke-width="1.5"/>
-<text x="1152" y="759" class="lbl">MCP Servers</text>
+<rect x="1220" y="774" width="14" height="11" rx="2" fill="#FEF9E7" stroke="#D4AC0D" stroke-width="1.5"/>
+<text x="1240" y="784" class="lbl">MCP Servers</text>
 
-<!-- Legend row 2 - key numbers -->
-<text x="40" y="788" class="h3">Key numbers</text>
-<text x="40" y="806" class="lbl">Max agents: configurable (default 3) · Agent loop limit: 120 tool calls · Wall-clock watchdog: 3600s</text>
-<text x="40" y="822" class="lbl">Auto-QA trigger: every 8 Godot completions · Task priorities: 100 (refactor/bug) · 80 (bug) · 75 (QA) · 50 (feature/polish)</text>
-<text x="40" y="838" class="lbl">Monitor sleep: 5s active / 30s idle · Stall detection: 3 identical consecutive tool calls → redirect prompt injected</text>
-<text x="40" y="854" class="lbl">Recovery: exhausted max_attempts → recovery task spawned with full failure history; dependents reparented</text>
+<rect x="1360" y="774" width="14" height="11" rx="2" fill="#F0F4FF" stroke="#5B6EAE" stroke-width="1.5"/>
+<text x="1380" y="784" class="lbl">StateServer (in-game)</text>
+
+<!-- Row 2: key numbers -->
+<text x="40" y="814" class="h3">Key numbers</text>
+<text x="40" y="832" class="lbl">Agent loop limit: 200 tool calls  ·  Wall-clock watchdog: 7200s  ·  Max agents: configurable (default 3, auto-scales up to ceiling)  ·  Stall detection: 3× identical tool call → redirect prompt</text>
+<text x="40" y="850" class="lbl">Context compaction: at ~120k estimated tokens (middle of conversation summarised, system + 4-message tail preserved)</text>
+<text x="40" y="868" class="lbl">Auto-QA: every 8 Godot completions  ·  Auto-audit: every 20 completions  ·  QA cycle cap: configurable (default 3 requeues)</text>
+<text x="40" y="886" class="lbl">Task priorities: 100 = critical/bug  ·  85 = research feeder  ·  80 = bug  ·  75 = QA  ·  50 = feature/polish</text>
+<text x="40" y="904" class="lbl">Escalation policy: bug/feature/refactor exhausted → research feeder (original stays in graph)  ·  qa/plan/research exhausted → cancel</text>
+<text x="40" y="922" class="lbl">Validation: pre-flight baseline captured before agent runs; only NEW errors introduced by agent trigger failure (inherited errors skipped)</text>
+
+<!-- Row 3: task types -->
+<text x="40" y="952" class="h3">Task types</text>
+<text x="40" y="970" class="lbl">Built-in: feature · bug · refactor · polish · qa · harness_qa · hybrid_qa · scenario_qa · art_pass · audit · research · plan · project_plan · triage</text>
+<text x="40" y="988" class="lbl">Plugin-defined: any task_type declared in plugins/*.yaml — custom prompt, permission profile, context providers, tool allowlist/blocklist</text>
 
 <!-- Footer -->
-<text x="720" y="885" text-anchor="middle" style="font-size:10px;fill:#AAA;">Swarm Controller · Generated 2026-03</text>
+<text x="800" y="1010" text-anchor="middle" style="font-size:10px;fill:#AAA;">Swarm Controller · Updated 2026-05</text>
 </svg>
