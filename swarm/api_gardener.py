@@ -1,5 +1,7 @@
 """Gardener route handlers and scheduling for the Swarm API."""
 
+from __future__ import annotations
+
 import json
 import threading
 import time
