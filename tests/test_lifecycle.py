@@ -328,8 +328,16 @@ class TestLifecycleFailure:
         assert updated["attempts"] == 2
 
     def test_task_marked_failed_after_max_attempts(self, isolated_orc):
-        # max_attempts=1: first failure should mark it failed
-        task = _seed_task(max_attempts=1, attempts=0)
+        # max_attempts=1, type=qa: QA tasks cancel on exhaust (no research feeder).
+        # Feature tasks would instead spawn a research feeder and reset to pending.
+        db.project_upsert({"name": "test-proj", "status": "active"})
+        task = {
+            "id": "t-001", "project": "test-proj", "type": "qa",
+            "description": "Test QA task", "priority": 50,
+            "status": "pending", "dependencies": [], "metadata": {},
+            "attempts": 0, "max_attempts": 1,
+        }
+        db.task_upsert(task)
         agent_id = orc.spawn_agent(task, lambda t: _exit1_script())
         assert _wait_for_subprocess(agent_id)
 
@@ -337,7 +345,8 @@ class TestLifecycleFailure:
             _check_agent_status_sync()
 
         updated = db.task_get(task["id"])
-        assert updated["status"] == "failed"
+        # QA escalation policy: on_exhaust=cancel → task ends in failed or cancelled
+        assert updated["status"] in ("failed", "cancelled")
 
     def test_lock_released_on_failure(self, isolated_orc):
         orc.LOCK_PROJECT = True

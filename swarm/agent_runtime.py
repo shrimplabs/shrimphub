@@ -173,6 +173,10 @@ HYBRID_QA_SYSTEM: str = ""
 HYBRID_QA_USER: str = ""
 SCENARIO_QA_SYSTEM: str = ""
 SCENARIO_QA_USER: str = ""
+# Plugin prompt -- set by the wrapper when a plugin is registered for this task_type.
+# Non-empty PLUGIN_SYSTEM takes priority over all built-in prompt routing below.
+PLUGIN_SYSTEM: str = ""
+PLUGIN_USER: str = ""
 
 # LLM provider config -- set by the wrapper
 LLM_PROVIDER: str = "minimax"
@@ -373,7 +377,10 @@ def main() -> int:
         )
     )
 
-    if TASK_TYPE == "plan":
+    # Plugin prompt takes priority over all built-in routing.
+    if PLUGIN_SYSTEM:
+        system_prompt, user_prompt = PLUGIN_SYSTEM, PLUGIN_USER
+    elif TASK_TYPE == "plan":
         system_prompt, user_prompt = PLAN_SYSTEM, PLAN_USER
     elif TASK_TYPE == "python_plan":
         system_prompt, user_prompt = PYTHON_PLAN_SYSTEM, PYTHON_PLAN_USER

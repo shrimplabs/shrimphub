@@ -242,6 +242,10 @@ def create_app(
     from swarm import orchestrator
     generate_task_script, _runner_mod = _wire_runtime(config, workspace, data_dir, project_registry)
 
+    # Load agent profile plugins from plugins/ directory (startup-only, no hot-reload).
+    from swarm.plugins import load_plugins as _load_plugins
+    _load_plugins(project_root)
+
     # Mark long-running orphan agents as failed; recent orphans reap on next tick.
     _handle_startup_orphans(data_dir, config.get("agent_timeout", AGENT_TIMEOUT))
 

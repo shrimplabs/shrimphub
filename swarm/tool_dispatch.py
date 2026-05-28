@@ -260,6 +260,19 @@ def _tool_authority_denial(tool: str, args: dict) -> dict | None:
             "recovery tasks must repair the branch directly or fail into canonical continuation; they cannot spawn arbitrary child work",
         )
 
+    # Plugin permission enforcement (profile + tools_blocked + allowlist)
+    try:
+        from swarm.plugins import get_plugin, is_tool_blocked_by_plugin
+        _plugin = get_plugin(task_type)
+        if _plugin and is_tool_blocked_by_plugin(_plugin, tool):
+            return _task_tool_authority_error(
+                tool,
+                f"blocked by plugin '{_plugin.plugin_id}' "
+                f"(profile={_plugin.permission_profile})",
+            )
+    except Exception:
+        pass
+
     if (
         tool in {"write_file", "patch_file", "append_file"}
         and task_type in {"feature", "bug", "refactor", "polish"}

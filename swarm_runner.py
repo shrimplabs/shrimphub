@@ -950,6 +950,31 @@ def generate_task_script(task: dict) -> str:
         **_common,
     )
 
+    # ---- Plugin prompt + context injection ----
+    # If a plugin is registered for this task_type:
+    #   1. Use the plugin's prompt (overrides all built-in prompt vars below).
+    #   2. Resolve plugin context providers and prepend to description.
+    # This runs before the wrapper is generated so baked prompt vars are correct.
+    try:
+        from swarm.plugins import get_plugin, load_plugin_prompt, resolve_context as _plugin_ctx
+        _plugin = get_plugin(task_type)
+        if _plugin:
+            _plugin_prompts = load_plugin_prompt(_plugin, Path(__file__).parent, **_common)
+            if _plugin_prompts:
+                # Store in dedicated rt vars so agent_runtime can use them
+                _plugin_system, _plugin_user = _plugin_prompts
+                print(f"[Swarm] Plugin '{_plugin.plugin_id}' prompt loaded for task_type='{task_type}'")
+            else:
+                _plugin_system, _plugin_user = "", ""
+            _ctx_block = _plugin_ctx(_plugin, project_path)
+            if _ctx_block:
+                description = _ctx_block + "\n\n" + description
+        else:
+            _plugin_system, _plugin_user = "", ""
+    except Exception as _plugin_exc:
+        print(f"[Swarm] Plugin resolution error: {_plugin_exc}")
+        _plugin_system, _plugin_user = "", ""
+
     # ---- Vision provider config (passed to QA agent for vision model dispatch) ----
     qa_config = {
         "vision_provider": _config.get("vision_provider", "minimax-mcp"),
@@ -1079,6 +1104,8 @@ rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
 rt.SCENARIO_QA_USER         = {repr(scenario_qa_user)}
+rt.PLUGIN_SYSTEM            = {repr(_plugin_system)}
+rt.PLUGIN_USER              = {repr(_plugin_user)}
 
 if __name__ == "__main__":
     exit_code = rt.main()
