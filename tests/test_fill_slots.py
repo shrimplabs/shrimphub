@@ -645,6 +645,31 @@ class TestRunAfter:
 
         task = orc._get_next_task()
         assert task is None
+        blocked = db.task_get("stalled-feature")["metadata"].get("scheduler_blocked")
+        assert blocked["reason"] == "closure_expansion_gate"
+        assert blocked["closure_status"] == "stalled"
+        assert blocked["open_regression_count"] == 3
+
+    def test_closure_scheduler_block_annotation_clears_when_project_recovers(self, isolated_orc):
+        _project("proj")
+        db.project_update("proj", {
+            "closure_status": "frozen",
+            "open_regression_count": 2,
+        })
+        _task(task_id="frozen-feature", project="proj", priority=100)
+
+        assert orc._get_next_task() is None
+        assert db.task_get("frozen-feature")["metadata"].get("scheduler_blocked")
+
+        db.project_update("proj", {
+            "closure_status": "green",
+            "open_regression_count": 0,
+        })
+
+        task = orc._get_next_task()
+        assert task is not None
+        assert task["id"] == "frozen-feature"
+        assert "scheduler_blocked" not in db.task_get("frozen-feature")["metadata"]
 
     def test_stalled_project_allows_feature_typed_recovery_task(self, isolated_orc):
         _project("proj")

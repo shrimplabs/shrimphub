@@ -438,6 +438,18 @@ class TestRunCommand:
         result = rt.run_command("sleep 30", timeout=1)
         assert result["ok"] is False
 
+    def test_background_process_inheriting_output_does_not_hang(self, tmp_path):
+        marker = tmp_path / "background-marker"
+        cmd = (
+            "python3 -c 'import time; time.sleep(3)' & "
+            f"echo done > {marker}"
+        )
+
+        result = rt.run_command(cmd, timeout=1)
+
+        assert result["ok"] is True
+        assert marker.read_text().strip() == "done"
+
     def test_blocks_vendor_write_commands(self, tmp_path):
         proj = tmp_path / "workspace" / "test-proj"
         vendor_file = proj / "addons" / "gut" / "helper.gd"

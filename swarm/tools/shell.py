@@ -7,6 +7,7 @@ _sync_core_globals() in agent_runtime before each agent run.
 """
 
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -81,24 +82,37 @@ def invalidate_shell_cache(project: str = None):
 
 def run(cmd: str, cwd=None, timeout: int = 60):
     """Run a shell command; returns (returncode, stdout, stderr)."""
-    proc = subprocess.Popen(
-        cmd,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=_safe_cwd(cwd),
-        **popen_session_kwargs(),
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return proc.returncode, stdout, stderr
-    except subprocess.TimeoutExpired:
-        kill_process_tree(proc)
-        proc.communicate()
-        return -1, "", f"Command timed out after {timeout}s"
+    # Use temp files instead of PIPE. Agents sometimes launch background Godot
+    # processes from shell snippets; inherited pipe FDs can keep communicate()
+    # waiting forever after the shell exits.
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, \
+            tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=_safe_cwd(cwd),
+            **popen_session_kwargs(),
+        )
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_process_tree(proc)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            return -1, stdout_file.read(), f"{stderr_file.read()}Command timed out after {timeout}s"
+
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        return proc.returncode, stdout_file.read(), stderr_file.read()
 
 
 def _looks_like_godot_command(cmd: str) -> bool:

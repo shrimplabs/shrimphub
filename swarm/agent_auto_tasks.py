@@ -237,6 +237,14 @@ def auto_spawn_qa_task(
         })
         upstream_id = art_id
         print(f"[Swarm] Auto-spawned art_pass task {art_id} for {project} before QA")
+    else:
+        # Art pass already queued — find its ID so polish chains to it, not to the triggering task
+        art_task = next(
+            (t for t in existing if t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress")),
+            None,
+        )
+        if art_task:
+            upstream_id = art_task["id"]
 
     if not has_polish:
         pol_id = f"pol-auto-{project}-{now}"
@@ -257,6 +265,14 @@ def auto_spawn_qa_task(
         })
         upstream_id = pol_id
         print(f"[Swarm] Auto-spawned polish task {pol_id} for {project} before QA")
+    else:
+        # Polish already queued — find its ID so QA chains to it, not to the triggering task
+        pol_task = next(
+            (t for t in existing if t.get("type") == "polish" and t.get("status") in ("pending", "in_progress")),
+            None,
+        )
+        if pol_task:
+            upstream_id = pol_task["id"]
 
     qa_id = f"qa-auto-{project}-{now}"
     qa_desc = (

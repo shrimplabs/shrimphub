@@ -36,7 +36,7 @@ def _get_db():
     return _db
 
 # ---------------------------------------------------------------------------
-# Config variables — set by agent_runtime.py at startup
+# Config variables -- set by agent_runtime.py at startup
 # ---------------------------------------------------------------------------
 
 WORKSPACE: Path = Path(".")
@@ -308,24 +308,95 @@ def _resolve_image_coords_from_model(raw_x: int, raw_y: int, img_w: int, img_h: 
 
 
 # ---------------------------------------------------------------------------
-# Port allocation
+# Port allocation with file-based locking to prevent race conditions
 # ---------------------------------------------------------------------------
 
-def _find_free_port_pair(base: int = 11009, max_range: int = 200) -> tuple:
+import fcntl
+import os
+
+# Track ports used per project to avoid race conditions with concurrent launches
+_project_port_cache: dict[str, tuple[int, int]] = {}
+
+# Lock file for atomic port allocation
+_PORT_LOCK_FILE = "/tmp/swarm_qa_port_lock.lock"
+
+def _find_free_port_pair(base: int = 11009, max_range: int = 200, project_key: str = None) -> tuple:
     """Find two consecutive free ports (state_port, harness_port = state_port+1).
 
     Scans even offsets so pairs never overlap with other pair allocations.
     Returns (state_port, harness_port).
+    
+    If project_key is provided, uses project-specific port derivation to avoid
+    race conditions where concurrent launches get the same ports.
+    
+    Uses a file lock to ensure atomic port allocation across concurrent launches.
     """
     import socket as _socket
+    import hashlib as _hashlib
+    import time as _time
+    
+    # If project_key is provided, derive a consistent base from the project path
+    # to reduce collisions with concurrent launches
+    if project_key:
+        # Use a hash of the project path to derive a unique offset
+        path_hash = int(_hashlib.md5(project_key.encode()).hexdigest()[:6], 16)
+        # Ensure we start at an even offset and stay within the range
+        derived_base = base + (path_hash % (max_range // 2)) * 2
+        log(f"_find_free_port_pair: project_key={project_key[:50]!r}, derived_base={derived_base}")
+    else:
+        derived_base = base
+    
+    # Use a file lock to ensure only one process allocates ports at a time
+    lock_dir = os.path.dirname(_PORT_LOCK_FILE)
+    if lock_dir and not os.path.exists(lock_dir):
+        os.makedirs(lock_dir, exist_ok=True)
+    
+    lock_fd = None
+    for retry in range(5):
+        try:
+            lock_fd = open(_PORT_LOCK_FILE, 'w')
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except (IOError, OSError):
+            if lock_fd:
+                lock_fd.close()
+                lock_fd = None
+            _time.sleep(0.1)  # Wait and retry
+    
+    if lock_fd is None:
+        # Could not acquire lock, fall back to non-blocking allocation
+        log("_find_free_port_pair: warning - could not acquire lock, using non-blocking allocation")
+        return _find_free_port_pair_unlocked(base, max_range, derived_base, project_key)
+    
+    try:
+        # Now we have the lock - allocate ports atomically
+        result = _find_free_port_pair_unlocked(base, max_range, derived_base, project_key)
+        return result
+    finally:
+        # Release the lock
+        if lock_fd:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+            lock_fd.close()
+
+
+def _find_free_port_pair_unlocked(base: int, max_range: int, derived_base: int, project_key: str = None) -> tuple:
+    """Internal function to find free ports without locking (must be called with lock held)."""
+    import socket as _socket
+    
     for offset in range(0, max_range, 2):
-        sp = base + offset
+        sp = derived_base + offset
+        # Wrap around if we exceed the max range
+        if sp > base + max_range:
+            sp = base + ((sp - base) % max_range)
         hp = sp + 1
         try:
             with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s1:
                 s1.bind(("127.0.0.1", sp))
             with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s2:
                 s2.bind(("127.0.0.1", hp))
+            # Successfully bound both ports - cache for this project
+            if project_key:
+                _project_port_cache[project_key] = (sp, hp)
             return (sp, hp)
         except OSError:
             continue
@@ -371,13 +442,25 @@ def launch_game(project_path: str) -> dict:
     global _qa_game_process, _qa_window, _state_port, _harness_port
     import time as _time
 
+    # Always resolve to absolute path so Godot cannot resolve to the wrong project
+    # when the agent's cwd happens to be inside another Godot project tree.
+    resolved_path = str(Path(project_path).resolve())
+    if not Path(resolved_path, "project.godot").exists():
+        return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
+
     # Allocate a free port pair for this agent's StateServer and TestHarness.
     # Each concurrent QA agent gets its own ports so they don't collide.
-    _state_port, _harness_port = _find_free_port_pair()
+    resolved_path = str(Path(project_path).resolve())
+    if not Path(resolved_path, "project.godot").exists():
+        return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
+
+    # Use project path as key to derive project-specific ports and reduce race conditions
+    # with concurrent launches of other projects
+    _state_port, _harness_port = _find_free_port_pair(project_key=resolved_path)
     log(f"launch_game: allocated ports state={_state_port} harness={_harness_port}")
 
     # _find_free_port_pair() already skips busy ports, so the allocated pair is
-    # guaranteed free — no need to kill anything here. Killing by port would
+    # guaranteed free -- no need to kill anything here. Killing by port would
     # destroy OTHER agents' games running on nearby ports (e.g. harness runner).
 
     godot_bin = resolve_godot_binary()
@@ -386,27 +469,29 @@ def launch_game(project_path: str) -> dict:
 
     try:
         # Run without --headless so Metal/GPU rendering is active and the viewport
-        # texture is populated. StateServer.screenshot_b64 requires a rendered frame —
+        # texture is populated. StateServer.screenshot_b64 requires a rendered frame --
         # headless mode skips rendering so get_image() always returns null.
         # The game window may briefly appear on screen; this is expected.
         # Clicks go through StateServer press_button/input commands (no window focus needed).
+        env = dict(os.environ)
+        env["STATE_PORT"] = str(_state_port)
+        env["HARNESS_PORT"] = str(_harness_port)
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--path", project_path,
-             "--resolution", "1280x720",
-             "--",
-             "--state-port", str(_state_port),
-             "--harness-port", str(_harness_port)],
+            [godot_bin, "--path", resolved_path,
+             "--resolution", "1280x720"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            cwd=resolved_path,
+            env=env,
         )
         pid = _qa_game_process.pid
-        log(f"Launched Godot PID {pid} for {project_path} (state={_state_port} harness={_harness_port})")
+        log(f"Launched Godot PID {pid} for {resolved_path} (state={_state_port} harness={_harness_port})")
         _time.sleep(6)
 
         if _qa_game_process.poll() is not None:
             return {"ok": False, "error": "Godot exited immediately", "pid": pid}
 
-        # Try StateServer screenshot first — it tells us actual pixel dimensions
+        # Try StateServer screenshot first -- it tells us actual pixel dimensions
         # including the pixel_ratio, which is the authoritative source for
         # coordinate normalisation (works even when screencapture permissions
         # are not granted).
@@ -469,7 +554,13 @@ def launch_game_headless(project_path: str) -> dict:
     global _qa_game_process, _state_port, _harness_port
     import time as _time
 
-    _state_port, _harness_port = _find_free_port_pair()
+    resolved_path = str(Path(project_path).resolve())
+    if not Path(resolved_path, "project.godot").exists():
+        return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
+
+    # Use project path as key to derive project-specific ports and reduce race conditions
+    # with concurrent launches of other projects
+    _state_port, _harness_port = _find_free_port_pair(project_key=resolved_path)
     log(f"launch_game_headless: allocated ports state={_state_port} harness={_harness_port}")
 
     godot_bin = resolve_godot_binary()
@@ -478,14 +569,15 @@ def launch_game_headless(project_path: str) -> dict:
 
     try:
         _qa_game_process = subprocess.Popen(
-            [godot_bin, "--headless", "--path", project_path, "--",
+            [godot_bin, "--headless", "--path", resolved_path, "--",
              "--state-port", str(_state_port),
              "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            cwd=resolved_path,
         )
         pid = _qa_game_process.pid
-        log(f"Launched Godot headless PID {pid} for {project_path}")
+        log(f"Launched Godot headless PID {pid} for {resolved_path}")
         _time.sleep(4)
 
         if _qa_game_process.poll() is not None:
@@ -547,7 +639,7 @@ def take_screenshot(filename: str) -> dict:
     # StateServer path updates viewport_w/viewport_h above. _qa_window["w"]/["h"]
     # remains logical window points for robust cross-DPI coordinate conversion.
 
-    # Fallback: screencapture — always re-query live bounds so a screen-size
+    # Fallback: screencapture -- always re-query live bounds so a screen-size
     # change in the editor doesn't leave us with stale coordinates.
     live = qa_get_window_bounds("godot")
     if live.get("ok"):
@@ -650,7 +742,7 @@ def _qa_move_mouse_viewport(vx: float, vy: float) -> dict:
         log(f"StateServer move mouse at viewport ({vpx:.1f},{vpy:.1f}) -> screen ({sx},{sy})")
         return {"ok": True, "source": "state_server"}
     if "error" not in resp or "not available" not in resp.get("error", ""):
-        log(f"StateServer error: {resp.get('error')} — falling back to cliclick move")
+        log(f"StateServer error: {resp.get('error')} -- falling back to cliclick move")
 
     sx, sy = _viewport_to_screen(vpx, vpy)
     qa_focus_game()
@@ -925,7 +1017,7 @@ def click_element(image_path: str, element_description: str) -> dict:
             return {"ok": False, "error": f"Could not parse coordinates from vision response: {raw[:200]}"}
 
         # Use the actual PNG dimensions (img_w × img_h) for coordinate
-        # normalisation — not _qa_window which may still hold stale values
+        # normalisation -- not _qa_window which may still hold stale values
         # from before the game launched in portrait mode.
         import struct as _struct
         img_w, img_h = iw, ih
@@ -958,7 +1050,7 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
 
     image_path: a single path string, OR a list of paths (e.g. from screenshot_burst).
       When a list is passed, all images are sent in one call so the model can reason
-      across frames — useful for motion detection, before/after comparisons, etc.
+      across frames -- useful for motion detection, before/after comparisons, etc.
 
     timeout: seconds before giving up on the VLM call (default 120).
     Returns {"ok": False, "error": "vision_query timed out after Xs"} on timeout.
@@ -1006,7 +1098,7 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
 
             pair = _extract_first_coord_pair(answer)
             if pair and iw > 0 and ih > 0:
-                # Use actual PNG dimensions for normalisation — this is critical
+                # Use actual PNG dimensions for normalisation -- this is critical
                 # for portrait-oriented games where the window is taller than wide.
                 import struct as _struct
                 img_w, img_h = iw, ih
@@ -1312,15 +1404,18 @@ def harness_launch_game(project_path: str, extra_args: list = None) -> dict:
         return {"ok": False, "error": "A harness game is already running"}
 
     # Validate this is actually a Godot project before launching
-    project_godot = os.path.join(project_path, "project.godot")
+    resolved_path = str(Path(project_path).resolve())
+    project_godot = os.path.join(resolved_path, "project.godot")
     if not os.path.exists(project_godot):
-        return {"ok": False, "error": f"No project.godot found at {project_path!r} — pass the absolute path to the Godot project"}
+        return {"ok": False, "error": f"No project.godot found at {resolved_path!r} -- pass the absolute path to the Godot project"}
 
-    _state_port, _harness_port = _find_free_port_pair()
+    # Use project path as key to derive project-specific ports and reduce race conditions
+    # with concurrent launches of other projects
+    _state_port, _harness_port = _find_free_port_pair(project_key=resolved_path)
     log(f"harness_launch_game: allocated ports state={_state_port} harness={_harness_port}")
 
     godot = resolve_godot_binary()
-    cmd = [godot, "--headless", "--path", project_path, "--",
+    cmd = [godot, "--headless", "--path", resolved_path, "--",
            "--test-harness",
            "--state-port", str(_state_port),
            "--harness-port", str(_harness_port)]
@@ -1368,7 +1463,7 @@ def harness_step(action: dict, timeout: int = 30) -> dict:
         return {"error": f"harness_step: could not connect to game on port {_harness_port} within {timeout}s"}
 
     try:
-        # Send action first — works for both phases:
+        # Send action first -- works for both phases:
         # Nav phase: TestHarness reads command then responds.
         # Game phase: game sends state after connect; action arrives in TCP buffer, game reads it after sending state.
         s.sendall((_json.dumps(action) + "\n").encode())
@@ -1461,7 +1556,7 @@ def harness_kill_game() -> dict:
 def harness_poll_state(timeout: int = 5) -> dict:
     """Poll game state from StateServer.
 
-    Works on any Godot game with the StateServer autoload registered — no
+    Works on any Godot game with the StateServer autoload registered -- no
     TestHarness.checkpoint() calls needed in the game code.  Returns the full
     state dict (scene_tree + game_state) on success, or {"error": ...}.
     """
@@ -1644,7 +1739,7 @@ def key_combo(keys: list) -> dict:
 
 def play_macro(actions: list) -> dict:
     """Execute a timed sequence of input actions entirely server-side with no LLM round-trips.
-    Use this to play out a scripted interaction over time — the StateServer runs the full
+    Use this to play out a scripted interaction over time -- the StateServer runs the full
     sequence end-to-end and returns when done.
 
     Each action is a dict with a 'type' key:
@@ -1657,7 +1752,7 @@ def play_macro(actions: list) -> dict:
       {"type": "action",    "action": "ui_accept"}                     # one-shot Godot action
       {"type": "wait",      "seconds": 0.5}                            # pause
 
-    Example — drive a car forward, turn right, boost:
+    Example -- drive a car forward, turn right, boost:
       play_macro([
         {"type": "hold",  "action": "move_forward", "duration": 2.0},
         {"type": "wait",  "seconds": 0.2},

@@ -10,7 +10,27 @@ import json
 import time
 import uuid
 
+import re as _re
+
 from swarm.tools.path_guard import _looks_like_dependency_path
+
+# Real task IDs always contain a hex segment (≥6 chars) or a long numeric timestamp.
+# Placeholders like "task-id-1", "task-id-2", "<task_id>", "some-task" do not.
+_TASK_ID_RE = _re.compile(r'[0-9a-f]{6,}|[0-9]{8,}')
+
+
+def _looks_like_placeholder_dep(value: str) -> bool:
+    """Return True if value looks like a placeholder rather than a real task ID."""
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    # Angle-bracket placeholders: <task_id>, <id>, etc.
+    if text.startswith("<") and text.endswith(">"):
+        return True
+    # No hex or long numeric segment → not a real task ID
+    if not _TASK_ID_RE.search(text):
+        return True
+    return False
 
 
 def _log(msg: str):
@@ -322,7 +342,7 @@ def delegate_task_batch(children: list, mode: str = "integrate", project: str = 
         if not files:
             return {"ok": False, "error": f"child {i} must declare files for delegated write ownership"}
         explicit_ids = [d for d in (child.get("dependencies") or []) if isinstance(d, str) and d.strip()]
-        bad_dep = next((dep for dep in explicit_ids if _looks_like_dependency_path(dep)), None)
+        bad_dep = next((dep for dep in explicit_ids if _looks_like_dependency_path(dep) or _looks_like_placeholder_dep(dep)), None)
         if bad_dep:
             return {
                 "ok": False,
@@ -530,13 +550,14 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
 
     for i, task in enumerate(tasks):
         explicit_ids = [d for d in task.get("dependencies", []) if isinstance(d, str)]
-        bad_dep = next((dep for dep in explicit_ids if _looks_like_dependency_path(dep)), None)
+        bad_dep = next((dep for dep in explicit_ids if _looks_like_dependency_path(dep) or _looks_like_placeholder_dep(dep)), None)
         if bad_dep:
             return {
                 "ok": False,
                 "error": (
                     f"Task {i} has invalid dependency '{bad_dep}'. "
-                    "Planner dependencies must be task IDs only; keep file ownership in files=[...]."
+                    "Dependencies must be real task IDs (e.g. 'feature-abc123-agent'); "
+                    "use depends_on with integer indices for intra-batch ordering."
                 ),
             }
         # Explicit depends_on indices (int) in the task dict wire sequential ordering
@@ -575,7 +596,11 @@ def create_tasks_file_aware(tasks: list, project: str = None) -> dict:
         if _type in ("project_plan", "plan", "python_plan") and _tid and not explicit_ids and not auto_deps[i]:
             explicit_ids = [_tid]
         task_type = task.get("type", "feature")
-        priority = min(int(task.get("priority", 50)), 90)
+        _priority_words = {"low": 25, "normal": 50, "medium": 50, "high": 80, "critical": 100, "urgent": 100}
+        _raw_prio = task.get("priority", 50)
+        if isinstance(_raw_prio, str):
+            _raw_prio = _priority_words.get(_raw_prio.strip().lower(), 50)
+        priority = min(int(_raw_prio), 90)
         generated_id = f"{task_type}-{uuid.uuid4().hex[:12]}-agent"
         generated_ids[i] = generated_id
         metadata = dict(task.get("metadata") or {})

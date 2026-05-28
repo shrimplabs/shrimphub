@@ -504,6 +504,7 @@ def _get_next_task() -> Optional[Dict]:
     if not ready:
         return None
 
+    _annotate_scheduler_blocks(ready, project_rows)
     _sort_by_strategy(ready, project_rows=project_rows)
     if not ready:
         return None
@@ -548,6 +549,46 @@ def _is_expansion_blocked(t: Dict, project_rows: Dict[str, Dict[str, Any]]) -> b
         return False
     task_type = (t.get("type") or "").strip().lower()
     return task_type in {"feature", "polish", "refactor"}
+
+
+def _closure_expansion_block(task: Dict, project_rows: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return metadata explaining why closure policy blocks this ready task."""
+    project_name = task.get("project") or ""
+    project_row = project_rows.get(project_name)
+    if not project_row:
+        return None
+    if not _is_expansion_blocked(task, project_rows):
+        return None
+    return {
+        "reason": "closure_expansion_gate",
+        "project": project_name,
+        "closure_status": (project_row.get("closure_status") or "").strip().lower(),
+        "open_regression_count": int(project_row.get("open_regression_count") or 0),
+        "message": (
+            "Task is ready, but the project is frozen/stalled with open regressions. "
+            "Expansion tasks wait until a repair/recovery task clears the closure gate, "
+            "or this task is explicitly marked is_closure_repair_task."
+        ),
+    }
+
+
+def _annotate_scheduler_blocks(ready_tasks: List[Dict], project_rows: Dict[str, Dict[str, Any]]) -> None:
+    """Persist scheduler block reasons so pending work is not silently skipped."""
+    for task in ready_tasks:
+        metadata = dict(task.get("metadata") or {})
+        current = metadata.get("scheduler_blocked")
+        block = _closure_expansion_block(task, project_rows)
+        if block:
+            if current != block:
+                metadata["scheduler_blocked"] = block
+                db.task_update(task["id"], {"metadata": metadata})
+                task["metadata"] = metadata
+            continue
+
+        if isinstance(current, dict) and current.get("reason") == "closure_expansion_gate":
+            metadata.pop("scheduler_blocked", None)
+            db.task_update(task["id"], {"metadata": metadata})
+            task["metadata"] = metadata
 
 
 def _sort_by_strategy(tasks: List[Dict], *, project_rows: Optional[Dict[str, Dict[str, Any]]] = None) -> None:

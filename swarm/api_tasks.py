@@ -27,6 +27,26 @@ def register_routes(app, task_source, db, workspace):
         "DEFAULT_PORT := 11010",
     )
 
+    _PRIORITY_WORDS = {"low": 25, "normal": 50, "medium": 50, "high": 80, "critical": 100, "urgent": 100}
+
+    def _normalize_priority(raw, default=50) -> int:
+        """Coerce priority to int. Accepts int, numeric string, or word like 'high'."""
+        if raw is None:
+            return default
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, float):
+            return int(raw)
+        if isinstance(raw, str):
+            s = raw.strip().lower()
+            if s in _PRIORITY_WORDS:
+                return _PRIORITY_WORDS[s]
+            try:
+                return int(s)
+            except ValueError:
+                return default
+        return default
+
     def _normalize_dependencies(raw):
         """Return a deduped list of dependency IDs or None on invalid input."""
         if raw is None:
@@ -293,7 +313,7 @@ def register_routes(app, task_source, db, workspace):
             project=project_name,
             type=task_type,
             description=data.get("description", ""),
-            priority=data.get("priority", 50),
+            priority=_normalize_priority(data.get("priority"), default=50),
             status="pending",
             max_attempts=data.get("max_attempts", 3),
             dependencies=deps,
@@ -410,7 +430,7 @@ def register_routes(app, task_source, db, workspace):
                 project=item.get("project") or default_project,
                 type=item.get("type", "feature"),
                 description=item.get("description", ""),
-                priority=item.get("priority", 50),
+                priority=_normalize_priority(item.get("priority"), default=50),
                 status="pending",
                 max_attempts=item.get("max_attempts", 3),
                 dependencies=deps,
@@ -728,7 +748,7 @@ def register_routes(app, task_source, db, workspace):
             project=src_task.get("project", ""),
             type=data.get("type", "feature"),
             description=data.get("description", ""),
-            priority=data.get("priority", src_task.get("priority", 50)),
+            priority=_normalize_priority(data.get("priority", src_task.get("priority")), default=50),
             status="pending",
             max_attempts=data.get("max_attempts", 3),
             dependencies=[task_id],
