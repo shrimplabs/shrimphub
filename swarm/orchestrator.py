@@ -443,15 +443,20 @@ def _get_next_task() -> Optional[Dict]:
 
     paused = set(PAUSED_PROJECTS)
 
-    # Limit concurrent vision QA (type="qa") to avoid overloading mlx-vlm.
-    # Count in_progress vision QA tasks; cap at 2 to allow some parallelism
-    # while preventing a flood. harness_qa/hybrid_qa have no vision dependency
-    # and are not restricted. Port collisions handled by dynamic allocation.
+    # Count in_progress vision QA tasks (type="qa").
+    # Cap concurrent vision QA at 2 to allow some parallelism while preventing
+    # a flood. harness_qa/hybrid_qa have no vision dependency and are not
+    # restricted. Port collisions handled by dynamic allocation.
     qa_active_count = sum(
         1 for t in all_tasks
         if t["status"] == "in_progress" and t.get("type") == "qa"
     )
     _MAX_CONCURRENT_VISION_QA = 2
+
+    # Global QA lock: when any QA is in_progress, block ALL new QA tasks.
+    # Non-QA tasks are not affected. This prevents concurrent QA sessions
+    # from clobbering each other's game state / screenshot fixtures.
+    _qa_lock_active = qa_active_count > 0
 
     # Collect worktree paths currently in use by active agents -- tasks that inherit
     # the same worktree must wait until the current occupant finishes.
@@ -484,7 +489,7 @@ def _get_next_task() -> Optional[Dict]:
         if project_row and not project_row.get("managed", True) and t.get("type") not in ("manager", "project_create"):
             continue
         # Cap concurrent vision QA agents to avoid overloading mlx-vlm.
-        if t.get("type") == "qa" and qa_active_count >= _MAX_CONCURRENT_VISION_QA:
+        if t.get("type") == "qa" and (_qa_lock_active or qa_active_count >= _MAX_CONCURRENT_VISION_QA):
             continue
         # Skip tasks scheduled for the future
         run_after = t.get("run_after")

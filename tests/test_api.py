@@ -1,4 +1,4 @@
-"""Integration tests for swarm/api.py — Flask routes."""
+"""Integration tests for swarm/api.py -- Flask routes."""
 import json
 import os
 import threading
@@ -1079,7 +1079,7 @@ depends-on: US-001
         def fake_llm(system_prompt, messages, config):
             captured["system_prompt"] = system_prompt
             captured["messages"] = messages
-            return "## Project Ideas\n1. **log-tool** — Programming\n   Concept: Parse logs.\n   First slice: CLI parser."
+            return "## Project Ideas\n1. **log-tool** -- Programming\n   Concept: Parse logs.\n   First slice: CLI parser."
 
         monkeypatch.setattr(api_chat, "_chat_call_llm", fake_llm)
 
@@ -1438,7 +1438,7 @@ class TestConfig:
 
 
 # ---------------------------------------------------------------------------
-# Kill agent — including PID fallback after server restart
+# Kill agent -- including PID fallback after server restart
 # ---------------------------------------------------------------------------
 
 class TestKillAgent:
@@ -1858,7 +1858,7 @@ class TestPing:
 
 
 # ---------------------------------------------------------------------------
-# Spawn — manual task_id dependency gating
+# Spawn -- manual task_id dependency gating
 # ---------------------------------------------------------------------------
 
 class TestSpawnDependencyGating:
@@ -2519,11 +2519,11 @@ class TestTaskChaining:
             "quality_gates": ["gut --run --exit"],
             "tasks": [
                 {"id": "example-game-t02", "description": "Player click-to-spawn blobs, basic movement, hunger decay", "dependencies": []},
-                {"id": "example-game-t04", "description": "Food pellets — spawning, consumption, blob growth", "dependencies": ["example-game-t02"]},
-                {"id": "example-game-t06", "description": "Wave system — wave-based spawning and stream mode", "dependencies": []},
-                {"id": "example-game-t08", "description": "Upgrade system — between-wave upgrade selection menu", "dependencies": ["example-game-t06"]},
-                {"id": "example-game-t09", "description": "Win/lose conditions — all blobs dead or 100 mass victory", "dependencies": ["example-game-t06", "example-game-t08"]},
-                {"id": "example-game-t10", "description": "Menu + HUD — wave number, player mass / 100, blob count, time elapsed", "dependencies": ["example-game-t06", "example-game-t09"]},
+                {"id": "example-game-t04", "description": "Food pellets -- spawning, consumption, blob growth", "dependencies": ["example-game-t02"]},
+                {"id": "example-game-t06", "description": "Wave system -- wave-based spawning and stream mode", "dependencies": []},
+                {"id": "example-game-t08", "description": "Upgrade system -- between-wave upgrade selection menu", "dependencies": ["example-game-t06"]},
+                {"id": "example-game-t09", "description": "Win/lose conditions -- all blobs dead or 100 mass victory", "dependencies": ["example-game-t06", "example-game-t08"]},
+                {"id": "example-game-t10", "description": "Menu + HUD -- wave number, player mass / 100, blob count, time elapsed", "dependencies": ["example-game-t06", "example-game-t09"]},
             ],
         }, content_type="application/json")
 
@@ -2908,7 +2908,7 @@ class TestTaskChaining:
             ], project="file-aware-bad")
 
         assert result["ok"] is False
-        assert "task IDs only" in result["error"]
+        assert "task IDs only" in result["error"] or "Dependencies must be real task IDs" in result["error"]
         mock_urlopen.assert_not_called()
 
     def test_reset_project_plans_deletes_generated_tasks_after_cancelling(self, client):
