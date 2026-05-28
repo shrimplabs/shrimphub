@@ -41,13 +41,12 @@ def isolated_orc(tmp_path):
         lifecycle._active_handles.clear()
 
     # Mock LLM connectivity check so tests don't make real network calls.
-    # Also mock spawn_agent in agent_lifecycle because fill_slots calls
-    # agent_lifecycle.spawn_agent directly (orchestrator re-exports it).
-    orig_spawn = lifecycle.spawn_agent
-    lifecycle.spawn_agent = _fake_spawn
+    # Also mock spawn_agent in the orchestrator because fill_slots calls
+    # orchestrator.spawn_agent (module-level alias of lifecycle.spawn_agent).
+    # Patch the orchestrator's own name so fill_slots uses the mock.
     with patch("swarm.orchestrator._check_llm_connectivity", return_value=True):
-        yield
-    lifecycle.spawn_agent = orig_spawn
+        with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
+            yield
 
     conn = getattr(db._local, "conn", None)
     if conn:
