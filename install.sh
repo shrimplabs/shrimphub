@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Swarm Controller installer
-# Usage: curl -fsSL https://swarm.workspace.com/install.sh | bash
+# Usage: curl -fsSL https://shrimphub.ai/install.sh | bash
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" pull --ff-only || warn "git pull failed — continuing with existing code."
 else
     info "Cloning Swarm Controller..."
-    git clone https://github.com/workspace/swarm-controller.git "$INSTALL_DIR"
+    git clone https://github.com/shrimphub-ai/swarm-controller.git "$INSTALL_DIR"
     success "Cloned to $INSTALL_DIR"
 fi
 
