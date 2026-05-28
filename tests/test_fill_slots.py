@@ -1,7 +1,7 @@
 """
 Tests for fill_slots() and _get_next_task() in swarm/orchestrator.py.
 
-spawn_agent() is mocked to avoid real subprocess creation — scheduling
+spawn_agent() is mocked to avoid real subprocess creation -- scheduling
 logic is what's under test here.
 """
 import threading
@@ -40,7 +40,14 @@ def isolated_orc(tmp_path):
     with lifecycle._handle_lock:
         lifecycle._active_handles.clear()
 
-    yield
+    # Mock LLM connectivity check so tests don't make real network calls.
+    # Also mock spawn_agent in agent_lifecycle because fill_slots calls
+    # agent_lifecycle.spawn_agent directly (orchestrator re-exports it).
+    orig_spawn = lifecycle.spawn_agent
+    lifecycle.spawn_agent = _fake_spawn
+    with patch("swarm.orchestrator._check_llm_connectivity", return_value=True):
+        yield
+    lifecycle.spawn_agent = orig_spawn
 
     conn = getattr(db._local, "conn", None)
     if conn:
@@ -120,8 +127,7 @@ class TestGetNextTask:
         _task(task_id="high", priority=90)
 
         orc.MAX_ACTIVE_AGENTS = 1
-        with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
-            orc.fill_slots(lambda t: "", max_spawn=1)
+        orc.fill_slots(lambda t: "", max_spawn=1)
 
         assert db.task_get("high")["status"] == "in_progress"
         assert db.task_get("low")["status"] == "pending"
@@ -174,7 +180,7 @@ class TestGetNextTask:
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             orc.fill_slots(lambda t: "", max_spawn=1)
 
-        # Child has higher priority but unmet dep — parent should be picked
+        # Child has higher priority but unmet dep -- parent should be picked
         assert db.task_get("parent")["status"] == "in_progress"
         assert db.task_get("child")["status"] == "pending"
 
@@ -214,7 +220,7 @@ class TestGetNextTask:
         """A pending QA task is picked up when fewer than 2 vision QA agents are active."""
         _project("proj-a")
         _project("proj-b")
-        # One active vision QA — below the cap of 2
+        # One active vision QA -- below the cap of 2
         db.task_upsert({
             "id": "qa-active", "project": "proj-a", "type": "qa",
             "description": "qa running", "priority": 75, "status": "in_progress",
