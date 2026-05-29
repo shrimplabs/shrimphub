@@ -100,10 +100,14 @@ _projects_sprint_qa_done: set = set()
 # GARDENER_MAX_TASKS limits tasks created per gardener run
 # GARDENER_SKIP_PROJECTS lists projects the gardener should ignore
 # LAST_GARDENER_RUN_TS is synced from config at startup and updated by api_gardener.py
+# META_MODE_ENABLED is the master toggle for all meta-agents (Gardener, Cartographer,
+# Librarian, Archaeologist, Auditor, Scheduler). When False, no meta-agent scheduling
+# fires regardless of individual agent enabled flags.
 GARDENER_ENABLED: bool = False
 GARDENER_MAX_TASKS: int = 10
 GARDENER_SKIP_PROJECTS: list = []
 LAST_GARDENER_RUN_TS: float = 0.0
+META_MODE_ENABLED: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +462,8 @@ def _fire_idle_gardener() -> None:
     having run to prune stale knowledge and clean up dead code.
     """
     if not GARDENER_ENABLED:
+        return
+    if not META_MODE_ENABLED:
         return
     if get_active_count() > 0:
         return

@@ -102,6 +102,7 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.GARDENER_MAX_TASKS      = config.get("gardener_max_tasks_per_run", 10)
     orchestrator.GARDENER_SKIP_PROJECTS = config.get("gardener_skip_projects", [])
     orchestrator.LAST_GARDENER_RUN_TS   = float(config.get("_gardener_last_run_ts", 0.0))
+    orchestrator.META_MODE_ENABLED      = config.get("meta_mode_enabled", False)
 
     agent_lifecycle.configure(
         workspace=workspace,
@@ -825,6 +826,16 @@ def create_app(
         app,
         config=config,
         data_dir=data_dir,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
+    )
+
+    # ---------- Meta Mode ----------
+
+    from swarm.api_meta import register_routes as _reg_meta
+    _reg_meta(
+        app,
+        config=config,
         config_file=config_file,
         _config_write_lock=_config_write_lock,
     )
