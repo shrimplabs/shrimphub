@@ -163,3 +163,8 @@ swarm/gardener_knowledge.py: standalone knowledge store. JSONL at data/swarm_kno
 - `swarm/api_projects.py` update_project (line 312): calls `_sync_managed_projects` ✓
 - `swarm/api_projects.py` spawn_parallel (line 985): calls `_sync_managed_projects` ✓
 - `swarm/api_spawn.py` create_project_task (line 133): calls `_sync_managed_projects` ✓
+
+---
+swarm/agents.py is a template (not a regular module) — it gets string-formatted with {placeholder} values at agent-spawn time. Ruff F401/F821 reports in that file (e.g. IGNORE_DIRS, signal, sys, time imports) are template-time issues, not runtime bugs. Do NOT auto-fix them — they break the template substitution.
+
+All ruff F401/F841 errors in swarm/agent_runtime.py and swarm/agent_lifecycle.py are safe to fix. In agent_runtime.py specifically, all named qa_tools imports can be removed — only `from swarm import qa_tools` (module ref) is needed for atexit.register(qa_tools.kill_game) and atexit.register(qa_tools.harness_kill_game).

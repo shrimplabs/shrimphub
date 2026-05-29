@@ -5,14 +5,13 @@ Flask API for the Swarm Controller.
 Provides endpoints for managing projects, tasks, and agents.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 import json
 import os
 import sqlite3
-import sys
 import threading
 import time
 
@@ -25,7 +24,6 @@ from swarm.task_chains import chain_to_project_head
 _config_write_lock = threading.Lock()
 
 # Re-export for backward compatibility with tests that import from swarm.api
-from swarm.api_webhook import fire_webhook as _fire_webhook
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +347,7 @@ def create_app(
         return jsonify({"ok": True, "ts": time.time()})
 
     # ---------- Login ----------
-    from swarm.api_auth import register_routes as _register_auth_routes, require_auth
+    from swarm.api_auth import register_routes as _register_auth_routes
     _register_auth_routes(app, config=config)
 
     # ---------- Spawning (extracted to api_spawn.py) ----------

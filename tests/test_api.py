@@ -1471,7 +1471,6 @@ class TestKillAgent:
 
     def test_kill_via_handle(self, client):
         """Kill succeeds when the process handle is in _active_handles."""
-        import uuid
         from swarm import orchestrator
         agent_id = self._seed_agent()
         mock_proc = MagicMock()
@@ -2206,7 +2205,6 @@ class TestTaskChaining:
         assert r.json["created"] == 9
 
     def test_create_project_tasks_auto_repairs_invalid_graph(self, client, app, monkeypatch):
-        from swarm import api_chat
         app.config["PROJECT_CREATION_RETRY_ROUNDS_OVERRIDE"] = 2
 
         def fake_scaffold(project_name, project_path, project_type, overview_text, config):
