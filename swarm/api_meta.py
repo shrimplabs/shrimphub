@@ -30,7 +30,11 @@ def _agent_status() -> Dict[str, Any]:
             "interval_hours": config_ref.get("cartographer_interval_hours", 2),
         },
         "librarian": {
-            "enabled": False,
+            "enabled": config_ref.get("librarian_enabled", False),
+            "completion_counter": float(config_ref.get(
+                "_librarian_completion_counter", 0
+            )),
+            "trigger_interval": config_ref.get("librarian_trigger_interval", 50),
         },
         "archaeologist": {
             "enabled": False,

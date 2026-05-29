@@ -70,6 +70,10 @@ def _run_librarian_task(config: Dict, data_dir: Path) -> str:
     task_id = f"librarian-{int(time.time())}"
     project = "swarm-controller"
     deps = chain_to_project_head(db, project, task_id=task_id)
+    # Inject LIBRARIAN_AUTONOMOUS_EDITS into task metadata so the agent reads it
+    # as a config variable (the prompt reads it via the librarian_autonomous_edits
+    # placeholder, injected into task context by swarm_runner just like QA_MAX_CYCLES).
+    autonomous_edits = config.get("librarian_autonomous_edits", False)
     db.task_upsert({
         "id": task_id,
         "project": project,
@@ -84,10 +88,15 @@ def _run_librarian_task(config: Dict, data_dir: Path) -> str:
         "priority": 60,
         "status": "pending",
         "dependencies": deps,
-        "metadata": {"auto_spawned": True},
+        "metadata": {
+            "auto_spawned": True,
+            "librarian_autonomous_edits": autonomous_edits,
+        },
         "attempts": 0,
         "max_attempts": 1,
     })
+    ts = time.time()
+    _persist_state(data_dir, {"_librarian_last_run_ts": ts})
     return task_id
 
 
@@ -117,19 +126,21 @@ def register_routes(app, config: Dict, data_dir: Path,
 
     @app.route("/api/librarian/status", methods=["GET"])
     def librarian_status():
-        """Return librarian status: completion counter, last report, enabled."""
+        """Return librarian status: completion counter, last report, enabled, autonomous_edits."""
         report = _get_report(data_dir)
         enabled = config.get("librarian_enabled", False)
         trigger_interval = config.get("librarian_trigger_interval", DEFAULT_TRIGGER_INTERVAL)
         counter = config.get("_librarian_completion_counter", 0)
-        # Compute how close to next trigger
         next_trigger_at = (counter // trigger_interval + 1) * trigger_interval
+        last_run_ts = float(config.get("_librarian_last_run_ts", 0.0))
         return jsonify({
             "completion_counter": counter,
             "trigger_interval": trigger_interval,
             "next_trigger_at": next_trigger_at,
             "last_report": report,
             "enabled": enabled,
+            "autonomous_edits": config.get("librarian_autonomous_edits", False),
+            "last_run_ts": last_run_ts,
         })
 
     @app.route("/api/librarian/run", methods=["POST"])
@@ -146,6 +157,7 @@ def register_routes(app, config: Dict, data_dir: Path,
             "librarian_enabled": config.get("librarian_enabled", False),
             "librarian_trigger_interval": config.get("librarian_trigger_interval", DEFAULT_TRIGGER_INTERVAL),
             "librarian_max_prompt_tasks": config.get("librarian_max_prompt_tasks", DEFAULT_MAX_PROMPT_TASKS),
+            "librarian_autonomous_edits": config.get("librarian_autonomous_edits", False),
         })
 
     @app.route("/api/librarian/config", methods=["POST"])
@@ -156,6 +168,7 @@ def register_routes(app, config: Dict, data_dir: Path,
             "librarian_enabled",
             "librarian_trigger_interval",
             "librarian_max_prompt_tasks",
+            "librarian_autonomous_edits",
         }
         for key in librarian_keys:
             if key in data:
@@ -171,6 +184,24 @@ def register_routes(app, config: Dict, data_dir: Path,
             "librarian_enabled": config.get("librarian_enabled", False),
             "librarian_trigger_interval": config.get("librarian_trigger_interval", DEFAULT_TRIGGER_INTERVAL),
             "librarian_max_prompt_tasks": config.get("librarian_max_prompt_tasks", DEFAULT_MAX_PROMPT_TASKS),
+            "librarian_autonomous_edits": config.get("librarian_autonomous_edits", False),
+        })
+
+    @app.route("/api/librarian/autonomous-edits", methods=["POST"])
+    def librarian_autonomous_edits_toggle():
+        """Toggle librarian autonomous edits mode and persist to config.json.
+
+        When autonomous edits are enabled, the librarian agent directly edits
+        prompts/*.yaml files and commits via git (git is the rollback safety net).
+        When disabled (default), the librarian creates refactor tasks for human review.
+        """
+        data = request.json or {}
+        enabled = bool(data.get("enabled", False))
+        config["librarian_autonomous_edits"] = enabled
+        _sync_librarian_globals(config)
+        _persist_config(config, config_file, _config_write_lock)
+        return jsonify({
+            "librarian_autonomous_edits": enabled,
         })
 
 
@@ -181,6 +212,7 @@ def _sync_librarian_globals(config: Dict) -> None:
         _orch.LIBRARIAN_ENABLED = config.get("librarian_enabled", False)
         _orch.LIBRARIAN_TRIGGER_INTERVAL = config.get("librarian_trigger_interval", DEFAULT_TRIGGER_INTERVAL)
         _orch.LIBRARIAN_MAX_PROMPT_TASKS = config.get("librarian_max_prompt_tasks", DEFAULT_MAX_PROMPT_TASKS)
+        _orch.LIBRARIAN_AUTONOMOUS_EDITS = config.get("librarian_autonomous_edits", False)
     except Exception:
         pass
 
@@ -196,7 +228,7 @@ def _persist_config(config: Dict, config_file: Path | None = None,
             if config_file.exists():
                 cfg = json.loads(config_file.read_text(encoding="utf-8"))
             for key in ("librarian_enabled", "librarian_trigger_interval",
-                        "librarian_max_prompt_tasks"):
+                        "librarian_max_prompt_tasks", "librarian_autonomous_edits"):
                 if key in config:
                     cfg[key] = config[key]
             config_file.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")

@@ -114,10 +114,12 @@ META_MODE_ENABLED: bool = False
 # LIBRARIAN_TRIGGER_INTERVAL fires after this many task completions (default 50)
 # LIBRARIAN_MAX_PROMPT_TASKS limits refactor tasks created per run (default 3)
 # LIBRARIAN_COMPLETION_COUNTER tracks completed tasks -- incremented by agent_lifecycle
+# LIBRARIAN_AUTONOMOUS_EDITS: when True, librarian directly edits prompts/*.yaml and commits
 LIBRARIAN_ENABLED: bool = False
 LIBRARIAN_TRIGGER_INTERVAL: int = 50
 LIBRARIAN_MAX_PROMPT_TASKS: int = 3
 LIBRARIAN_COMPLETION_COUNTER: int = 0
+LIBRARIAN_AUTONOMOUS_EDITS: bool = False
 
 # Auditor: weekly structural-audit agent
 # META_AUDITOR_ENABLED gates scheduled runs (default False)

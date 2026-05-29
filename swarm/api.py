@@ -103,6 +103,10 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.META_MODE_ENABLED      = config.get("meta_mode_enabled", False)
     orchestrator.CARTOGRAPHER_ENABLED    = config.get("cartographer_enabled", False)
     orchestrator.CARTOGRAPHER_INTERVAL_HOURS = config.get("cartographer_interval_hours", 2)
+    orchestrator.LIBRARIAN_ENABLED           = config.get("librarian_enabled", False)
+    orchestrator.LIBRARIAN_TRIGGER_INTERVAL  = config.get("librarian_trigger_interval", 50)
+    orchestrator.LIBRARIAN_MAX_PROMPT_TASKS  = config.get("librarian_max_prompt_tasks", 3)
+    orchestrator.LIBRARIAN_COMPLETION_COUNTER = float(config.get("_librarian_completion_counter", 0))
 
     agent_lifecycle.configure(
         workspace=workspace,
@@ -854,6 +858,16 @@ def create_app(
     _reg_cartographer(
         app,
         config=config,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
+    )
+
+    # ---------- Librarian ----------
+    from swarm.api_librarian import register_routes as _reg_librarian
+    _reg_librarian(
+        app,
+        config=config,
+        data_dir=data_dir,
         config_file=config_file,
         _config_write_lock=_config_write_lock,
     )
