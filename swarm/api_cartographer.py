@@ -11,18 +11,17 @@ from typing import Any, Dict
 
 from flask import jsonify, request
 
+
 from swarm import db
 from swarm.task_chains import chain_to_project_head
 
 # Module-level globals -- wired from api.py via register_routes
-app_ref: Any = None       # Flask app
-config_ref: Dict = {}      # shared config dict
-
+app_ref: Any = None
+config_ref: Dict = {}
 # Scheduler state
 _scheduler_timer: threading.Timer | None = None
 _scheduler_lock = threading.Lock()
-
-# Default schedule: every 2 hours
+# Default: every 2 hours
 DEFAULT_INTERVAL_SECS = 2 * 3600
 
 
@@ -34,35 +33,26 @@ def _current_ts() -> float:
     return time.time()
 
 
-def _last_run_ts(config: Dict) -> float:
-    return float(config.get("_cartographer_last_run_ts", 0.0))
+def _last_run_ts() -> float:
+    return float(config_ref.get("_cartographer_last_run_ts", 0.0))
 
 
-def _set_last_run_ts(config: Dict, ts: float) -> None:
-    config["_cartographer_last_run_ts"] = ts
+def _set_last_run_ts(ts: float) -> None:
+    config_ref["_cartographer_last_run_ts"] = ts
 
 
-def _get_project_map(data_dir: Path) -> str | None:
-    path = data_dir / "PROJECT_MAP.md"
-    if path.exists():
+def _get_report(data_dir: Path) -> str | None:
+    report_path = data_dir / "PROJECT_MAP.md"
+    if report_path.exists():
         try:
-            return path.read_text(encoding="utf-8")
+            text = report_path.read_text(encoding="utf-8")
+            return text[:500] if text else None
         except Exception:
             pass
     return None
 
 
-def _get_summary_json(data_dir: Path) -> Dict | None:
-    path = data_dir / "SWARM_SUMMARY.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return None
-
-
-def _run_cartographer_task(config: Dict, data_dir: Path) -> str:
+def _run_cartographer_task() -> str:
     """Create a cartographer task and return its task_id."""
     task_id = f"cartographer-{int(time.time())}"
     project = "swarm-controller"
@@ -72,9 +62,12 @@ def _run_cartographer_task(config: Dict, data_dir: Path) -> str:
         "project": project,
         "type": "cartographer",
         "description": (
-            "Run the cartographer meta-agent. Survey all managed projects, collect health "
-            "signals, cross-reference known patterns from swarm_knowledge.jsonl, and write "
-            "findings to data/PROJECT_MAP.md and data/SWARM_SUMMARY.json."
+            "Run the Cartographer meta-agent. Survey all managed projects in the swarm, "
+            "collect health signals (task queue state, agent activity, health scores, "
+            "recent commit dates), cross-reference known patterns from "
+            "data/swarm_knowledge.jsonl, and write the narrative PROJECT_MAP.md and "
+            "machine-readable SWARM_SUMMARY.json to the swarm data directory. "
+            "This is a READ-ONLY survey -- do not edit any project files."
         ),
         "priority": 60,
         "status": "pending",
@@ -83,12 +76,20 @@ def _run_cartographer_task(config: Dict, data_dir: Path) -> str:
         "attempts": 0,
         "max_attempts": 1,
     })
-    _set_last_run_ts(config, _current_ts())
-    _persist_state(data_dir, {"_cartographer_last_run_ts": _current_ts()})
+    ts = _current_ts()
+    _set_last_run_ts(ts)
+    _persist_state({"_cartographer_last_run_ts": ts})
+    print(f"[Cartographer] Task created: {task_id}")
     return task_id
 
 
-def _persist_state(data_dir: Path, updates: Dict) -> None:
+def _persist_state(updates: Dict) -> None:
+    if app_ref is None:
+        return
+    try:
+        data_dir = Path(app_ref.config["DATA_DIR"])
+    except Exception:
+        data_dir = Path(__file__).parent.parent / "data"
     state_file = data_dir / "cartographer_state.json"
     state = {}
     if state_file.exists():
@@ -103,48 +104,32 @@ def _persist_state(data_dir: Path, updates: Dict) -> None:
         pass
 
 
-def _load_state(data_dir: Path) -> Dict:
-    state_file = data_dir / "cartographer_state.json"
-    if state_file.exists():
-        try:
-            return json.loads(state_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
-
 
 # ---------------------------------------------------------------------------
 # Scheduling
 # ---------------------------------------------------------------------------
 
-def _schedule_cartographer(app: Any, config: Dict, data_dir: Path) -> None:
-    """Schedule the next cartographer run based on cartographer_interval_hours."""
-    global _scheduler_timer, _scheduler_lock
+def _schedule_cartographer() -> None:
+    """Schedule the next cartographer run."""
+    global _scheduler_timer
 
-    enabled = config.get("cartographer_enabled", False)
-    if not enabled:
+    if not config_ref.get("cartographer_enabled", False):
         return
 
-    interval = config.get("cartographer_interval_hours", 2)
-    if isinstance(interval, str):
-        try:
-            interval = float(interval)
-        except ValueError:
-            interval = 2.0
-    interval = max(interval * 3600, 300)  # minimum 5 minutes
+    interval = config_ref.get("cartographer_interval_hours", 2) * 3600
+    interval = max(interval, 300)  # minimum 5 minutes
+
 
     def _fire():
         try:
-            _run_cartographer_task(config, data_dir)
-            print(f"[Cartographer] Scheduled run fired -- task created at {datetime.now(timezone.utc).isoformat()}")
+            _run_cartographer_task()
+            print(f"[Cartographer] Scheduled run fired at {datetime.now(timezone.utc).isoformat()}")
         except Exception as exc:
             print(f"[Cartographer] Scheduled run failed: {exc}")
         finally:
             with _scheduler_lock:
                 global _scheduler_timer
-                _scheduler_timer = threading.Timer(interval, _fire)
-                _scheduler_timer.daemon = True
-                _scheduler_timer.start()
+                _schedule_cartographer()  # reschedule
 
     with _scheduler_lock:
         if _scheduler_timer is not None:
@@ -152,15 +137,23 @@ def _schedule_cartographer(app: Any, config: Dict, data_dir: Path) -> None:
         _scheduler_timer = threading.Timer(interval, _fire)
         _scheduler_timer.daemon = True
         _scheduler_timer.start()
-    print(f"[Cartographer] Scheduler started -- interval {interval}s, enabled={enabled}")
+
+
+def _stop_scheduler() -> None:
+    global _scheduler_timer
+    with _scheduler_lock:
+        if _scheduler_timer is not None:
+            _scheduler_timer.cancel()
+            _scheduler_timer = None
 
 
 # ---------------------------------------------------------------------------
 # Route registration
 # ---------------------------------------------------------------------------
 
-def register_routes(app, config: Dict, data_dir: Path,
-               config_file: Path | None = None,
+
+def register_routes(app, config: Dict,
+               config_file: Any = None,
                _config_write_lock: threading.Lock | None = None) -> None:
     """Register cartographer routes on the Flask app."""
     global app_ref, config_ref
@@ -169,27 +162,46 @@ def register_routes(app, config: Dict, data_dir: Path,
     config_ref = config
 
     # Load persisted last-run state
-    state = _load_state(data_dir)
-    config["_cartographer_last_run_ts"] = state.get("_cartographer_last_run_ts", 0.0)
+    try:
+        data_dir = Path(app.config["DATA_DIR"])
+    except Exception:
+        data_dir = Path(__file__).parent.parent / "data"
+    state_file = data_dir / "cartographer_state.json"
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            config["_cartographer_last_run_ts"] = state.get("_cartographer_last_run_ts", 0.0)
+        except Exception:
+            pass
 
     @app.route("/api/cartographer/status", methods=["GET"])
     def cartographer_status():
-        """Return cartographer status: last_run_ts, project_map, summary_json, enabled."""
-        last_ts = _last_run_ts(config)
-        project_map = _get_project_map(data_dir)
-        summary = _get_summary_json(data_dir)
-        enabled = config.get("cartographer_enabled", False)
+        """Return cartographer status."""
+        last_ts = _last_run_ts()
+        report = _get_report(data_dir)
+        enabled = config_ref.get("cartographer_enabled", False)
+        interval_hours = config_ref.get("cartographer_interval_hours", 2)
         return jsonify({
             "last_run_ts": last_ts,
-            "project_map": project_map,
-            "summary": summary,
+            "last_report": report,
             "enabled": enabled,
+            "interval_hours": interval_hours,
         })
 
     @app.route("/api/cartographer/run", methods=["POST"])
     def run_cartographer():
         """Trigger a cartographer task immediately."""
-        task_id = _run_cartographer_task(config, data_dir)
+        try:
+            from swarm import orchestrator as _orch
+            if not getattr(_orch, "META_MODE_ENABLED", False):
+                return jsonify({
+                    "error": "meta_mode_enabled is false -- cartographer is disabled. "
+                             "Enable meta mode via POST /api/meta-mode first."
+                }), 400
+        except Exception:
+            pass
+
+        task_id = _run_cartographer_task()
         print(f"[Cartographer] Manual run triggered -- task_id={task_id}")
         return jsonify({"task_id": task_id, "status": "created"})
 
@@ -197,38 +209,39 @@ def register_routes(app, config: Dict, data_dir: Path,
     def cartographer_config_get():
         """Return current cartographer configuration."""
         return jsonify({
-            "cartographer_enabled": config.get("cartographer_enabled", False),
-            "cartographer_interval_hours": config.get("cartographer_interval_hours", 2),
+            "cartographer_enabled": config_ref.get("cartographer_enabled", False),
+            "cartographer_interval_hours": config_ref.get("cartographer_interval_hours", 2),
         })
+
 
     @app.route("/api/cartographer/config", methods=["POST"])
     def cartographer_config_set():
         """Update cartographer configuration and persist to config.json."""
         data = request.json or {}
-        config_keys = {
-            "cartographer_enabled",
-            "cartographer_interval_hours",
-        }
-        for key in config_keys:
+        for key in ("cartographer_enabled", "cartographer_interval_hours"):
             if key in data:
-                config[key] = data[key]
+                config_ref[key] = data[key]
 
-        # Sync to orchestrator module globals
-        _sync_cartographer_globals(config)
+        _sync_cartographer_globals(config_ref)
+        _persist_config(config_ref, config_file, _config_write_lock)
 
-        # Persist to config.json
-        _persist_config(config, config_file, _config_write_lock)
-
-        # Restart scheduler if enabled changed or interval changed
-        _schedule_cartographer(app, config, data_dir)
+        if "cartographer_enabled" in data:
+            if data["cartographer_enabled"]:
+                _schedule_cartographer()
+            else:
+                _stop_scheduler()
+        elif config_ref.get("cartographer_enabled", False):
+            _schedule_cartographer()
 
         return jsonify({
-            "cartographer_enabled": config.get("cartographer_enabled", False),
-            "cartographer_interval_hours": config.get("cartographer_interval_hours", 2),
+            "cartographer_enabled": config_ref.get("cartographer_enabled", False),
+            "cartographer_interval_hours": config_ref.get("cartographer_interval_hours", 2),
         })
 
     # Start the scheduler after routes are registered
-    _schedule_cartographer(app, config, data_dir)
+    if config_ref.get("cartographer_enabled", False):
+        _schedule_cartographer()
+
 
 
 def _sync_cartographer_globals(config: Dict) -> None:
@@ -236,12 +249,14 @@ def _sync_cartographer_globals(config: Dict) -> None:
     try:
         from swarm import orchestrator as _orch
         _orch.CARTOGRAPHER_ENABLED = config.get("cartographer_enabled", False)
+        _orch.CARTOGRAPHER_INTERVAL_HOURS = config.get("cartographer_interval_hours", 2)
     except Exception:
         pass
 
 
-def _persist_config(config: Dict, config_file: Path | None = None,
-                      _config_write_lock: threading.Lock | None = None) -> None:
+
+def _persist_config(config: Dict, config_file: Any,
+                    _config_write_lock: threading.Lock | None = None) -> None:
     """Persist cartographer keys to config.json via the write lock."""
     if config_file is None or _config_write_lock is None:
         return

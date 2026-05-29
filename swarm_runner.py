@@ -943,6 +943,9 @@ def generate_task_script(task: dict) -> str:
         "auditor", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
         meta_auditor_max_tasks=_config.get("meta_auditor_max_tasks", 20),
     )
+    cartographer_system, cartographer_user = _load_prompt(
+        "cartographer", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+    )
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1137,6 +1140,8 @@ rt.LIBRARIAN_SYSTEM         = {repr(librarian_system)}
 rt.LIBRARIAN_USER           = {repr(librarian_user)}
 rt.AUDITOR_SYSTEM           = {repr(auditor_system)}
 rt.AUDITOR_USER             = {repr(auditor_user)}
+rt.CARTOGRAPHER_SYSTEM      = {repr(cartographer_system)}
+rt.CARTOGRAPHER_USER        = {repr(cartographer_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}

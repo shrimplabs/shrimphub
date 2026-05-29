@@ -847,6 +847,15 @@ def create_app(
         _config_write_lock=_config_write_lock,
     )
 
+    # ---------- Cartographer ----------
+    from swarm.api_cartographer import register_routes as _reg_cartographer
+    _reg_cartographer(
+        app,
+        config=config,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
+    )
+
     # ---------- Strategies ----------
 
     @app.route("/api/strategies", methods=["GET"])
