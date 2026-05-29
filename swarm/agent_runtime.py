@@ -211,7 +211,7 @@ def _append_history_record(
     import json
 
     record = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "task_id": task_id,
         "project": project,
         "task_type": task_type,
