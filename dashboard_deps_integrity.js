@@ -6,6 +6,9 @@
     let _depGraphViewByProject = {};
     let _integrityData = null;
 
+    // Graph render state for loading-indicator retry UX
+    let _graphRenderState = null; // { retries: 0, abortCtrl: null }
+
     // Playback state
     let _pbEvents = null;       // array of event objects from /api/dependencies/playback-events
     let _pbIndex = 0;           // current event index
@@ -21,7 +24,7 @@
     // Keys are the exact fillcolor/fontcolor values from dependencies.py + api_deps.py.
     const _DOT_COLOR_MAP = {
         dark: {
-            // These are already the dark-mode values — keep as-is
+            // These are already the dark-mode values -- keep as-is
         },
         light: {
             // node fill remaps
@@ -129,6 +132,64 @@
         return message.includes('cannot enlarge memory arrays') || message.includes('out of memory') || message.includes('memory');
     }
 
+    const _RENDER_MAX_RETRIES = 3;
+    const _RENDER_TIMEOUT_MS  = 30000;
+
+    function _showGraphLoading(container) {
+        _hideGraphLoading(container);
+        const el = document.createElement('div');
+        el.id = 'graphLoadingOverlay';
+        el.textContent = 'Rendering graph...';
+        el.style.cssText = [
+            'position:absolute','inset:0','display:flex','align-items:center',
+            'justify-content:center','font-size:13px','color:#8b949e',
+            'background:rgba(13,17,23,0.55)','border-radius:6px','z-index:10',
+            'pointer-events:none',
+        ].join(';');
+        container.style.position = 'relative';
+        container.appendChild(el);
+    }
+
+    function _hideGraphLoading(container) {
+        const el = container && document.getElementById('graphLoadingOverlay');
+        if (el) el.remove();
+    }
+
+    function _isRenderAborted() {
+        return _graphRenderState && _graphRenderState._abortCtrl &&
+            _graphRenderState._abortCtrl.signal.aborted;
+    }
+
+    async function _renderWithRetry(dot) {
+        _graphRenderState = { _abortCtrl: new AbortController() };
+        const ac = _graphRenderState._abortCtrl;
+        const startedAt = Date.now();
+
+        for (let attempt = 0; attempt < _RENDER_MAX_RETRIES; attempt++) {
+            if (ac.signal.aborted) return null;
+            if (Date.now() - startedAt > _RENDER_TIMEOUT_MS) {
+                if (!ac.signal.aborted) ac.abort();
+                throw new Error('graph render timed out after 30 s');
+            }
+            if (_viz) { try { _viz.destroy(); } catch (_) {} }
+            _viz = new Viz();
+            try {
+                return await _viz.renderSVGElement(dot);
+            } catch (err) {
+                if (ac.signal.aborted) return null;
+                const memory = _isVizMemoryError(err);
+                if (memory && attempt < _RENDER_MAX_RETRIES - 1) {
+                    console.warn('Graph render WASM memory error, attempt ' + (attempt + 1) + ', retrying');
+                    _viz = null;
+                    await new Promise(function(resolve) { setTimeout(resolve, 200); });
+                    continue;
+                }
+                throw err;
+            }
+        }
+        return null;
+    }
+
     function _depGraphViewKey() {
         return _ctx().selectedProject || '__all__';
     }
@@ -218,7 +279,7 @@
 
         mm = document.createElement('div');
         mm.className = 'deps-minimap';
-        mm.title = 'Minimap — click or drag to pan';
+        mm.title = 'Minimap -- click or drag to pan';
         mm.innerHTML = `
             <svg class="deps-minimap-svg" xmlns="http://www.w3.org/2000/svg"
                  width="${MINIMAP_W}" height="${MINIMAP_H}">
@@ -275,7 +336,7 @@
             mmGroup._lastSource = mainGroup;
             mmGroup._lastChildCount = mainGroup.children.length;
             mmGroup.innerHTML = '';
-            // Shallow-clone each node's shape (polygon/ellipse) — skip text for perf
+            // Shallow-clone each node's shape (polygon/ellipse) -- skip text for perf
             mainGroup.querySelectorAll('g.node').forEach(node => {
                 const shape = node.querySelector('polygon,ellipse,rect,circle');
                 if (!shape) return;
@@ -502,9 +563,9 @@
             const archival = summary.archival || {};
             const active = summary.active || {};
             const findings = data.findings || {};
-            subtitle.textContent = `${scopeLabel} · ${live.problem_count || 0} live issues · ${archival.problem_count || 0} archival issues`;
+            subtitle.textContent = `${scopeLabel} * ${live.problem_count || 0} live issues * ${archival.problem_count || 0} archival issues`;
             const chips = [
-                ['Live issues', live.problem_count || 0, `${live.stale_heads || 0} heads · ${live.orphaned_agents || 0} agents`],
+                ['Live issues', live.problem_count || 0, `${live.stale_heads || 0} heads * ${live.orphaned_agents || 0} agents`],
                 ['Archival issues', archival.problem_count || 0, `${archival.stale_plans || 0} stale plans`],
                 ['Blocked tasks', active.blocked_tasks || 0, `${active.missing_dependencies || 0} missing deps`],
                 ['Invalid blockers', live.dead_blockers || 0, `${live.continuity_gaps || 0} continuity gaps`],
@@ -528,7 +589,7 @@
                     <div class="integrity-detail-main">
                         <span class="integrity-detail-kind warn">Stale head</span>
                         <span class="integrity-detail-project">${escapeHtml(item.project || 'unknown project')}</span>
-                        <span class="integrity-detail-meta">${escapeHtml(item.head_task_id || 'missing')} · ${escapeHtml(item.reason || 'invalid')}</span>
+                        <span class="integrity-detail-meta">${escapeHtml(item.head_task_id || 'missing')} * ${escapeHtml(item.reason || 'invalid')}</span>
                     </div>
                     <div class="integrity-detail-actions">
                         <button type="button" class="integrity-action-btn warn" onclick="runIntegrityRepair('head', '${escapeHtml(item.project || '')}')">Repair head</button>
@@ -540,7 +601,7 @@
                     <div class="integrity-detail-main">
                         <span class="integrity-detail-kind warn">Stale plan</span>
                         <span class="integrity-detail-project">${escapeHtml(item.project || 'unknown project')}</span>
-                        <span class="integrity-detail-meta">${escapeHtml(item.plan_id || 'unknown plan')} · ${escapeHtml((item.reasons || []).join(', ') || 'stale')}</span>
+                        <span class="integrity-detail-meta">${escapeHtml(item.plan_id || 'unknown plan')} * ${escapeHtml((item.reasons || []).join(', ') || 'stale')}</span>
                     </div>
                     <div class="integrity-detail-actions">
                         <button type="button" class="integrity-action-btn warn" onclick="runIntegrityRepair('plans', '${escapeHtml(item.project || '')}')">Clean stale plans</button>
@@ -568,7 +629,7 @@
         async loadIntegrityPanel() {
             const ctx = _ctx();
             const subtitle = document.getElementById('integritySubtitle');
-            if (subtitle) subtitle.textContent = 'Loading diagnostics…';
+            if (subtitle) subtitle.textContent = 'Loading diagnostics...';
             try {
                 const projectQuery = ctx.selectedProject ? `project=${encodeURIComponent(ctx.selectedProject)}&` : '';
                 const res = await fetch(`${ctx.API}/api/dependencies/integrity?${projectQuery}include_history=true`);
@@ -613,7 +674,7 @@
                 if (kind === 'recovery') detail.push(`recursive recovery ${beforeLive.recursive_recovery || 0}→${afterLive.recursive_recovery || 0}`);
                 if (kind === 'agents') detail.push(`orphaned agents ${beforeLive.orphaned_agents || 0}→${afterLive.orphaned_agents || 0}`);
                 const label = projectName ? `Project: ${projectName}` : (ctx.selectedProject ? `Project: ${ctx.selectedProject}` : 'All projects');
-                ctx.showToast && ctx.showToast(`<strong>${ctx.escapeHtml(label)}</strong>: ${detail.join(' · ') || 'repair complete'}`, '#e3b341');
+                ctx.showToast && ctx.showToast(`<strong>${ctx.escapeHtml(label)}</strong>: ${detail.join(' * ') || 'repair complete'}`, '#e3b341');
                 ctx.loadData && ctx.loadData();
             } catch (e) {
                 ctx.showToast && ctx.showToast(`Repair failed: ${ctx.escapeHtml(e.message)}`, '#f85149');
@@ -661,12 +722,18 @@
                         return;
                     }
                     try {
-                        if (!_viz) _viz = new Viz();
-                        svg = await _viz.renderSVGElement(dot);
+                        _showGraphLoading(container);
+                        svg = await _renderWithRetry(dot);
+                        if (svg === null && _isRenderAborted()) {
+                            // Render was aborted (e.g. user switched tabs); bail out silently
+                            _hideGraphLoading(container);
+                            return;
+                        }
                         renderedWithHistory = historyLimit;
                         lastRenderError = null;
                         break;
                     } catch (renderError) {
+                        _hideGraphLoading(container);
                         lastRenderError = renderError;
                         console.error('Dependency graph render attempt failed', {error: renderError, historyLimit, dot});
                         _viz = null;
@@ -676,10 +743,11 @@
                     }
                 }
                 if (!svg) {
+                    _hideGraphLoading(container);
                     throw lastRenderError || new Error('graph renderer returned no SVG');
                 }
                 _postProcessDepSvg(svg);
-
+                _hideGraphLoading(container);
                 container.innerHTML = '';
                 container.appendChild(svg);
                 const historySelect = document.getElementById('depsHistoryLimit');
@@ -726,6 +794,7 @@
             } catch (e) {
                 const message = (e && (e.message || e.toString())) || 'unknown render error';
                 console.error('Dependency graph render failed', {error: e, dot});
+                _hideGraphLoading(container);
                 container.textContent = 'Could not render graph: ' + message;
             }
         }
@@ -734,7 +803,7 @@
     // ---------- Dep Graph Playback ----------
 
     function _fmtPlaybackTs(iso) {
-        if (!iso) return '—';
+        if (!iso) return '--';
         try {
             const d = new Date(iso);
             return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})
@@ -770,11 +839,11 @@
             const calloutLabels = {
                 first_task: '🚀 First task created',
                 first_completion: '✅ First completion',
-                sprint_burst: '⚡ Sprint burst — 3+ completions in 60s',
+                sprint_burst: '⚡ Sprint burst -- 3+ completions in 60s',
                 recovery_spawn: '🔄 Recovery task spawned',
             };
             if (ev.callout && calloutLabels[ev.callout]) {
-                calloutEl.textContent = calloutLabels[ev.callout] + ' — ' + ev.label;
+                calloutEl.textContent = calloutLabels[ev.callout] + ' -- ' + ev.label;
                 calloutEl.style.display = '';
             } else {
                 calloutEl.style.display = 'none';
@@ -792,8 +861,8 @@
                 container.textContent = 'No tasks at this point in time.';
                 return;
             }
-            if (!_viz) _viz = new Viz();
-            const svg = await _viz.renderSVGElement(dot);
+            const svg = await _renderWithRetry(dot);
+            if (svg === null) return;
             _postProcessDepSvg(svg);
             container.innerHTML = '';
             container.appendChild(svg);
@@ -838,7 +907,7 @@
         bar.style.display = '';
         const scrubber = document.getElementById('playbackScrubber');
         const tsLabel = document.getElementById('playbackTimestamp');
-        if (tsLabel) tsLabel.textContent = 'Loading…';
+        if (tsLabel) tsLabel.textContent = 'Loading...';
 
         try {
             const res = await fetch(`${ctx.API}/api/dependencies/playback-events?project=${encodeURIComponent(ctx.selectedProject)}`);
