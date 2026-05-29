@@ -1,0 +1,13 @@
+# Godot
+.godot/
+*.import
+uid_cache.bin
+
+# GUT temp
+gut_temp/
+
+# OS
+.DS_Store
+
+# Temp
+_swarm_*.gd
