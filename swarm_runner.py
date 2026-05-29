@@ -937,7 +937,7 @@ def generate_task_script(task: dict) -> str:
     gardener_system, gardener_user = _load_prompt("gardener", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR))
     librarian_system, librarian_user = _load_prompt(
         "librarian", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
-        librarian_max_prompt_tasks=config.get("librarian_max_prompt_tasks", 3),
+        librarian_max_prompt_tasks=_config.get("librarian_max_prompt_tasks", 3),
     )
 
     # ---- Python prompts ----
