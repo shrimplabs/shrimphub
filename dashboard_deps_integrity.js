@@ -757,7 +757,16 @@
                         lastRenderError = renderError;
                         console.error('Dependency graph render attempt failed', {error: renderError, historyLimit, dot});
                         _viz = null;
-                        if (!_isVizMemoryError(renderError) || historyLimit === historyCandidates[historyCandidates.length - 1]) {
+                        const isMemErr = _isVizMemoryError(renderError);
+                        // Global graph OOM: too many nodes for WASM heap — tell user to pick a project
+                        if (isMemErr && !ctx.selectedProject) {
+                            container.innerHTML = `<div style="padding:24px;color:#8b949e;font-size:13px;text-align:center">
+                                Global graph is too large to render (WASM memory limit).<br>
+                                <span style="color:#6e7681">Select a project from the sidebar to view its dependency graph.</span>
+                            </div>`;
+                            return;
+                        }
+                        if (!isMemErr || historyLimit === historyCandidates[historyCandidates.length - 1]) {
                             throw renderError;
                         }
                     }
