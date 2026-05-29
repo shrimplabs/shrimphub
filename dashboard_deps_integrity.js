@@ -488,7 +488,10 @@
             // Not in the local map (e.g. completed/history node) — fetch directly
             try {
                 const res = await fetch(`${ctx.API}/api/tasks/${encodeURIComponent(taskId)}`);
-                if (res.ok) task = await res.json();
+                if (res.ok) {
+                    const data = await res.json();
+                    task = data.task || data; // API wraps in {task: {...}}
+                }
             } catch (_) {}
         }
         if (!task) return;
@@ -501,13 +504,14 @@
             }
         }
         // Completed/failed/cancelled: read-only info panel
-        if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+        const readOnlyStatuses = ['completed', 'failed', 'cancelled'];
+        if (readOnlyStatuses.includes(task.status)) {
             if (typeof openTaskInfoPanel === 'function') {
                 openTaskInfoPanel(task);
-                return;
             }
+            return;
         }
-        // Pending: editable
+        // Pending/in_progress: editable
         if (ctx.openEditTaskModal) ctx.openEditTaskModal(task);
     }
 

@@ -616,7 +616,10 @@ function openTaskInfoPanel(task) {
     document.getElementById('taskInfoBody').innerHTML = `
         <div style="display:flex;flex-wrap:wrap;gap:6px">${pills}</div>
         ${timestamps ? `<div style="font-size:12px;color:#6e7681">${escapeHtml(timestamps)}</div>` : ''}
-        ${row('Description', task.description)}
+        <div>
+            <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Task prompt / description</div>
+            <pre style="font-size:12px;color:#e6edf3;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow-y:auto;margin:0;line-height:1.5">${escapeHtml(task.description || '')}</pre>
+        </div>
         ${deps ? row('Dependencies', deps, true) : ''}
         ${diffStat ? row('Diff stat', diffStat, true) : ''}
         ${lastFailure ? `<div>
