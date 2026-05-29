@@ -162,6 +162,8 @@ AUDITOR_SYSTEM: str = ""
 AUDITOR_USER: str = ""
 ARCHAEOLOGIST_SYSTEM: str = ""
 ARCHAEOLOGIST_USER: str = ""
+SCHEDULER_SYSTEM: str = ""
+SCHEDULER_USER: str = ""
 # Plugin prompt -- set by the wrapper when a plugin is registered for this task_type.
 # Non-empty PLUGIN_SYSTEM takes priority over all built-in prompt routing below.
 PLUGIN_SYSTEM: str = ""
@@ -412,6 +414,8 @@ def main() -> int:
             system_prompt, user_prompt = CARTOGRAPHER_SYSTEM, CARTOGRAPHER_USER
         elif TASK_TYPE == "archaeologist":
             system_prompt, user_prompt = ARCHAEOLOGIST_SYSTEM, ARCHAEOLOGIST_USER
+        elif TASK_TYPE == "meta_scheduler":
+            system_prompt, user_prompt = SCHEDULER_SYSTEM, SCHEDULER_USER
         elif TASK_TYPE == "harness_qa":
             system_prompt, user_prompt = HARNESS_QA_SYSTEM, HARNESS_QA_USER
         elif TASK_TYPE == "scenario_qa":

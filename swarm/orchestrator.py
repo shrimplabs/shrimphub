@@ -143,6 +143,13 @@ ARCHAEOLOGIST_ENABLED: bool = False
 ARCHAEOLOGIST_STALL_THRESHOLD_HOURS: int = 72
 ARCHAEOLOGIST_MAX_CONCURRENT: int = 2
 
+# Scheduler: dynamic orchestrator config adjuster
+SCHEDULER_ENABLED: bool = False
+SCHEDULER_INTERVAL_MINUTES: int = 15
+SCHEDULER_ALLOW_PAUSE: bool = True
+SCHEDULER_ALLOW_AGENT_CEILING_ADJUST: bool = True
+SCHEDULER_OFF_PEAK_HOURS: list = [0, 6]
+
 # ---------------------------------------------------------------------------
 # Webhook helper
 # ---------------------------------------------------------------------------
@@ -450,6 +457,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
             _fire_idle_librarian()
             _fire_weekly_auditor()
             _fire_idle_archaeologist()
+            _fire_idle_scheduler()
         return spawned, skipped
 
 
@@ -618,6 +626,7 @@ def _fire_idle_librarian() -> None:
 
 
 _last_auditor_run_ts: float = 0.0
+_last_scheduler_run_ts: float = 0.0
 
 
 def _fire_weekly_auditor() -> None:
@@ -688,6 +697,71 @@ def _fire_weekly_auditor() -> None:
     _last_auditor_run_ts = now
     print(f"[Auditor] Weekly trigger fired -- created meta_auditor task {task_id} "
           f"(managed projects: {len(managed)})")
+
+
+def _fire_idle_scheduler() -> None:
+    """Fire the scheduler agent on a periodic cadence (controlled by scheduler_interval_minutes).
+
+    Triggers when:
+    - scheduler is enabled via config
+    - META_MODE_ENABLED is True
+    - no agents are currently running
+    - at least SCHEDULER_INTERVAL_MINUTES have passed since _last_scheduler_run_ts
+
+    The scheduler observes task queue, agent slot usage, project priorities, and
+    quota pressure -- then adjusts config for the orchestrator (pausing/unpausing
+    projects, adjusting agent ceiling, scheduling expensive tasks for off-peak).
+    """
+    global _last_scheduler_run_ts
+
+    if not SCHEDULER_ENABLED:
+        return
+    if not META_MODE_ENABLED:
+        return
+    if get_active_count() > 0:
+        return
+
+    interval_secs = SCHEDULER_INTERVAL_MINUTES * 60
+    now = time.time()
+    if now - _last_scheduler_run_ts < interval_secs:
+        return
+
+    all_tasks = db.task_get_all()
+    already_running = any(
+        t.get("type") == "meta_scheduler"
+        and t.get("status") in ("pending", "in_progress")
+        for t in all_tasks
+    )
+    if already_running:
+        return
+
+    task_id = f"meta-scheduler-{int(now)}"
+    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+    db.task_upsert({
+        "id": task_id,
+        "project": "swarm-controller",
+        "type": "meta_scheduler",
+        "description": (
+            "Run the Scheduler meta-agent. Review agent distribution, task type "
+            "breakdown, quota usage (GET /api/quota-limit), project health scores, "
+            "time of day, and data/PROJECT_MAP.md. Make config adjustments: "
+            "pause/unpause projects, adjust max_active_agents ceiling, set "
+            "run_after on expensive tasks (research, harness_qa) for off-peak hours. "
+            "Log each adjustment with reasoning to data/SCHEDULER_LOG.md. "
+            "Never kill running agents."
+        ),
+        "priority": 50,
+        "status": "pending",
+        "dependencies": deps,
+        "metadata": {
+            "auto_spawned": True,
+            "idle_trigger": True,
+        },
+        "attempts": 0,
+        "max_attempts": 1,
+    })
+    _last_scheduler_run_ts = now
+    print(f"[Scheduler] Periodic trigger fired -- created meta_scheduler task {task_id}")
 
 
 def _get_next_task() -> Optional[Dict]:

@@ -885,6 +885,16 @@ def create_app(
         _config_write_lock=_config_write_lock,
     )
 
+    # ---------- Scheduler ----------
+    from swarm.api_scheduler import register_routes as _reg_scheduler
+    _reg_scheduler(
+        app,
+        config=config,
+        data_dir=data_dir,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
+    )
+
     # ---------- Strategies ----------
 
     @app.route("/api/strategies", methods=["GET"])

@@ -48,7 +48,18 @@ def _agent_status() -> Dict[str, Any]:
             "interval_days": config_ref.get("meta_auditor_interval_days", 7),
         },
         "scheduler": {
-            "enabled": False,
+            "enabled": config_ref.get("scheduler_enabled", False),
+            "last_run_ts": float(config_ref.get(
+                "_scheduler_last_run_ts", 0.0
+            )),
+            "interval_minutes": config_ref.get("scheduler_interval_minutes", 15),
+            "allow_pause": config_ref.get("scheduler_allow_pause", True),
+            "allow_agent_ceiling_adjust": config_ref.get(
+                "scheduler_allow_agent_ceiling_adjust", True
+            ),
+            "off_peak_hours": list(config_ref.get(
+                "scheduler_off_peak_hours", [0, 6]
+            )),
         },
     }
 

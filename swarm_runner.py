@@ -949,6 +949,14 @@ def generate_task_script(task: dict) -> str:
     archaeologist_system, archaeologist_user = _load_prompt(
         "archaeologist", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
     )
+    scheduler_system, scheduler_user = _load_prompt(
+        "scheduler", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+        scheduler_allow_pause=_config.get("scheduler_allow_pause", True),
+        scheduler_allow_agent_ceiling_adjust=_config.get(
+            "scheduler_allow_agent_ceiling_adjust", True
+        ),
+        scheduler_off_peak_hours=_config.get("scheduler_off_peak_hours", [0, 6]),
+    )
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1147,6 +1155,8 @@ rt.CARTOGRAPHER_SYSTEM      = {repr(cartographer_system)}
 rt.CARTOGRAPHER_USER        = {repr(cartographer_user)}
 rt.ARCHAEOLOGIST_SYSTEM     = {repr(archaeologist_system)}
 rt.ARCHAEOLOGIST_USER       = {repr(archaeologist_user)}
+rt.SCHEDULER_SYSTEM         = {repr(scheduler_system)}
+rt.SCHEDULER_USER           = {repr(scheduler_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
