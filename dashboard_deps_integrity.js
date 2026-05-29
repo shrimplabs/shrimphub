@@ -483,7 +483,14 @@
         const ctx = _ctx();
         const taskDataMap = ctx.taskDataMap ? ctx.taskDataMap() : {};
         const agentByTaskId = ctx.agentByTaskId ? ctx.agentByTaskId() : {};
-        const task = taskDataMap[taskId];
+        let task = taskDataMap[taskId];
+        if (!task) {
+            // Not in the local map (e.g. completed/history node) — fetch directly
+            try {
+                const res = await fetch(`${ctx.API}/api/tasks/${encodeURIComponent(taskId)}`);
+                if (res.ok) task = await res.json();
+            } catch (_) {}
+        }
         if (!task) return;
         if (task.status === 'in_progress') {
             const agent = agentByTaskId[taskId];
@@ -692,7 +699,7 @@
                     ? tasks.filter(task => task.project === ctx.selectedProject)
                     : tasks;
                 // Global graph: warn if very large but still render
-                if (!ctx.selectedProject && liveProjectTasks.length > 200) {
+                if (!ctx.selectedProject && liveProjectTasks.length > 500) {
                     container.textContent = `Too many tasks to render globally (${liveProjectTasks.length}). Select a project.`;
                     return;
                 }
