@@ -179,3 +179,57 @@ Dashboard gardener UI components:
 - Bootstrap: loadGardenerState() called in dashboard.js bootstrap
 - showToast() comes from dashboard-core.js (defined in dashboard-core.js:312)
 - escapeHtml() is a local function in dashboard_closure.js loaded before dashboard-config.js
+
+---
+## Gardener dashboard UI (feature-62050470-0059 — fully implemented)
+
+**Backend** (`swarm/api_gardener.py`): 4 routes — GET/POST /api/gardener/status, /api/gardener/config, /api/gardener/run, GET /api/gardener/knowledge. Registered in swarm/api.py:42. All 20 gardener tests pass.
+
+**Frontend**:
+- dashboard.html: gardener settings section (lines 762-778), modal panel (lines 858-875)
+- dashboard.css: .gk-badge (confirmed/suspected/disputed), .gk-entry (header/sig/meta/fix/projects/ttl) — lines 2693-2756
+- dashboard.js: bootstrap calls loadGardenerState()
+- dashboard-core.js: initTheme(), applyTheme()
+- dashboard-config.js: gardener functions (lines 844-1012) — loadGardenerState(), _updateGardenerToggle(), _updateGardenerStatusRow(), toggleGardener(), runGardener(), openGardenerKnowledgePanel(), _renderGardenerEntry(), _formatRelativeTime()
+
+**Test files** (all in tests/): test_api_gardener.py (10 tests), test_gardener_knowledge.py (10 tests) — all 20 pass.
+
+Pattern for adding similar dashboard toggles: implement backend route + frontend toggle + status row + modal panel + CSS classes, follow same showToast() + fetch() pattern.
+
+---
+scan_learnings.py (project root): the canonical scanner for all audit_learnings tasks. Run it directly via `python3 scan_learnings.py` — no flags needed. Output goes to data/AUDIT_LEARNINGS_REPORT.md. The report is in .gitignore — never attempt git_commit on it. It processes {task_type}.md files under data/learnings/{project}/ for all 14 task types (TT list in script), extracts patterns via a DRE regex over ## dated headers, buckets them into typed clusters (BUG_CL, FEAT_CL, REF_CL, QA_CL, AUDIT_CL, or shared CMAP), and writes a markdown report with summary table + per-type sections + cross-cutting observations. 110 projects / 486 files completes in seconds.
+
+---
+## Auditor meta-agent (feature-67530299-0471) — fully implemented in commit 586c0a7
+
+**Task type:** `meta_auditor` (NOT `audit` — audit is per-project design audit)
+
+**Files owned:**
+- prompts/auditor.yaml: 118-line meta-agent prompt (weekly structural audit)
+- swarm/api_meta_auditor.py: 305-line route module (was pre-existing from prior attempt)
+
+**Integration points changed:**
+- swarm/api.py: registers api_meta_auditor routes after api_meta routes
+- swarm_runner.py: loads auditor prompts (key `auditor`), sets rt.AUDITOR_SYSTEM/rt.AUDITOR_USER globals
+- swarm/agent_runtime.py: AUDITOR_SYSTEM/USER globals + `elif TASK_TYPE == "meta_auditor":` dispatch
+- swarm/orchestrator.py: META_AUDITOR_ENABLED/_INTERVAL_DAYS/_MAX_TASKS globals + `_fire_weekly_auditor()` weekly idle trigger
+- swarm/api_meta.py: auditor agent now reads enabled/intervals from config (was hardcoded False)
+
+**Config keys (with defaults):**
+- meta_auditor_enabled: False
+- meta_auditor_interval_days: 7
+- meta_auditor_max_tasks: 20
+
+**API routes:**
+- GET /api/meta-auditor/status
+- POST /api/meta-auditor/run (checks META_MODE_ENABLED + orchestrator.META_MODE_ENABLED)
+- GET /api/meta-auditor/config
+- POST /api/meta-auditor/config (updates config + reschedules)
+
+**Weekly trigger logic:**
+- _fire_weekly_auditor() called in fill_slots() when idle (no active agents)
+- Guards: META_AUDITOR_ENABLED, META_MODE_ENABLED, elapsed interval > meta_auditor_interval_days
+- Creates task with type="meta_auditor", chained to swarm-controller project head
+- Skips if a meta_auditor task is already pending/in_progress
+
+**Dashboard: feature-67530299-0610** will need to add Auditor toggle + status panel following the same pattern as the Gardener dashboard UI (dashboard-config.js, dashboard.css, dashboard.html, dashboard.js bootstrap)
