@@ -433,10 +433,16 @@
             });
         }
 
+        // Wheel zoom — ctrlKey means trackpad pinch (browser converts to small deltaY + ctrlKey)
+        // Use a smaller factor for pinch to avoid jumpiness
         container.onwheel = (event) => {
             if (!_depGraphState) return;
             event.preventDefault();
-            const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const isPinch = event.ctrlKey;
+            const delta = isPinch ? event.deltaY * 0.01 : event.deltaY;
+            const factor = delta < 0
+                ? (isPinch ? 1 + Math.min(0.3, -delta * 0.5) : 1.12)
+                : (isPinch ? 1 / (1 + Math.min(0.3, delta * 0.5)) : 1 / 1.12);
             api.zoomDepGraph(factor, event.clientX, event.clientY);
         };
 
@@ -449,6 +455,12 @@
             _depGraphState.originX = _depGraphState.translateX;
             _depGraphState.originY = _depGraphState.translateY;
             container.classList.add('is-dragging');
+        };
+
+        // Double-click: fit to active tasks (or full graph if no active)
+        container.ondblclick = (event) => {
+            if (_depGraphState && _depGraphState.dragMoved) return;
+            fitDepGraphView(_depGraphState && _depGraphState.focusBounds ? _depGraphState.focusBounds : null);
         };
 
         window.onmousemove = (event) => {
@@ -477,6 +489,61 @@
                 event.stopPropagation();
             }
         };
+
+        // Touch support: pinch-zoom + pan
+        let _touches = {};
+        let _lastPinchDist = null;
+        container.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            Array.from(e.changedTouches).forEach(t => { _touches[t.identifier] = {x: t.clientX, y: t.clientY}; });
+            if (Object.keys(_touches).length === 1 && _depGraphState) {
+                const t = e.changedTouches[0];
+                _depGraphState.isDragging = true;
+                _depGraphState.dragMoved = false;
+                _depGraphState.startX = t.clientX;
+                _depGraphState.startY = t.clientY;
+                _depGraphState.originX = _depGraphState.translateX;
+                _depGraphState.originY = _depGraphState.translateY;
+            }
+            if (Object.keys(_touches).length === 2) {
+                _depGraphState && (_depGraphState.isDragging = false);
+                const ids = Object.keys(_touches);
+                const a = _touches[ids[0]], b = _touches[ids[1]];
+                _lastPinchDist = Math.hypot(b.x - a.x, b.y - a.y);
+            }
+        }, {passive: false});
+
+        container.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            Array.from(e.changedTouches).forEach(t => { _touches[t.identifier] = {x: t.clientX, y: t.clientY}; });
+            const ids = Object.keys(_touches);
+            if (ids.length === 1 && _depGraphState && _depGraphState.isDragging) {
+                const t = e.changedTouches[0];
+                const dx = t.clientX - _depGraphState.startX;
+                const dy = t.clientY - _depGraphState.startY;
+                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
+                _depGraphState.translateX = _depGraphState.originX + dx;
+                _depGraphState.translateY = _depGraphState.originY + dy;
+                applyDepGraphTransform();
+                saveDepGraphView();
+            } else if (ids.length === 2 && _lastPinchDist) {
+                const a = _touches[ids[0]], b = _touches[ids[1]];
+                const dist = Math.hypot(b.x - a.x, b.y - a.y);
+                const factor = dist / _lastPinchDist;
+                const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+                api.zoomDepGraph(factor, cx, cy);
+                _lastPinchDist = dist;
+            }
+        }, {passive: false});
+
+        container.addEventListener('touchend', (e) => {
+            Array.from(e.changedTouches).forEach(t => { delete _touches[t.identifier]; });
+            if (Object.keys(_touches).length < 2) _lastPinchDist = null;
+            if (Object.keys(_touches).length === 0 && _depGraphState) {
+                _depGraphState.isDragging = false;
+                setTimeout(() => { if (_depGraphState) _depGraphState.dragMoved = false; }, 0);
+            }
+        }, {passive: false});
     }
 
     async function openNodeDetail(taskId) {
@@ -560,6 +627,13 @@
         },
         fitDepGraphView() {
             fitDepGraphView();
+        },
+        panDepGraph(dx, dy) {
+            if (!_depGraphState) return;
+            _depGraphState.translateX += dx;
+            _depGraphState.translateY += dy;
+            applyDepGraphTransform();
+            saveDepGraphView();
         },
         renderIntegrityPanel(data) {
             _integrityData = data || null;
@@ -809,13 +883,51 @@
                     badge.textContent = '';
                     badge.style.display = 'none';
                 }
+                // Build quick lookup for tooltip data
+                const _taskLookup = {};
+                (taskData.tasks || []).forEach(t => { _taskLookup[t.id] = t; });
+
+                // Node hover tooltip
+                let _tooltip = document.getElementById('depGraphTooltip');
+                if (!_tooltip) {
+                    _tooltip = document.createElement('div');
+                    _tooltip.id = 'depGraphTooltip';
+                    _tooltip.style.cssText = 'position:fixed;z-index:9999;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:6px 10px;font-size:12px;color:#e6edf3;pointer-events:none;display:none;max-width:320px;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,.5)';
+                    document.body.appendChild(_tooltip);
+                }
+
                 svg.querySelectorAll('g.node').forEach(nodeEl => {
                     const titleEl = nodeEl.querySelector('title');
                     if (!titleEl) return;
                     const taskId = titleEl.textContent.trim();
                     nodeEl.style.cursor = 'pointer';
+
+                    nodeEl.addEventListener('mouseenter', (e) => {
+                        const task = _taskLookup[taskId];
+                        const statusColors = {completed:'#3fb950',failed:'#f85149',in_progress:'#58a6ff',pending:'#8b949e',cancelled:'#6e7681'};
+                        const sc = statusColors[task?.status] || '#8b949e';
+                        const label = task
+                            ? `<span style="color:${sc};font-weight:600">${task.status.replace('_',' ')}</span> · <span style="color:#8b949e">${task.type}</span><br><span style="color:#e6edf3">${(task.description||'').slice(0,80).replace(/\n/g,' ')}${(task.description||'').length>80?'…':''}</span>`
+                            : `<span style="color:#8b949e">${taskId}</span>`;
+                        _tooltip.innerHTML = label;
+                        _tooltip.style.display = 'block';
+                    });
+                    nodeEl.addEventListener('mousemove', (e) => {
+                        _tooltip.style.left = (e.clientX + 14) + 'px';
+                        _tooltip.style.top = (e.clientY - 8) + 'px';
+                        // Flip left if overflowing right edge
+                        const rect = _tooltip.getBoundingClientRect();
+                        if (rect.right > window.innerWidth - 8) {
+                            _tooltip.style.left = (e.clientX - rect.width - 14) + 'px';
+                        }
+                    });
+                    nodeEl.addEventListener('mouseleave', () => {
+                        _tooltip.style.display = 'none';
+                    });
+
                     nodeEl.addEventListener('click', (e) => {
                         if (_depGraphState && _depGraphState.dragMoved) return;
+                        _tooltip.style.display = 'none';
                         e.stopPropagation();
                         openNodeDetail(taskId);
                     });

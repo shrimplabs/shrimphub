@@ -170,6 +170,7 @@ window.addEventListener('keydown', (event) => {
         const tag = (el?.tagName || '').toLowerCase();
         const shortcutEnabled = !el || (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable);
         if (!shortcutEnabled) return;
+        const panStep = event.shiftKey ? 200 : 60;
         if (event.key === '+' || event.key === '=') {
             event.preventDefault();
             zoomDepGraph(1.15);
@@ -185,6 +186,18 @@ window.addEventListener('keydown', (event) => {
         } else if (event.key === 'f' || event.key === 'F') {
             event.preventDefault();
             focusActiveDepGraphView();
+        } else if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            window.SwarmDepsIntegrityUI.panDepGraph(panStep, 0);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            window.SwarmDepsIntegrityUI.panDepGraph(-panStep, 0);
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            window.SwarmDepsIntegrityUI.panDepGraph(0, panStep);
+        } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            window.SwarmDepsIntegrityUI.panDepGraph(0, -panStep);
         }
     }
 });
