@@ -61,6 +61,10 @@ IGNORE_EXTENSIONS: set = set(_config.get("ignore_extensions", [
 MCP_SERVERS: dict = _config.get("mcp_servers", {})
 PROJECT_INTENT_PROMPT_VARIANT: str = _config.get("project_intent_prompt_variant", "exploratory")
 
+# Prompt template warning collector — appended to by _WarnUndefined when a prompt
+# variable is missing; exposed via /api/health so ops can see broken prompts.
+_prompt_warnings: list = []
+
 # LLM provider config
 LLM_PROVIDER: str = _config.get("llm_provider", "minimax")
 LLM_PROVIDERS: dict = {
@@ -674,7 +678,11 @@ def _load_prompt(name: str, **vars) -> tuple:
     class _WarnUndefined(Undefined):
         """Renders as empty string but prints a warning so missing vars are visible."""
         def __str__(self):
-            print(f"[Prompt] WARNING: undefined variable '{self._undefined_name}' in prompt '{name}' -- rendered as empty string")
+            msg = f"prompt '{name}': undefined variable '{self._undefined_name}'"
+            print(f"[Prompt] WARNING: {msg} -- rendered as empty string")
+            import swarm_runner as _sr
+            if msg not in _sr._prompt_warnings:
+                _sr._prompt_warnings.append(msg)
             return ""
         def __iter__(self):
             return iter([])

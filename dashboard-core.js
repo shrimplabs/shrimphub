@@ -74,13 +74,14 @@ initTheme();
 async function loadData() {
         console.log('Loading data...');
     try {
-        const [projectsRes, tasksRes, agentsRes, historyRes, quotaRes, managedRes] = await Promise.all([
+        const [projectsRes, tasksRes, agentsRes, historyRes, quotaRes, managedRes, healthRes] = await Promise.all([
             fetch(API + '/api/projects'),
             fetch(API + '/api/tasks'),
             fetch(API + '/api/agents'),
             fetch(API + '/api/history'),
             fetch(API + '/api/quota'),
             fetch(API + '/api/managed-projects'),
+            fetch(API + '/api/health'),
         ]);
 
         const projects = await projectsRes.json();
@@ -92,6 +93,18 @@ async function loadData() {
             _pausedProjects = new Set(managedData.paused_projects || []);
         }
         const quotaData = await quotaRes.json();
+
+        // Prompt warnings from /api/health
+        if (healthRes.ok) {
+            const healthData = await healthRes.json();
+            const warnings = healthData.prompt_warnings || [];
+            window._promptWarnings = warnings;
+            const pill = document.getElementById('promptWarnPill');
+            if (pill) {
+                pill.style.display = warnings.length > 0 ? '' : 'none';
+                document.getElementById('promptWarnCount').textContent = warnings.length;
+            }
+        }
 
         // Quota meter (use MiniMax-M2.5 entry)
         const model = (quotaData.model_remains || []).find(m => m.model_name === 'MiniMax-M2.5')
@@ -316,4 +329,17 @@ function showToast(html, color) {
     el.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;background:#161b22;border:1px solid ${color};border-radius:6px;padding:12px 18px;font-size:13px;color:#e6edf3;max-width:380px;line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.5);transition:opacity .4s`;
     document.body.appendChild(el);
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 4000);
+}
+
+function showPromptWarnings() {
+    const warnings = window._promptWarnings || [];
+    if (!warnings.length) return;
+    const list = warnings.map(w => `<li style="margin:4px 0;color:#f0883e">${w}</li>`).join('');
+    const html = `<b style="color:#f0883e">⚠ Prompt template warnings</b><br><small style="color:#8b949e">These variables were missing when a prompt was rendered — the field was left blank. Fix the prompt or the task script to eliminate these.</small><ul style="margin:8px 0 0;padding-left:18px;font-size:12px">${list}</ul>`;
+    const el = document.createElement('div');
+    el.innerHTML = html;
+    el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#161b22;border:1px solid rgba(240,136,62,0.5);border-radius:6px;padding:16px 20px;font-size:13px;color:#e6edf3;max-width:480px;line-height:1.6;box-shadow:0 4px 16px rgba(0,0,0,.6);cursor:pointer';
+    el.title = 'Click to dismiss';
+    el.onclick = () => el.remove();
+    document.body.appendChild(el);
 }

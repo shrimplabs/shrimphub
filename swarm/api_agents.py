@@ -180,10 +180,16 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
     @app.route("/api/health", methods=["GET"])
     def health():
         monitor_lag = time.time() - _last_monitor_tick[0]
+        try:
+            import swarm_runner as _runner_mod
+            prompt_warnings = list(_runner_mod._prompt_warnings)
+        except Exception:
+            prompt_warnings = []
         return jsonify({
             "status": "ok",
             "monitor_alive": monitor_thread.is_alive(),
             "monitor_lag_seconds": round(monitor_lag, 1),
             "active_agents": orchestrator.get_active_count(),
             "uptime_seconds": int(time.time() - _start_time),
+            "prompt_warnings": prompt_warnings,
         })

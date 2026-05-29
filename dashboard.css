@@ -419,6 +419,9 @@ body::before {
 .stat-pill-failed .stat-pill-value        { color: var(--text-faint); }
 .stat-pill-failed-active .stat-pill-value { color: var(--red); }
 .stat-pill-failed-active                  { border-color: rgba(248,81,73,0.3); }
+.stat-pill-warn                           { border-color: rgba(240,136,62,0.5); cursor: pointer; }
+.stat-pill-warn .stat-pill-value          { color: #f0883e; }
+.stat-pill-warn .stat-pill-label          { color: #f0883e; }
 
 .header-actions {
     display: flex;
