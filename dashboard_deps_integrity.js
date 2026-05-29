@@ -468,8 +468,10 @@
             const dx = event.clientX - _depGraphState.startX;
             const dy = event.clientY - _depGraphState.startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
-            _depGraphState.translateX = _depGraphState.originX + dx;
-            _depGraphState.translateY = _depGraphState.originY + dy;
+            // translateX/Y are in graph (pre-scale) space; divide screen-space delta by scale
+            const s = _depGraphState.scale || 1;
+            _depGraphState.translateX = _depGraphState.originX + dx / s;
+            _depGraphState.translateY = _depGraphState.originY + dy / s;
             applyDepGraphTransform();
             saveDepGraphView();
         };
@@ -522,8 +524,9 @@
                 const dx = t.clientX - _depGraphState.startX;
                 const dy = t.clientY - _depGraphState.startY;
                 if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
-                _depGraphState.translateX = _depGraphState.originX + dx;
-                _depGraphState.translateY = _depGraphState.originY + dy;
+                const s = _depGraphState.scale || 1;
+                _depGraphState.translateX = _depGraphState.originX + dx / s;
+                _depGraphState.translateY = _depGraphState.originY + dy / s;
                 applyDepGraphTransform();
                 saveDepGraphView();
             } else if (ids.length === 2 && _lastPinchDist) {
@@ -630,8 +633,9 @@
         },
         panDepGraph(dx, dy) {
             if (!_depGraphState) return;
-            _depGraphState.translateX += dx;
-            _depGraphState.translateY += dy;
+            const s = _depGraphState.scale || 1;
+            _depGraphState.translateX += dx / s;
+            _depGraphState.translateY += dy / s;
             applyDepGraphTransform();
             saveDepGraphView();
         },
