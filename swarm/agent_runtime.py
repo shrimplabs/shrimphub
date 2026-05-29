@@ -408,6 +408,8 @@ def main() -> int:
             system_prompt, user_prompt = LIBRARIAN_SYSTEM, LIBRARIAN_USER
         elif TASK_TYPE == "meta_auditor":
             system_prompt, user_prompt = AUDITOR_SYSTEM, AUDITOR_USER
+        elif TASK_TYPE == "cartographer":
+            system_prompt, user_prompt = CARTOGRAPHER_SYSTEM, CARTOGRAPHER_USER
         elif TASK_TYPE == "archaeologist":
             system_prompt, user_prompt = ARCHAEOLOGIST_SYSTEM, ARCHAEOLOGIST_USER
         elif TASK_TYPE == "harness_qa":

@@ -127,6 +127,12 @@ META_AUDITOR_ENABLED: bool = False
 META_AUDITOR_INTERVAL_DAYS: int = 7
 META_AUDITOR_MAX_TASKS: int = 20
 
+# Cartographer: every-2-hours swarm-state cartographer
+# CARTOGRAPHER_ENABLED gates auto-trigger
+# CARTOGRAPHER_INTERVAL_HOURS controls the cadence (default 2)
+CARTOGRAPHER_ENABLED: bool = False
+CARTOGRAPHER_INTERVAL_HOURS: int = 2
+
 
 # ---------------------------------------------------------------------------
 # Webhook helper

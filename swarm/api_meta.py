@@ -39,7 +39,9 @@ def register_routes(app, config: Dict,
                     "last_run_ts": float(config_ref.get("_gardener_last_run_ts", 0.0)),
                 },
                 "cartographer": {
-                    "enabled": False,
+                    "enabled": config_ref.get("cartographer_enabled", False),
+                    "last_run_ts": float(config_ref.get("_cartographer_last_run_ts", 0.0)),
+                    "interval_hours": config_ref.get("cartographer_interval_hours", 2),
                 },
                 "librarian": {
                     "enabled": False,
@@ -85,7 +87,9 @@ def register_routes(app, config: Dict,
                     "last_run_ts": float(config_ref.get("_gardener_last_run_ts", 0.0)),
                 },
                 "cartographer": {
-                    "enabled": False,
+                    "enabled": config_ref.get("cartographer_enabled", False),
+                    "last_run_ts": float(config_ref.get("_cartographer_last_run_ts", 0.0)),
+                    "interval_hours": config_ref.get("cartographer_interval_hours", 2),
                 },
                 "librarian": {
                     "enabled": False,
