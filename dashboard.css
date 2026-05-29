@@ -1833,6 +1833,8 @@ button, .btn {
     stroke: none !important;
 }
 
+#depsSvg g.node.dep-node-clickable { cursor: pointer; }
+
 #depsSvg g.node text {
     fill: #e6edf3;
     font-weight: 600;

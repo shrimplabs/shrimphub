@@ -407,8 +407,8 @@
             svg,
             graphRoot,
             scale: 1,
-            minScale: 0.35,
-            maxScale: 4,
+            minScale: 0.1,
+            maxScale: 20,
             translateX: 0,
             translateY: 0,
             isDragging: false,
@@ -433,16 +433,16 @@
             });
         }
 
-        // Wheel zoom — ctrlKey means trackpad pinch (browser converts to small deltaY + ctrlKey)
-        // Use a smaller factor for pinch to avoid jumpiness
+        // Wheel zoom — ctrlKey means trackpad pinch (browser reports small deltaY + ctrlKey).
+        // Use proportional zoom capped per event so fast scrolls don't jump.
         container.onwheel = (event) => {
             if (!_depGraphState) return;
             event.preventDefault();
             const isPinch = event.ctrlKey;
-            const delta = isPinch ? event.deltaY * 0.01 : event.deltaY;
-            const factor = delta < 0
-                ? (isPinch ? 1 + Math.min(0.3, -delta * 0.5) : 1.12)
-                : (isPinch ? 1 / (1 + Math.min(0.3, delta * 0.5)) : 1 / 1.12);
+            // Normalise: pinch reports ~1-3 per frame, scroll wheel reports ~100+ per tick
+            const sensitivity = isPinch ? 0.008 : 0.002;
+            const capped = Math.max(-0.25, Math.min(0.25, event.deltaY * sensitivity));
+            const factor = Math.exp(-capped); // exp gives smooth symmetric zoom in/out
             api.zoomDepGraph(factor, event.clientX, event.clientY);
         };
 
@@ -469,19 +469,21 @@
             const dy = event.clientY - _depGraphState.startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
             // Convert screen-pixel delta to SVG coordinate space.
-            // The SVG is stretched to fill the container, so we need the ratio
-            // between the SVG's viewBox size and its actual rendered CSS size.
+            // SVG uses preserveAspectRatio="xMidYMid meet" — it scales uniformly so the
+            // constraining dimension fills the container. Use a single ratio (the larger of
+            // the two) so drag is 1:1 in both axes without the short-axis skew.
             const svgRect = _depGraphState.svg.getBoundingClientRect();
             const vb = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
-            const scaleX = (vb && vb.width && svgRect.width)  ? vb.width  / svgRect.width  : 1;
-            const scaleY = (vb && vb.height && svgRect.height) ? vb.height / svgRect.height : 1;
-            _depGraphState.translateX = _depGraphState.originX + dx * scaleX;
-            _depGraphState.translateY = _depGraphState.originY + dy * scaleY;
+            const rx = (vb && vb.width && svgRect.width)  ? vb.width  / svgRect.width  : 1;
+            const ry = (vb && vb.height && svgRect.height) ? vb.height / svgRect.height : 1;
+            const ratio = Math.max(rx, ry);
+            _depGraphState.translateX = _depGraphState.originX + dx * ratio;
+            _depGraphState.translateY = _depGraphState.originY + dy * ratio;
             applyDepGraphTransform();
             saveDepGraphView();
         };
 
-        window.onmouseup = () => {
+        const _cancelDrag = () => {
             if (!_depGraphState) return;
             _depGraphState.isDragging = false;
             container.classList.remove('is-dragging');
@@ -489,6 +491,11 @@
                 if (_depGraphState) _depGraphState.dragMoved = false;
             }, 0);
         };
+        window.onmouseup = _cancelDrag;
+        // If mouse leaves the window mid-drag (drag off screen, alt-tab, etc.) reset drag state
+        // so the next click isn't blocked by a stale dragMoved=true
+        window.addEventListener('blur', _cancelDrag);
+        document.addEventListener('visibilitychange', () => { if (document.hidden) _cancelDrag(); });
 
         container.onclick = (event) => {
             if (_depGraphState && _depGraphState.dragMoved) {
@@ -531,10 +538,11 @@
                 if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
                 const svgRect2 = _depGraphState.svg.getBoundingClientRect();
                 const vb2 = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
-                const sx2 = (vb2 && vb2.width && svgRect2.width)   ? vb2.width  / svgRect2.width  : 1;
-                const sy2 = (vb2 && vb2.height && svgRect2.height)  ? vb2.height / svgRect2.height : 1;
-                _depGraphState.translateX = _depGraphState.originX + dx * sx2;
-                _depGraphState.translateY = _depGraphState.originY + dy * sy2;
+                const rx2 = (vb2 && vb2.width && svgRect2.width)   ? vb2.width  / svgRect2.width  : 1;
+                const ry2 = (vb2 && vb2.height && svgRect2.height)  ? vb2.height / svgRect2.height : 1;
+                const ratio2 = Math.max(rx2, ry2);
+                _depGraphState.translateX = _depGraphState.originX + dx * ratio2;
+                _depGraphState.translateY = _depGraphState.originY + dy * ratio2;
                 applyDepGraphTransform();
                 saveDepGraphView();
             } else if (ids.length === 2 && _lastPinchDist) {
@@ -616,11 +624,17 @@
         },
         zoomDepGraph(factor, clientX = null, clientY = null) {
             if (!_depGraphState) return;
-            const containerRect = _depGraphState.container.getBoundingClientRect();
-            const anchorX = clientX === null ? containerRect.left + containerRect.width / 2 : clientX;
-            const anchorY = clientY === null ? containerRect.top + containerRect.height / 2 : clientY;
-            const localX = anchorX - containerRect.left;
-            const localY = anchorY - containerRect.top;
+            const svgRect = _depGraphState.svg.getBoundingClientRect();
+            const vb = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
+            const rx = (vb && vb.width && svgRect.width)   ? vb.width  / svgRect.width  : 1;
+            const ry = (vb && vb.height && svgRect.height)  ? vb.height / svgRect.height : 1;
+            const ratio = Math.max(rx, ry);
+            // Anchor relative to the SVG element's own origin (not the container),
+            // since translateX/Y are in SVG viewBox space measured from the SVG origin.
+            const anchorX = clientX === null ? svgRect.left + svgRect.width  / 2 : clientX;
+            const anchorY = clientY === null ? svgRect.top  + svgRect.height / 2 : clientY;
+            const localX = (anchorX - svgRect.left) * ratio;
+            const localY = (anchorY - svgRect.top)  * ratio;
             const prevScale = _depGraphState.scale;
             const nextScale = Math.max(_depGraphState.minScale, Math.min(_depGraphState.maxScale, _depGraphState.scale * factor));
             if (nextScale === prevScale) return;
@@ -643,10 +657,11 @@
             if (!_depGraphState) return;
             const svgRect = _depGraphState.svg.getBoundingClientRect();
             const vb = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
-            const sx = (vb && vb.width && svgRect.width)   ? vb.width  / svgRect.width  : 1;
-            const sy = (vb && vb.height && svgRect.height)  ? vb.height / svgRect.height : 1;
-            _depGraphState.translateX += dx * sx;
-            _depGraphState.translateY += dy * sy;
+            const rx = (vb && vb.width && svgRect.width)   ? vb.width  / svgRect.width  : 1;
+            const ry = (vb && vb.height && svgRect.height)  ? vb.height / svgRect.height : 1;
+            const ratio = Math.max(rx, ry);
+            _depGraphState.translateX += dx * ratio;
+            _depGraphState.translateY += dy * ratio;
             applyDepGraphTransform();
             saveDepGraphView();
         },
@@ -911,41 +926,42 @@
                     document.body.appendChild(_tooltip);
                 }
 
-                svg.querySelectorAll('g.node').forEach(nodeEl => {
+                // Set pointer cursor on all nodes via CSS class rather than per-node style
+                svg.querySelectorAll('g.node').forEach(n => n.classList.add('dep-node-clickable'));
+
+                // Use delegated listeners on the SVG so clicks/hovers work immediately
+                // without needing per-node setup (avoids race between render and first click).
+                const _closestNode = el => el.closest('g.node');
+                svg.addEventListener('mousemove', (e) => {
+                    const nodeEl = _closestNode(e.target);
+                    if (!nodeEl) { _tooltip.style.display = 'none'; return; }
+                    const titleEl = nodeEl.querySelector('title');
+                    const taskId = titleEl ? titleEl.textContent.trim() : null;
+                    const task = taskId ? _taskLookup[taskId] : null;
+                    const statusColors = {completed:'#3fb950',failed:'#f85149',in_progress:'#58a6ff',pending:'#8b949e',cancelled:'#6e7681'};
+                    const sc = statusColors[task?.status] || '#8b949e';
+                    const label = task
+                        ? `<span style="color:${sc};font-weight:600">${task.status.replace('_',' ')}</span> · <span style="color:#8b949e">${task.type}</span><br><span style="color:#e6edf3">${(task.description||'').slice(0,80).replace(/\n/g,' ')}${(task.description||'').length>80?'…':''}</span>`
+                        : `<span style="color:#8b949e">${taskId || ''}</span>`;
+                    _tooltip.innerHTML = label;
+                    _tooltip.style.display = 'block';
+                    _tooltip.style.left = (e.clientX + 14) + 'px';
+                    _tooltip.style.top = (e.clientY - 8) + 'px';
+                    const rect = _tooltip.getBoundingClientRect();
+                    if (rect.right > window.innerWidth - 8) {
+                        _tooltip.style.left = (e.clientX - rect.width - 14) + 'px';
+                    }
+                });
+                svg.addEventListener('mouseleave', () => { _tooltip.style.display = 'none'; });
+                svg.addEventListener('click', (e) => {
+                    if (_depGraphState && _depGraphState.dragMoved) return;
+                    const nodeEl = _closestNode(e.target);
+                    if (!nodeEl) return;
                     const titleEl = nodeEl.querySelector('title');
                     if (!titleEl) return;
-                    const taskId = titleEl.textContent.trim();
-                    nodeEl.style.cursor = 'pointer';
-
-                    nodeEl.addEventListener('mouseenter', (e) => {
-                        const task = _taskLookup[taskId];
-                        const statusColors = {completed:'#3fb950',failed:'#f85149',in_progress:'#58a6ff',pending:'#8b949e',cancelled:'#6e7681'};
-                        const sc = statusColors[task?.status] || '#8b949e';
-                        const label = task
-                            ? `<span style="color:${sc};font-weight:600">${task.status.replace('_',' ')}</span> · <span style="color:#8b949e">${task.type}</span><br><span style="color:#e6edf3">${(task.description||'').slice(0,80).replace(/\n/g,' ')}${(task.description||'').length>80?'…':''}</span>`
-                            : `<span style="color:#8b949e">${taskId}</span>`;
-                        _tooltip.innerHTML = label;
-                        _tooltip.style.display = 'block';
-                    });
-                    nodeEl.addEventListener('mousemove', (e) => {
-                        _tooltip.style.left = (e.clientX + 14) + 'px';
-                        _tooltip.style.top = (e.clientY - 8) + 'px';
-                        // Flip left if overflowing right edge
-                        const rect = _tooltip.getBoundingClientRect();
-                        if (rect.right > window.innerWidth - 8) {
-                            _tooltip.style.left = (e.clientX - rect.width - 14) + 'px';
-                        }
-                    });
-                    nodeEl.addEventListener('mouseleave', () => {
-                        _tooltip.style.display = 'none';
-                    });
-
-                    nodeEl.addEventListener('click', (e) => {
-                        if (_depGraphState && _depGraphState.dragMoved) return;
-                        _tooltip.style.display = 'none';
-                        e.stopPropagation();
-                        openNodeDetail(taskId);
-                    });
+                    _tooltip.style.display = 'none';
+                    e.stopPropagation();
+                    openNodeDetail(titleEl.textContent.trim());
                 });
             } catch (e) {
                 const message = (e && (e.message || e.toString())) || 'unknown render error';

@@ -1671,11 +1671,19 @@ def key_hold(key: str, duration: float = 1.0) -> dict:
         return {"ok": True, "source": "state_server"}
     # Fallback: rapid-fire key_press for the duration (simulates a held key)
     log(f"StateServer hold failed ({resp.get('error')}), falling back to repeated key_press for {duration}s")
+    # Do a single probe first — if the key name is invalid (e.g. a Godot action name like
+    # "hard_drop" that cliclick doesn't know), bail immediately rather than silently looping.
+    probe = qa_key_press(key)
+    if not probe.get("ok"):
+        log(f"key_hold fallback: key_press probe failed for '{key}': {probe.get('error')} — key name may be a Godot action, not a physical key")
+        return {"ok": False, "error": f"key_hold fallback failed: {probe.get('error', 'key_press returned ok=False')} — use a physical key name (e.g. 'space', 'arrow-up') instead of a Godot action name"}
     interval = 0.05
     end = _time.time() + duration
-    count = 0
+    count = 1  # probe already fired one press
     while _time.time() < end:
-        qa_key_press(key)
+        result = qa_key_press(key)
+        if not result.get("ok"):
+            break
         _time.sleep(interval)
         count += 1
     log(f"key_hold fallback: fired {count} key_press events over {duration}s")

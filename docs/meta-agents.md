@@ -95,15 +95,21 @@ Meta-agents           → all projects, read + create tasks
 - `data/LIBRARIAN_REPORT.md` with analysis and proposed changes
 - Optionally updates `data/swarm_knowledge.jsonl` with prompt-related patterns
 
+**Two modes (toggled via dashboard or `POST /api/librarian/autonomous-edits`):**
+
+- **Autonomous edits OFF** (default): Creates refactor tasks on `swarm-controller` with before/after proposed changes. Human-reviewed agent applies the edit.
+- **Autonomous edits ON**: Directly edits `prompts/*.yaml` and commits via git with a clear message (e.g. `librarian: tighten bug.yaml validation instructions`). Git is the rollback safety net. Findings still written to `LIBRARIAN_REPORT.md`.
+
 **Constraints:**
-- Never edits prompt files directly — always creates a task for a human-reviewed agent
-- Max 3 prompt edit tasks per run to prevent thrash
-- Must include before/after diff in the task description so the executing agent has clear scope
+- Max 3 prompt edits/tasks per run regardless of mode
+- Never touches non-prompt files
+- Must include before/after in task description when in task-creation mode
 
 **Config keys:**
 ```json
 {
   "librarian_enabled": false,
+  "librarian_autonomous_edits": false,
   "librarian_trigger_interval": 50,
   "librarian_max_prompt_tasks": 3
 }
