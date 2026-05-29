@@ -14,6 +14,16 @@ PROJECTS = [
     "pacman-chase",
     "temporal-residue",
     "tetris-neon",
+    "body-of-many",
+    "fusion-foundry-td",
+    "neon-breaker",
+    # NOTE: The following managed projects do NOT have autoload/state_server.gd
+    # and were skipped: raccoon-city, iron-ember, tiny-tower-builder, fishing-journey,
+    # elemental-merge, castle-conquer, marble-mania, pixel-potion, space-station-builder,
+    # realm-descent, garden-paradise, ashwalker, goblinchemy, last-lighthouse,
+    # alchemy-lab, glowworm-cavern, dessert-raiders, rainbow-minesweeper,
+    # classic-snake, pebble-pop, tetris-fishing
+    # Missing from workspace: ai-game-master, nodeforge
 ]
 WORKSPACE = os.path.expanduser("~/workspace")
 
