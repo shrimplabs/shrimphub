@@ -22,29 +22,10 @@ import os
 import re
 import urllib.request as _ur
 from pathlib import Path
-from swarm import constants, db
-from swarm.provider_utils import LLM_PROVIDERS
+from swarm import constants
 from swarm.agent_loop_helpers import StallDetector, compact_conversation  # noqa: E402
 from swarm.llm_utils import call_llm, parse_tool_calls, MCPClient  # noqa: E402
 from swarm import qa_tools  # noqa: E402
-from swarm.branch_intent import format_branch_intent, branch_intent_metadata  # noqa: E402
-from swarm.qa_tools import (  # noqa: E402
-    qa_focus_game, qa_position_window, qa_get_window_bounds,
-    launch_game as qa_launch_game,
-    launch_game_headless,
-    take_screenshot as qa_take_screenshot,
-    click_at as qa_click_at,
-    click_element as qa_click_element,
-    qa_key_press, qa_press_button, qa_wait,
-    qa_wait_for_idle, qa_poll_until, qa_wait_until, qa_run_sequence,
-    kill_game as qa_kill_game,
-    qa_create_bug_task, qa_requeue_self,
-    get_game_state as qa_get_game_state,
-    vision_query as qa_vision_query,
-    harness_launch_game, harness_step, harness_take_screenshot,
-    harness_kill_game,
-    harness_poll_state, harness_inject,
-)
 
 # Import tool functions from submodules
 from swarm.tools.core import (  # noqa: F401
@@ -167,6 +148,8 @@ ART_PASS_SYSTEM: str = ""
 ART_PASS_USER: str = ""
 RESEARCH_SYSTEM: str = ""
 RESEARCH_USER: str = ""
+GARDENER_SYSTEM: str = ""
+GARDENER_USER: str = ""
 HARNESS_QA_SYSTEM: str = ""
 HARNESS_QA_USER: str = ""
 HYBRID_QA_SYSTEM: str = ""
@@ -413,6 +396,8 @@ def main() -> int:
             system_prompt, user_prompt = PROJECT_PLAN_SYSTEM, PROJECT_PLAN_USER
         elif TASK_TYPE == "research":
             system_prompt, user_prompt = RESEARCH_SYSTEM, RESEARCH_USER
+        elif TASK_TYPE == "gardener":
+            system_prompt, user_prompt = GARDENER_SYSTEM, GARDENER_USER
         elif TASK_TYPE == "harness_qa":
             system_prompt, user_prompt = HARNESS_QA_SYSTEM, HARNESS_QA_USER
         elif TASK_TYPE == "scenario_qa":

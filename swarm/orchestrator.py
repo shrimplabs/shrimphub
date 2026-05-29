@@ -499,18 +499,20 @@ def _fire_idle_gardener() -> None:
         )
         if not already_running:
             task_id = f"gardener-{int(time.time())}"
+            deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
             db.task_upsert({
                 "id": task_id,
                 "project": "swarm-controller",
                 "type": "gardener",
                 "description": (
-                    "Run the gardener agent to audit, prune, and improve the swarm-controller "
-                    "project. Read prompts/gardener.yaml for the full prompt. "
-                    "Focus on knowledge cleanup, dead code removal, and test maintenance."
+                    "Run the gardener meta-agent. Survey all active projects in the swarm, "
+                    "identify cross-project failure patterns, and create targeted fix tasks "
+                    "where the same bug is affecting multiple projects. "
+                    "Write findings to data/swarm_knowledge.jsonl and data/SWARM_KNOWLEDGE.md."
                 ),
                 "priority": 60,
                 "status": "pending",
-                "dependencies": [],
+                "dependencies": deps,
                 "metadata": {"auto_spawned": True, "idle_trigger": True},
                 "attempts": 0,
                 "max_attempts": 1,

@@ -912,6 +912,7 @@ def generate_task_script(task: dict) -> str:
     )
     art_pass_system, art_pass_user = _load_prompt("art_pass", **_common)
     research_system, research_user = _load_prompt("research", **_common)
+    gardener_system, gardener_user = _load_prompt("gardener", **_common)
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1100,6 +1101,8 @@ rt.ART_PASS_SYSTEM          = {repr(art_pass_system)}
 rt.ART_PASS_USER            = {repr(art_pass_user)}
 rt.RESEARCH_SYSTEM          = {repr(research_system)}
 rt.RESEARCH_USER            = {repr(research_user)}
+rt.GARDENER_SYSTEM          = {repr(gardener_system)}
+rt.GARDENER_USER            = {repr(gardener_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
