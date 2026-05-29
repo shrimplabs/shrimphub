@@ -39,6 +39,13 @@ except ImportError:
     print("ERROR: Pillow not installed. Run: pip install Pillow")
     sys.exit(1)
 
+try:
+    import imageio
+    import numpy as np
+except ImportError:
+    print("ERROR: imageio/numpy not installed. Run: pip install imageio numpy")
+    sys.exit(1)
+
 
 # ── Status colours (match dashboard CSS) ────────────────────────────────────
 STATUS_COLOR = {
@@ -248,16 +255,33 @@ def capture_gif(project: str, output: Path, api: str, fps: int, width: int, heig
     print(f"Saving → {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    palette_frames = [f.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT) for f in final_frames]
-    palette_frames[0].save(
-        output,
-        format="GIF",
-        save_all=True,
-        append_images=palette_frames[1:],
-        duration=frame_delay_ms,
-        loop=0,
-        optimize=True,
-    )
+    # Write frames as PNGs to a temp dir, then use ffmpeg to assemble the GIF
+    import tempfile, shutil
+    tmpdir = Path(tempfile.mkdtemp())
+    try:
+        for i, f in enumerate(final_frames):
+            f.convert("RGB").save(tmpdir / f"frame_{i:04d}.png")
+
+        # ffmpeg: read PNG sequence → palette → GIF
+        palette = tmpdir / "palette.png"
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-framerate", str(fps),
+            "-i", str(tmpdir / "frame_%04d.png"),
+            "-vf", "palettegen=max_colors=256:stats_mode=full",
+            str(palette),
+        ], check=True, capture_output=True)
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-framerate", str(fps),
+            "-i", str(tmpdir / "frame_%04d.png"),
+            "-i", str(palette),
+            "-lavfi", "paletteuse=dither=bayer:bayer_scale=5",
+            "-loop", "0",
+            str(output),
+        ], check=True, capture_output=True)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     size_kb = output.stat().st_size // 1024
     print(f"Done! {output} ({size_kb} KB, {len(final_frames)} frames @ {fps}fps)")
