@@ -663,9 +663,23 @@ def _load_prompt(name: str, **vars) -> tuple:
     Templates may use `<% include 'common/foo.md' %>` to pull in shared blocks
     from prompts/common/. The FileSystemLoader makes includes work even when the
     parent template is loaded via from_string().
+
+    Missing template variables are replaced with an empty string and logged as
+    warnings rather than raising -- a broken prompt should never crash fill_slots
+    for all other projects.
     """
     import yaml
-    from jinja2 import Environment, FileSystemLoader, StrictUndefined
+    from jinja2 import Environment, FileSystemLoader, Undefined
+
+    class _WarnUndefined(Undefined):
+        """Renders as empty string but prints a warning so missing vars are visible."""
+        def __str__(self):
+            print(f"[Prompt] WARNING: undefined variable '{self._undefined_name}' in prompt '{name}' -- rendered as empty string")
+            return ""
+        def __iter__(self):
+            return iter([])
+        def __bool__(self):
+            return False
 
     prompts_dir = Path(__file__).parent / "prompts"
     parts = name.split("/")
@@ -678,7 +692,7 @@ def _load_prompt(name: str, **vars) -> tuple:
         variable_end_string=">>",
         block_start_string="<%",
         block_end_string="%>",
-        undefined=StrictUndefined,
+        undefined=_WarnUndefined,
         keep_trailing_newline=True,
     )
     system = env.from_string(data["system"]).render(**vars).strip()
