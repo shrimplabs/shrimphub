@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from datetime import datetime, timezone
+
 from pathlib import Path
 from typing import Any, Dict
 
@@ -167,6 +167,50 @@ def register_routes(app, config: Dict,
         task_id = _run_archaeologist_task(config, data_dir, project, stall_reason)
         print(f"[Archaeologist] Manual investigate triggered for '{project}' -- task_id={task_id}")
         return jsonify({"task_id": task_id, "status": "created", "project": project})
+
+    @app.route("/api/archaeologist/run", methods=["POST"])
+    def archaeologist_run():
+        """Auto-scan all managed projects and spawn archaeologist tasks for stalled ones."""
+        import swarm.orchestrator as _orch
+        try:
+            all_tasks = db.task_get_all()
+        except Exception as e:
+            return jsonify({"error": f"DB error: {e}"}), 500
+
+        stalled = _orch._find_stalled_projects(all_tasks)
+        if not stalled:
+            return jsonify({"scanned": len(all_tasks), "stalled_found": 0, "spawned": 0, "projects": []})
+
+        # Respect max concurrent
+        max_conc = config.get("archaeologist_max_concurrent", DEFAULT_MAX_CONCURRENT)
+        try:
+            existing = [
+                t for t in all_tasks
+                if t.get("type") == "archaeologist"
+                and t.get("status") in ("pending", "in_progress")
+            ]
+        except Exception:
+            existing = []
+
+        slots = max_conc - len(existing)
+        to_spawn = stalled[:max(0, slots)]
+
+        spawned = []
+        for project_name, stall_reason in to_spawn:
+            # Skip if one is already running for this project
+            if any((t.get("metadata") or {}).get("stalled_project") == project_name for t in existing):
+                continue
+            task_id = _run_archaeologist_task(config, data_dir, project_name, stall_reason)
+            spawned.append({"task_id": task_id, "project": project_name, "stall_reason": stall_reason})
+            existing.append({"metadata": {"stalled_project": project_name}})
+
+        print(f"[Archaeologist] Auto-scan: spawned {len(spawned)} tasks out of {len(stalled)} stalled projects")
+        return jsonify({
+            "scanned": len(all_tasks),
+            "stalled_found": len(stalled),
+            "spawned": len(spawned),
+            "projects": spawned,
+        })
 
     @app.route("/api/archaeologist/config", methods=["GET"])
     def archaeologist_config_get():
