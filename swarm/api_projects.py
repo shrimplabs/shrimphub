@@ -639,9 +639,11 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             config.get("file_extensions", [".gd"]),
             set(config.get("ignore_dirs", []))
         )
+        # Ensure managed=True for the project before scan so it auto-appears
+        # in managed_projects. update_file_counts creates projects with managed=False.
+        if not project_registry.get(project_name):
+            project_registry.add_project(project_name, managed=True)
         project_registry.update_file_counts(project_name, files)
-        # Sync managed_projects in case this is the first time the project is registered
-        # via scan (update_file_counts may create the project with managed=True).
         _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"files": files})
     @app.route("/api/projects/<project_name>/health", methods=["GET"])
