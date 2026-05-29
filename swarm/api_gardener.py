@@ -13,6 +13,7 @@ from flask import jsonify, request
 
 from swarm import db
 from swarm.gardener_knowledge import load as knowledge_load
+from swarm.task_chains import chain_to_project_head
 
 # Module-level globals -- wired from api.py via register_routes
 app_ref: Any = None       # Flask app (used for internal /api/... calls)
@@ -57,18 +58,21 @@ def _get_report(data_dir: Path) -> str | None:
 def _run_gardener_task(config: Dict, data_dir: Path) -> str:
     """Create a gardener task and return its task_id."""
     task_id = f"gardener-{int(time.time())}"
+    project = "swarm-controller"
+    deps = chain_to_project_head(db, project, task_id=task_id)
     db.task_upsert({
         "id": task_id,
-        "project": "swarm-controller",
+        "project": project,
         "type": "gardener",
         "description": (
-            "Run the gardener agent to audit, prune, and improve the swarm-controller "
-            "project. Read prompts/gardener.yaml for the full prompt. "
-            "Focus on knowledge cleanup, dead code removal, and test maintenance."
+            "Run the gardener meta-agent. Survey all active projects in the swarm, "
+            "identify cross-project failure patterns, and create targeted fix tasks "
+            "where the same bug is affecting multiple projects. "
+            "Write findings to data/swarm_knowledge.jsonl and data/SWARM_KNOWLEDGE.md."
         ),
         "priority": 60,
         "status": "pending",
-        "dependencies": [],
+        "dependencies": deps,
         "metadata": {"auto_spawned": True},
         "attempts": 0,
         "max_attempts": 1,

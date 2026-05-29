@@ -586,6 +586,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     conversation = [{"role": "user", "content": user_prompt}]
     tool_loop_count = 0
 
+    # H1-H8 metrics: per-task counters (initialized before loop so they always exist)
+    _tool_call_counts: dict = {}
+    _session_written_files: set = set()   # H7: files written in this session
+    _session_read_files: set = set()       # H7: files read in this session
+
     # Track output from the last batch of run_command tool calls so we can
     # intercept TASK_COMPLETE when validation errors are still present.
     _last_run_outputs: list = []
@@ -833,11 +838,6 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         tool_results = []
         _last_run_outputs = []   # reset each loop; only keep the latest batch
         _no_tool_call_nudged = False  # reset -- model is back to using tools
-
-        # H1-H8 metrics: per-task counters
-        _tool_call_counts: dict = {}
-        _session_written_files: set = set()   # H7: files written in this session
-        _session_read_files: set = set()       # H7: files read in this session
 
         for tc in tool_calls:
             log(f"Tool call: {tc}")

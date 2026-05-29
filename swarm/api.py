@@ -256,8 +256,14 @@ def create_app(
 
     _start_time = time.time()
 
-    # Clean up any worktrees left over from a previous server run
-    orchestrator.cleanup_orphaned_worktrees(workspace)
+    # Clean up any worktrees left over from a previous server run (background thread
+    # so server starts immediately instead of blocking on potentially hundreds of worktrees)
+    def _startup_worktree_cleanup():
+        try:
+            orchestrator.cleanup_orphaned_worktrees(workspace)
+        except Exception as _wt_err:
+            print(f"[Startup] Worktree cleanup error: {_wt_err}")
+    threading.Thread(target=_startup_worktree_cleanup, daemon=True, name="startup-wt-cleanup").start()
 
     # Auto mode state persists across restart so scheduler behavior is stable.
     auto_mode_state = {
@@ -384,6 +390,7 @@ def create_app(
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
     _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
     _orphan_godot_sweep_counter = [0]    # incremented each cycle; orphan Godot sweep runs every 60 cycles (~5 min)
+    _worktree_cleanup_counter = [0]      # incremented each cycle; worktree cleanup runs every 720 cycles (~1 hour)
     # Persist last run time across restarts via a small state file
     _audit_learnings_state_file = data_dir / "audit_learnings_last_run.txt"
     try:
@@ -551,6 +558,18 @@ def create_app(
                         _sweep_orphaned_godot_processes()
                     except Exception as _godot_sweep_err:
                         print(f"[Monitor] Orphan Godot sweep error: {_godot_sweep_err}")
+
+                # Periodic worktree cleanup: remove stale .wt-* dirs in background
+                # so it never blocks the monitor tick. Runs every 720 cycles (~1 hour).
+                _worktree_cleanup_counter[0] += 1
+                if _worktree_cleanup_counter[0] >= 720:
+                    _worktree_cleanup_counter[0] = 0
+                    threading.Thread(
+                        target=orchestrator.cleanup_orphaned_worktrees,
+                        kwargs={"workspace": workspace},
+                        daemon=True,
+                        name="periodic-wt-cleanup",
+                    ).start()
 
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
