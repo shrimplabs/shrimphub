@@ -156,6 +156,8 @@ HYBRID_QA_SYSTEM: str = ""
 HYBRID_QA_USER: str = ""
 SCENARIO_QA_SYSTEM: str = ""
 SCENARIO_QA_USER: str = ""
+LIBRARIAN_SYSTEM: str = ""
+LIBRARIAN_USER: str = ""
 # Plugin prompt -- set by the wrapper when a plugin is registered for this task_type.
 # Non-empty PLUGIN_SYSTEM takes priority over all built-in prompt routing below.
 PLUGIN_SYSTEM: str = ""
@@ -398,6 +400,8 @@ def main() -> int:
             system_prompt, user_prompt = RESEARCH_SYSTEM, RESEARCH_USER
         elif TASK_TYPE == "gardener":
             system_prompt, user_prompt = GARDENER_SYSTEM, GARDENER_USER
+        elif TASK_TYPE == "librarian":
+            system_prompt, user_prompt = LIBRARIAN_SYSTEM, LIBRARIAN_USER
         elif TASK_TYPE == "harness_qa":
             system_prompt, user_prompt = HARNESS_QA_SYSTEM, HARNESS_QA_USER
         elif TASK_TYPE == "scenario_qa":
@@ -923,11 +927,18 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             log(f"WARNING: WIP commit failed: {e}")
         import json as _json
         is_continuation = TASK_DESC.startswith("CONTINUATION of task")
+        _chain_depth = TASK_ID.count("bug-")  # bug-bug-bug-... indicates deep validation chain
+        _deep_chain = _chain_depth >= 3
         _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
         if is_continuation:
             log("Context limit hit on a continuation task -- stopping chain, marking done")
             _unlock_claimed_files()
             print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_end"}))
+            return 0
+        if _deep_chain:
+            log(f"Context limit hit on a deep chain task (depth {_chain_depth}) -- stopping, no continuation spawned")
+            _unlock_claimed_files()
+            print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_deep_chain_end"}))
             return 0
         if _project_unmanaged:
             log(f"Context limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
@@ -1182,9 +1193,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     # If the loop limit was hit without TASK_COMPLETE, spawn a continuation task
     if loop_limit_hit and TASK_TYPE not in ("qa", "manager", "project_create", "audit", "triage", "project_plan") and not READONLY:
         is_continuation = TASK_DESC.startswith("CONTINUATION of task")
+        _chain_depth = TASK_ID.count("bug-")
+        _deep_chain = _chain_depth >= 3
         _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
         if is_continuation:
             log("Loop limit hit on a continuation task -- stopping chain, marking done")
+        elif _deep_chain:
+            log(f"Loop limit hit on a deep chain task (depth {_chain_depth}) -- stopping, no continuation spawned")
         elif _project_unmanaged:
             log(f"Loop limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
         else:
