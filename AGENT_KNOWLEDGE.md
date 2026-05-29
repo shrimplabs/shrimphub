@@ -168,3 +168,14 @@ swarm/gardener_knowledge.py: standalone knowledge store. JSONL at data/swarm_kno
 swarm/agents.py is a template (not a regular module) — it gets string-formatted with {placeholder} values at agent-spawn time. Ruff F401/F821 reports in that file (e.g. IGNORE_DIRS, signal, sys, time imports) are template-time issues, not runtime bugs. Do NOT auto-fix them — they break the template substitution.
 
 All ruff F401/F841 errors in swarm/agent_runtime.py and swarm/agent_lifecycle.py are safe to fix. In agent_runtime.py specifically, all named qa_tools imports can be removed — only `from swarm import qa_tools` (module ref) is needed for atexit.register(qa_tools.kill_game) and atexit.register(qa_tools.harness_kill_game).
+
+---
+Dashboard gardener UI components:
+- Settings panel section: "Gardener" with toggle (gardenerToggleBtn), last-run + knowledge count status row, Run Gardener button, View Knowledge button
+- Gardener Knowledge modal: gardenerKnowledgePanel, renders entries with gk-badge confirmed/suspected/disputed, gk-entry cards
+- CSS classes: .gk-badge, .gk-badge.confirmed/.suspected/.disputed, .gk-entry, .gk-entry-header/.sig/.meta/.fix/.projects/.ttl, .gk-empty
+- JS functions (in dashboard-config.js): loadGardenerState(), toggleGardener(), runGardener(), openGardenerKnowledgePanel(), _renderGardenerEntry(), _formatRelativeTime()
+- API endpoints used: GET /api/gardener/status, POST /api/gardener/config, POST /api/gardener/run, GET /api/gardener/knowledge
+- Bootstrap: loadGardenerState() called in dashboard.js bootstrap
+- showToast() comes from dashboard-core.js (defined in dashboard-core.js:312)
+- escapeHtml() is a local function in dashboard_closure.js loaded before dashboard-config.js
