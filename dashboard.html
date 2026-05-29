@@ -759,6 +759,27 @@
                 </div>
             </div>
 
+            <!-- Meta Mode -->
+            <div class="settings-section">
+                <div class="settings-section-label">Meta Mode</div>
+                <div class="settings-row" style="align-items:center;justify-content:space-between">
+                    <span class="settings-label">Meta Mode</span>
+                    <button id="metaModeToggleBtn" onclick="toggleMetaMode()" class="settings-toggle-btn" style="min-width:80px">⚡ Loading...</button>
+                </div>
+                <div id="metaModeStatusRow" class="settings-row" style="font-size:11px;color:var(--text-muted);display:none">
+                    <span id="metaModeStatusText"></span>
+                </div>
+                <div id="metaAgentsSection" style="display:none;margin-top:8px">
+                    <div class="meta-agents-header">
+                        <span style="min-width:120px">Agent</span>
+                        <span style="min-width:70px;text-align:center">Enabled</span>
+                        <span style="min-width:80px;text-align:center">Last Run</span>
+                        <span style="flex:1;text-align:right">Actions</span>
+                    </div>
+                    <div id="metaAgentsTable"></div>
+                </div>
+            </div>
+
             <!-- Gardener -->
             <div class="settings-section">
                 <div class="settings-section-label">Gardener</div>

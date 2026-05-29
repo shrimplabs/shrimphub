@@ -2763,3 +2763,77 @@ input[id*="webhook"], input[id*="Webhook"] {
     text-align: center;
     padding: 32px;
 }
+
+
+/* Meta Mode section */
+.meta-agents-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-faint);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-muted);
+    margin-bottom: 6px;
+}
+.meta-agents-header span { display: inline-block; }
+.meta-agent-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-faint);
+}
+.meta-agent-row:last-child { border-bottom: none; }
+.meta-agent-name {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+    min-width: 120px;
+}
+.meta-agent-last-run {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 80px;
+    text-align: center;
+}
+.meta-agent-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+.meta-agent-badge.yes {
+    background: rgba(63,185,80,0.12);
+    color: #3fb950;
+    border: 1px solid rgba(63,185,80,0.3);
+}
+.meta-agent-badge.no {
+    background: rgba(139,148,158,0.1);
+    color: #8b949e;
+    border: 1px solid rgba(139,148,158,0.2);
+}
+.meta-agent-actions {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    justify-content: flex-end;
+}
+.meta-agent-actions button {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    transition: all 0.15s;
+}
+.meta-agent-actions button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.meta-agent-actions button.running {
+    color: #3fb950;
+    border-color: rgba(63,185,80,0.4);
+}

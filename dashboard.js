@@ -36,6 +36,7 @@ loadWebhook();
 syncVisionProviders();
 loadPausedProjects();
 loadGardenerState();
+loadMetaModeState();
 setInterval(() => { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }, 5000);
 setInterval(syncAutoMode, 5000);
 setInterval(syncProviders, 30000);

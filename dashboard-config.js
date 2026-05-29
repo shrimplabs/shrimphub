@@ -854,6 +854,121 @@ function inlineMd(text) {
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
+/* ── Meta Mode ───────────────────────────────────────────────── */
+let _metaModeEnabled = false;
+let _metaAgentsData = {};
+
+const META_AGENTS = [
+    { id: 'gardener',     label: 'Gardener',     statusEndpoint: '/api/gardener/status',     runEndpoint: '/api/gardener/run',     configEndpoint: '/api/gardener/config'     },
+    { id: 'librarian',    label: 'Librarian',    statusEndpoint: '/api/librarian/status',    runEndpoint: '/api/librarian/run',    configEndpoint: '/api/librarian/config'    },
+    { id: 'cartographer', label: 'Cartographer', statusEndpoint: '/api/cartographer/status',  runEndpoint: '/api/cartographer/run',  configEndpoint: '/api/cartographer/config'  },
+    { id: 'archaeologist',label: 'Archaeologist',statusEndpoint: '/api/archaeologist/status',runEndpoint: '/api/archaeologist/run', configEndpoint: '/api/archaeologist/config' },
+    { id: 'auditor',      label: 'Auditor',      statusEndpoint: '/api/meta-auditor/status', runEndpoint: '/api/meta-auditor/run', configEndpoint: '/api/meta-auditor/config' },
+    { id: 'scheduler',    label: 'Scheduler',    statusEndpoint: '/api/scheduler/status',    runEndpoint: '/api/scheduler/run',    configEndpoint: '/api/scheduler/config'    },
+];
+
+async function loadMetaModeState() {
+    try {
+        const res = await fetch(API + '/api/meta-mode');
+        if (!res.ok) return;
+        const data = await res.json();
+        _metaModeEnabled = data.meta_mode_enabled || false;
+        _metaAgentsData = data.agents || {};
+        _updateMetaModeToggle();
+        _renderMetaAgentsTable();
+    } catch(e) {}
+}
+
+function _updateMetaModeToggle() {
+    const btn = document.getElementById('metaModeToggleBtn');
+    if (!btn) return;
+    if (_metaModeEnabled) {
+        btn.textContent = '⚡ On';
+        btn.classList.add('active');
+    } else {
+        btn.textContent = '⚡ Off';
+        btn.classList.remove('active');
+    }
+    const row = document.getElementById('metaModeStatusRow');
+    const text = document.getElementById('metaModeStatusText');
+    if (row && text) {
+        row.style.display = '';
+        const agentCount = Object.keys(_metaAgentsData).length;
+        text.textContent = _metaModeEnabled
+            ? `${agentCount} agent${agentCount !== 1 ? 's' : ''} available`
+            : 'Disabled';
+    }
+}
+
+function _renderMetaAgentsTable() {
+    const section = document.getElementById('metaAgentsSection');
+    const table = document.getElementById('metaAgentsTable');
+    if (!section || !table) return;
+    section.style.display = _metaModeEnabled ? '' : 'none';
+    if (!_metaModeEnabled) return;
+    table.innerHTML = META_AGENTS.map(agent => {
+        const state = _metaAgentsData[agent.id] || {};
+        const enabled = state.enabled || false;
+        const lastRun = _formatRelativeTime(state.last_run_ts || 0);
+        const badgeClass = enabled ? 'yes' : 'no';
+        const badgeText = enabled ? 'Yes' : 'No';
+        return `<div class="meta-agent-row">
+            <span class="meta-agent-name">${agent.label}</span>
+            <span class="meta-agent-badge ${badgeClass}">${badgeText}</span>
+            <span class="meta-agent-last-run">${lastRun}</span>
+            <span class="meta-agent-actions">
+                <button id="mm-run-${agent.id}" onclick="runMetaAgent('${agent.id}')">Run</button>
+            </span>
+        </div>`;
+    }).join('');
+}
+
+async function toggleMetaMode() {
+    const btn = document.getElementById('metaModeToggleBtn');
+    if (btn) btn.disabled = true;
+    const newState = !_metaModeEnabled;
+    try {
+        const res = await fetch(API + '/api/meta-mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({meta_mode_enabled: newState}),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            _metaModeEnabled = data.meta_mode_enabled || false;
+            _metaAgentsData = data.agents || {};
+            _updateMetaModeToggle();
+            _renderMetaAgentsTable();
+            showToast('Meta Mode ' + (_metaModeEnabled ? 'enabled' : 'disabled'));
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message, '#f85149');
+    }
+    if (btn) btn.disabled = false;
+}
+
+async function runMetaAgent(agentId) {
+    const agent = META_AGENTS.find(a => a.id === agentId);
+    if (!agent) return;
+    const btn = document.getElementById('mm-run-' + agentId);
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const res = await fetch(API + agent.runEndpoint, { method: 'POST' });
+        const data = await res.json();
+        const label = agent.label;
+        if (data.task_id) {
+            showToast(label + ' task: ' + data.task_id);
+        } else if (data.error) {
+            showToast(label + ': ' + data.error, '#f85149');
+        } else {
+            showToast(label + ' triggered');
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message, '#f85149');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Run'; }
+}
+
 /* ── Gardener ─────────────────────────────────────────────────────────────── */
 let gardenerEnabled = false;
 async function loadGardenerState() {
