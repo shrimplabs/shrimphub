@@ -492,6 +492,7 @@
             } catch (_) {}
         }
         if (!task) return;
+        // Active agents: open live log
         if (task.status === 'in_progress') {
             const agent = agentByTaskId[taskId];
             if (agent && ctx.showAgentOutput) {
@@ -499,6 +500,14 @@
                 return;
             }
         }
+        // Completed/failed/cancelled: read-only info panel
+        if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+            if (typeof openTaskInfoPanel === 'function') {
+                openTaskInfoPanel(task);
+                return;
+            }
+        }
+        // Pending: editable
         if (ctx.openEditTaskModal) ctx.openEditTaskModal(task);
     }
 

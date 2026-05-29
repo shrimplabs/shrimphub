@@ -562,3 +562,85 @@ async function importTasks(input) {
     loadData();
 }
 
+// ---- Task Info Panel (read-only, for completed/failed/cancelled nodes) ----
+
+function closeTaskInfoModal() {
+    document.getElementById('taskInfoModal').classList.remove('active');
+}
+
+function openTaskInfoPanel(task) {
+    const statusColors = {
+        completed: '#3fb950', failed: '#f85149', cancelled: '#8b949e',
+        in_progress: '#58a6ff', pending: '#e6edf3',
+    };
+    const color = statusColors[task.status] || '#e6edf3';
+    const meta = task.metadata || {};
+
+    function row(label, value, mono) {
+        if (!value && value !== 0) return '';
+        const style = mono ? 'font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all' : 'font-size:13px';
+        return `<div>
+            <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${label}</div>
+            <div style="${style};color:#e6edf3">${escapeHtml(String(value))}</div>
+        </div>`;
+    }
+
+    function pill(label, value, c) {
+        return `<span style="font-size:11px;border:1px solid ${c||'#30363d'};color:${c||'#8b949e'};border-radius:999px;padding:2px 8px">${escapeHtml(label)}: ${escapeHtml(String(value))}</span>`;
+    }
+
+    const pills = [
+        pill('type', task.type, '#58a6ff'),
+        pill('project', task.project, '#8b949e'),
+        pill('priority', task.priority, '#8b949e'),
+        pill('attempts', `${task.attempts}/${task.max_attempts}`, task.attempts >= task.max_attempts ? '#f85149' : '#8b949e'),
+    ].join(' ');
+
+    const timestamps = [
+        task.created ? `Created ${new Date(task.created).toLocaleString()}` : '',
+        task.started ? `Started ${new Date(task.started).toLocaleString()}` : '',
+        task.completed ? `Completed ${new Date(task.completed).toLocaleString()}` : '',
+    ].filter(Boolean).join(' · ');
+
+    const deps = (task.dependencies || []).length
+        ? task.dependencies.join('\n')
+        : null;
+
+    const diffStat = meta.diff_stat || null;
+    const lastFailure = meta.last_failure || null;
+    const researchCtx = meta.research_context || null;
+
+    document.getElementById('taskInfoTitle').innerHTML =
+        `<span style="color:${color}">${escapeHtml(task.status.replace('_',' '))}</span> · ${escapeHtml(task.id)}`;
+
+    document.getElementById('taskInfoBody').innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${pills}</div>
+        ${timestamps ? `<div style="font-size:12px;color:#6e7681">${escapeHtml(timestamps)}</div>` : ''}
+        ${row('Description', task.description)}
+        ${deps ? row('Dependencies', deps, true) : ''}
+        ${diffStat ? row('Diff stat', diffStat, true) : ''}
+        ${lastFailure ? `<div>
+            <div style="font-size:11px;color:#f85149;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Last failure</div>
+            <pre style="font-size:11px;color:#e6edf3;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;margin:0">${escapeHtml(lastFailure)}</pre>
+        </div>` : ''}
+        ${researchCtx ? `<div>
+            <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Research context</div>
+            <pre style="font-size:11px;color:#e6edf3;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow-y:auto;margin:0">${escapeHtml(researchCtx)}</pre>
+        </div>` : ''}
+    `;
+
+    // Footer actions
+    const footer = document.getElementById('taskInfoFooter');
+    const btns = [];
+    if (task.agent_id) {
+        btns.push(`<button onclick="closeTaskInfoModal();showAgentOutput('${escapeHtml(task.agent_id)}','${escapeHtml(task.project)}',true,'${escapeHtml(task.id)}')" style="background:#161b22;color:#58a6ff;border:1px solid #1f6feb;border-radius:4px;padding:5px 12px;font-size:12px;cursor:pointer">📋 View log</button>`);
+    }
+    if (task.status === 'failed') {
+        btns.push(`<button onclick="closeTaskInfoModal();openResetModal('${escapeHtml(task.id)}')" style="background:#161b22;color:#f0883e;border:1px solid rgba(240,136,62,.4);border-radius:4px;padding:5px 12px;font-size:12px;cursor:pointer">↺ Reset</button>`);
+    }
+    btns.push(`<button onclick="closeTaskInfoModal()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;padding:5px 12px;font-size:12px;cursor:pointer">Close</button>`);
+    footer.innerHTML = btns.join('');
+
+    document.getElementById('taskInfoModal').classList.add('active');
+}
+
