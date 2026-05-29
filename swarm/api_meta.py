@@ -31,6 +31,7 @@ def _agent_status() -> Dict[str, Any]:
         },
         "librarian": {
             "enabled": config_ref.get("librarian_enabled", False),
+            "autonomous_edits": config_ref.get("librarian_autonomous_edits", False),
             "completion_counter": float(config_ref.get(
                 "_librarian_completion_counter", 0
             )),

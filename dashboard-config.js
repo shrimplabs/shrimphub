@@ -219,7 +219,7 @@ function openNodeDetail(taskId) {
             return;
         }
     }
-    // pending / failed / completed — open the edit/detail modal
+    // pending / failed / completed -- open the edit/detail modal
     openEditTaskModal(task);
 }
 
@@ -396,7 +396,7 @@ function createHistoryCard(agent) {
             <div class="agent-details">
                 <div class="stat">Type: <span>${agent.task_type || 'refactor'}</span></div>
                 <div class="stat">Finished: <span>${time}</span></div>
-                <div class="stat">${exitBadge}${lastLoop ? ' · ' + lastLoop : ''}</div>
+                <div class="stat">${exitBadge}${lastLoop ? ' * ' + lastLoop : ''}</div>
             </div>
             ${diffStat ? `<div class="diff-stat">± ${escapeHtml(diffStat)}</div>` : ''}
             <div class="output-log" style="max-height:70px;font-size:10px;overflow:hidden;margin-top:8px">${snippet}</div>
@@ -515,7 +515,7 @@ function closeWizard() {
 function wizardBack() {
     document.getElementById('wizardStep2').style.display = 'none';
     document.getElementById('wizardStep1').style.display = 'block';
-    document.getElementById('wizardTitle').textContent = '🧙 New Project — Wizard';
+    document.getElementById('wizardTitle').textContent = '🧙 New Project -- Wizard';
 }
 
 function wzApplyScope(val) {
@@ -538,7 +538,7 @@ async function wizardGeneratePlan() {
     errEl.style.display = 'none';
 
     const btn = document.getElementById('wzGenerateBtn');
-    btn.disabled = true; btn.textContent = '✨ Thinking…';
+    btn.disabled = true; btn.textContent = '✨ Thinking...';
 
     document.getElementById('wizardStep1').style.display = 'none';
     document.getElementById('wizardStep2').style.display = 'block';
@@ -636,7 +636,7 @@ async function wizardCreate() {
 
     if (_wzTasks.length === 0) { errEl.textContent = 'Add at least one task.'; errEl.style.display = 'block'; return; }
 
-    btn.disabled = true; btn.textContent = 'Creating…';
+    btn.disabled = true; btn.textContent = 'Creating...';
     errEl.style.display = 'none';
 
     try {
@@ -718,7 +718,7 @@ async function testWebhook() {
     const url = document.getElementById('webhookUrl').value.trim();
     const statusEl = document.getElementById('webhookTestStatus');
     if (!url) { statusEl.textContent = 'Enter a URL first'; statusEl.style.color = '#f85149'; return; }
-    statusEl.textContent = 'Sending…'; statusEl.style.color = '#8b949e';
+    statusEl.textContent = 'Sending...'; statusEl.style.color = '#8b949e';
     try {
         await fetch(API + '/api/webhook', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})});
         const res = await fetch(API + '/api/webhook/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})});
@@ -769,7 +769,7 @@ async function openKnowledgeModal() {
     const sel = document.getElementById('knowledgeSearch');
     sel.innerHTML = '<option value="">All projects</option>';
     const list = document.getElementById('knowledgeList');
-    list.innerHTML = '<div style="color:var(--text-faint);font-size:13px">Loading…</div>';
+    list.innerHTML = '<div style="color:var(--text-faint);font-size:13px">Loading...</div>';
     try {
         const data = await fetch('/api/metrics/knowledge-files').then(r => r.json());
         _knowledgeFiles = data.files || [];
@@ -912,11 +912,21 @@ function _renderMetaAgentsTable() {
         const lastRun = _formatRelativeTime(state.last_run_ts || 0);
         const badgeClass = enabled ? 'yes' : 'no';
         const badgeText = enabled ? 'Yes' : 'No';
+        // Librarian gets an extra autonomous-edits toggle
+        const isLibrarian = agent.id === 'librarian';
+        const autoEdits = state.autonomous_edits || false;
+        const autoEditsBtn = isLibrarian
+            ? `<button id="mm-auto-${agent.id}" class="autonomous-toggle ${autoEdits ? 'on' : ''}"
+                       onclick="toggleLibrarianAutonomous()">
+                 Auto ${autoEdits ? 'ON' : 'OFF'}
+               </button>`
+            : '';
         return `<div class="meta-agent-row">
             <span class="meta-agent-name">${agent.label}</span>
             <span class="meta-agent-badge ${badgeClass}">${badgeText}</span>
             <span class="meta-agent-last-run">${lastRun}</span>
             <span class="meta-agent-actions">
+                ${autoEditsBtn}
                 <button id="mm-run-${agent.id}" onclick="runMetaAgent('${agent.id}')">Run</button>
             </span>
         </div>`;
@@ -967,6 +977,30 @@ async function runMetaAgent(agentId) {
         showToast('Error: ' + e.message, '#f85149');
     }
     if (btn) { btn.disabled = false; btn.textContent = 'Run'; }
+}
+
+async function toggleLibrarianAutonomous() {
+    const btn = document.getElementById('mm-auto-librarian');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch(API + '/api/librarian/autonomous-edits', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({}),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const isOn = data.autonomous_edits || false;
+            if (btn) btn.classList.toggle('on', isOn);
+            if (btn) btn.textContent = 'Auto ' + (isOn ? 'ON' : 'OFF');
+            showToast('Librarian autonomous edits ' + (isOn ? 'enabled' : 'disabled'));
+        } else {
+            showToast('Failed to toggle autonomous edits', '#f85149');
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message, '#f85149');
+    }
+    if (btn) btn.disabled = false;
 }
 
 /* ── Gardener ─────────────────────────────────────────────────────────────── */

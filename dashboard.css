@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   NeuralGlass Cyberpunk — Swarm Controller Dashboard
+   NeuralGlass Cyberpunk -- Swarm Controller Dashboard
    Themed via CSS custom properties. Set data-theme on <body>.
    ═══════════════════════════════════════════════════════════════ */
 
@@ -915,7 +915,7 @@ button, .btn {
 }
 .spawn-toggle-btn.is-off::before { background: var(--text-faint); }
 
-/* on state — solid green glow */
+/* on state -- solid green glow */
 .spawn-toggle-btn.is-on {
     color: var(--green) !important;
     border-color: var(--green) !important;
@@ -928,7 +928,7 @@ button, .btn {
     animation: ledPulse 1.8s ease-in-out infinite;
 }
 
-/* suspended state — amber */
+/* suspended state -- amber */
 .spawn-toggle-btn.is-suspended {
     color: var(--text-warn) !important;
     border-color: var(--text-warn) !important;
@@ -969,11 +969,11 @@ button, .btn {
     font-size: 14px !important;
     min-width: unset !important;
 }
-/* Remove old fixed toolbar — now lives in dashboard-header */
+/* Remove old fixed toolbar -- now lives in dashboard-header */
 #top-toolbar { display: none; }
 #themeToggleBtn, #debugModeBtn { /* styles inherited from header-action-btn */ }
 
-/* ─── Summary cards (legacy — replaced by stats-strip) ─────────── */
+/* ─── Summary cards (legacy -- replaced by stats-strip) ─────────── */
 .summary { display: none; }
 
 /* ─── Agent / task details ──────────────────────────────────────── */
@@ -2409,7 +2409,7 @@ button, .btn {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Theme-aware overrides — fixes hardcoded dark colors on inline styles
+   Theme-aware overrides -- fixes hardcoded dark colors on inline styles
    that break in light/dark theme switches.
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -2838,4 +2838,26 @@ input[id*="webhook"], input[id*="Webhook"] {
 .meta-agent-actions button.running {
     color: #3fb950;
     border-color: rgba(63,185,80,0.4);
+}
+
+/* Librarian autonomous-edits toggle */
+.meta-agent-actions button.autonomous-toggle {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid rgba(240,136,62,0.3);
+    background: rgba(240,136,62,0.08);
+    color: #f0883e;
+    transition: all 0.15s;
+}
+.meta-agent-actions button.autonomous-toggle:hover {
+    border-color: #f0883e;
+    background: rgba(240,136,62,0.15);
+}
+.meta-agent-actions button.autonomous-toggle.on {
+    background: rgba(240,136,62,0.2);
+    border-color: #f0883e;
+    color: #f0883e;
+    font-weight: 700;
 }
