@@ -939,6 +939,10 @@ def generate_task_script(task: dict) -> str:
         "librarian", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
         librarian_max_prompt_tasks=_config.get("librarian_max_prompt_tasks", 3),
     )
+    auditor_system, auditor_user = _load_prompt(
+        "auditor", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+        meta_auditor_max_tasks=_config.get("meta_auditor_max_tasks", 20),
+    )
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1131,6 +1135,8 @@ rt.GARDENER_SYSTEM          = {repr(gardener_system)}
 rt.GARDENER_USER            = {repr(gardener_user)}
 rt.LIBRARIAN_SYSTEM         = {repr(librarian_system)}
 rt.LIBRARIAN_USER           = {repr(librarian_user)}
+rt.AUDITOR_SYSTEM           = {repr(auditor_system)}
+rt.AUDITOR_USER             = {repr(auditor_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}

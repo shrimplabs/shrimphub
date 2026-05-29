@@ -48,7 +48,9 @@ def register_routes(app, config: Dict,
                     "enabled": False,
                 },
                 "auditor": {
-                    "enabled": False,
+                    "enabled": config_ref.get("meta_auditor_enabled", False),
+                    "last_run_ts": float(config_ref.get("_meta_auditor_last_run_ts", 0.0)),
+                    "interval_days": config_ref.get("meta_auditor_interval_days", 7),
                 },
                 "scheduler": {
                     "enabled": False,
@@ -92,7 +94,8 @@ def register_routes(app, config: Dict,
                     "enabled": False,
                 },
                 "auditor": {
-                    "enabled": False,
+                    "enabled": config_ref.get("meta_auditor_enabled", False),
+                    "last_run_ts": float(config_ref.get("_meta_auditor_last_run_ts", 0.0)),
                 },
                 "scheduler": {
                     "enabled": False,

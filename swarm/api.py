@@ -838,6 +838,15 @@ def create_app(
         _config_write_lock=_config_write_lock,
     )
 
+    # ---------- Meta Auditor ----------
+    from swarm.api_meta_auditor import register_routes as _reg_auditor
+    _reg_auditor(
+        app,
+        config=config,
+        config_file=config_file,
+        _config_write_lock=_config_write_lock,
+    )
+
     # ---------- Strategies ----------
 
     @app.route("/api/strategies", methods=["GET"])

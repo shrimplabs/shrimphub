@@ -119,6 +119,14 @@ LIBRARIAN_TRIGGER_INTERVAL: int = 50
 LIBRARIAN_MAX_PROMPT_TASKS: int = 3
 LIBRARIAN_COMPLETION_COUNTER: int = 0
 
+# Auditor: weekly structural-audit agent
+# META_AUDITOR_ENABLED gates scheduled runs (default False)
+# META_AUDITOR_INTERVAL_DAYS controls the weekly cadence (default 7)
+# META_AUDITOR_MAX_TASKS limits tasks created per run (default 20)
+META_AUDITOR_ENABLED: bool = False
+META_AUDITOR_INTERVAL_DAYS: int = 7
+META_AUDITOR_MAX_TASKS: int = 20
+
 
 # ---------------------------------------------------------------------------
 # Webhook helper
@@ -425,6 +433,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
             _run_idle_closure_verification_cycle()
             _fire_idle_gardener()
             _fire_idle_librarian()
+            _fire_weekly_auditor()
         return spawned, skipped
 
 
@@ -590,6 +599,79 @@ def _fire_idle_librarian() -> None:
         print(f"[Librarian] Idle trigger fired -- created librarian task {task_id} "
               f"(completion_counter={LIBRARIAN_COMPLETION_COUNTER}, "
               f"threshold={LIBRARIAN_TRIGGER_INTERVAL})")
+
+
+_last_auditor_run_ts: float = 0.0
+
+
+def _fire_weekly_auditor() -> None:
+    """Fire the auditor agent on a weekly cadence (controlled by meta_auditor_interval_days).
+
+    Triggers when:
+    - meta_auditor is enabled via config
+    - META_MODE_ENABLED is True
+    - no agents are currently running
+    - at least META_AUDITOR_INTERVAL_DAYS have passed since LAST_AUDITOR_RUN_TS
+
+    This runs the auditor weekly to detect template drift, missing StateServer
+    registration, GUT without tests, and structural anti-patterns across all
+    managed Godot projects.
+    """
+    global _last_auditor_run_ts
+
+    if not META_AUDITOR_ENABLED:
+        return
+    if not META_MODE_ENABLED:
+        return
+    if get_active_count() > 0:
+        return
+
+    interval_days = getattr(sys.modules.get('swarm.orchestrator', None),
+                           'META_AUDITOR_INTERVAL_DAYS', 7) or 7
+    interval_secs = max(interval_days * 86400, 86400)
+
+    now = time.time()
+    if now - _last_auditor_run_ts < interval_secs:
+        return
+
+    all_tasks = db.task_get_all()
+    already_running = any(
+        t.get("type") == "meta_auditor"
+        and t.get("status") in ("pending", "in_progress")
+        for t in all_tasks
+    )
+    if already_running:
+        return
+
+    task_id = f"meta-auditor-{int(now)}"
+    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+    managed = list(MANAGED_PROJECTS)
+    db.task_upsert({
+        "id": task_id,
+        "project": "swarm-controller",
+        "type": "meta_auditor",
+        "description": (
+            "Run the Auditor meta-agent. Survey all managed Godot projects for "
+            "systemic issues: template drift in autoload/state_server.gd and "
+            "test_harness.gd, missing StateServer registration in project.godot, "
+            "GUT installed without tests, and structural anti-patterns. "
+            "Create coordinated fix tasks (max 20) chained by project, and write "
+            "findings to data/AUDIT_REPORT.md."
+        ),
+        "priority": 60,
+        "status": "pending",
+        "dependencies": deps,
+        "metadata": {
+            "auto_spawned": True,
+            "managed_projects": managed,
+            "idle_trigger": True,
+        },
+        "attempts": 0,
+        "max_attempts": 1,
+    })
+    _last_auditor_run_ts = now
+    print(f"[Auditor] Weekly trigger fired -- created meta_auditor task {task_id} "
+          f"(managed projects: {len(managed)})")
 
 
 def _get_next_task() -> Optional[Dict]:
