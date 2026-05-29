@@ -19,11 +19,9 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from swarm.constants import AGENT_TIMEOUT
 from swarm.task_chains import chain_to_project_head
-
+from swarm.api_webhook import fire_webhook as _fire_webhook  # noqa: F401 re-export for tests
 
 _config_write_lock = threading.Lock()
-
-# Re-export for backward compatibility with tests that import from swarm.api
 
 
 # ---------------------------------------------------------------------------
@@ -968,7 +966,6 @@ def create_app(
     # ---------- Webhook ----------
 
     from swarm.api_webhook import register_routes as _register_webhook_routes
-    from swarm.api_webhook import fire_webhook as _fire_webhook  # noqa: F401 re-export for tests
     _register_webhook_routes(
         app,
         config=config,

@@ -130,21 +130,21 @@ def _finish_worktree_phase(agent_id: str, success: bool, project: Optional[str],
                     _ptype = "godot" if (_project_path / "project.godot").exists() else "python"
                     _new_errs, _inherited = _validation.filter_new_errors(_val_err, _baseline, _ptype)
                     if not _new_errs:
-                        # All errors are pre-existing — agent did not make things worse.
+                        # All errors are pre-existing -- agent did not make things worse.
                         # Report inherited blockers but do NOT block the merge.
                         if _inherited:
                             print(
                                 f"[Swarm] Pre-merge validation: {len(_inherited)} inherited pre-existing error(s) "
-                                f"for agent {agent_id[:8]} — not charged to this agent, proceeding with merge"
+                                f"for agent {agent_id[:8]} -- not charged to this agent, proceeding with merge"
                             )
                         else:
-                            print(f"[Swarm] Pre-merge validation: no new errors for agent {agent_id[:8]} — proceeding with merge")
+                            print(f"[Swarm] Pre-merge validation: no new errors for agent {agent_id[:8]} -- proceeding with merge")
                         _val_failed = False  # treat as pass
                     else:
                         print(
                             f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]}: "
                             f"{len(_new_errs)} NEW error(s) introduced "
-                            f"({len(_inherited)} inherited/pre-existing) — skipping merge, preserving worktree"
+                            f"({len(_inherited)} inherited/pre-existing) -- skipping merge, preserving worktree"
                         )
                         _val_err = (
                             f"NEW errors introduced by this agent ({len(_new_errs)}):\n"
@@ -153,7 +153,7 @@ def _finish_worktree_phase(agent_id: str, success: bool, project: Optional[str],
                                + "\n".join(_inherited) if _inherited else "")
                         )
                 else:
-                    print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} — no baseline available, treating all errors as new")
+                    print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} -- no baseline available, treating all errors as new")
 
             if _val_failed:
                 return _WorktreeFinishResult(
@@ -571,6 +571,23 @@ def _phase_post_completion_pipeline(
         is_recovery_task=is_recovery_task,
     )
 
+    # Librarian completion counter: increment after every successful non-meta task.
+    # The orchestrator monitors LIBRARIAN_COMPLETION_COUNTER and fires the librarian
+    # when the threshold is reached and the system is idle.
+    # Skip librarian tasks themselves to avoid triggering a chain reaction.
+    _skip_meta = {
+        "gardener", "cartographer", "librarian", "archaeologist",
+        "auditor", "scheduler", "audit_learnings",
+    }
+    if task_type_finished not in _skip_meta:
+        try:
+            from swarm import orchestrator as _orch
+            _orch.LIBRARIAN_COMPLETION_COUNTER += 1
+            # Also sync to the state file so the API can read it
+            from swarm import api_librarian as _librarian
+            _librarian.increment_librarian_counter(al.DATA_DIR)
+        except Exception as _lb_err:
+            print(f"[Swarm] WARNING: librarian counter increment failed: {_lb_err}")
 
 
 # ---------------------------------------------------------------------------
@@ -633,7 +650,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
         # Phase 5a -- reparent any continuation task the agent spawned, regardless of
         # success or failure. If this runs only on success, a failed task leaves the
-        # continuation depending on the failed task itself — permanent deadlock.
+        # continuation depending on the failed task itself -- permanent deadlock.
         spawned_continuation = _phase_reparent_continuation(task_id, full_output)
 
         if success:

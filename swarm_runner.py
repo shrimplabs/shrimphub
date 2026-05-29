@@ -22,7 +22,7 @@ from collections.abc import Iterable
 from swarm.platform import godot_binary_available, resolve_godot_binary, shell_quote_command_arg
 
 # ---------------------------------------------------------------------------
-# Config — loaded once at module level; swarm.api syncs these vars at startup
+# Config -- loaded once at module level; swarm.api syncs these vars at startup
 # ---------------------------------------------------------------------------
 
 _CONFIG_FILE = Path(__file__).parent / "config.json"
@@ -61,7 +61,7 @@ IGNORE_EXTENSIONS: set = set(_config.get("ignore_extensions", [
 MCP_SERVERS: dict = _config.get("mcp_servers", {})
 PROJECT_INTENT_PROMPT_VARIANT: str = _config.get("project_intent_prompt_variant", "exploratory")
 
-# Prompt template warning collector — appended to by _WarnUndefined when a prompt
+# Prompt template warning collector -- appended to by _WarnUndefined when a prompt
 # variable is missing; exposed via /api/health so ops can see broken prompts.
 _prompt_warnings: list = []
 
@@ -238,7 +238,7 @@ def _truncate_text(text: str, limit: int = 220) -> str:
     compact = _compact_whitespace(text)
     if len(compact) <= limit:
         return compact
-    return compact[: limit - 1].rstrip() + "…"
+    return compact[: limit - 1].rstrip() + "..."
 
 
 def _extract_markdown_section(text: str, headings: tuple[str, ...]) -> str:
@@ -549,7 +549,7 @@ def _project_context_packet(task: dict, project_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Godot validation prompt block — shared across feature/bug/polish prompts
+# Godot validation prompt block -- shared across feature/bug/polish prompts
 # ---------------------------------------------------------------------------
 
 def _godot_status_block(godot_bin: str, godot_command: str) -> str:
@@ -587,13 +587,13 @@ You may still run non-Godot checks, but if this task requires Godot execution, s
    d) GUT unit tests (only if addons/gut/ exists):
       run_command("{godot_command} --headless --path {project_arg} --script res://addons/gut/gut_cmdln.gd -- -gdir=res://tests -gexit 2>&1", timeout=300)
       ALL tests must pass (exit 0, no FAILED lines). Fix failures before committing.
-      NOTE: GUT runs take 2-3 minutes with many tests — always pass timeout=300."""
+      NOTE: GUT runs take 2-3 minutes with many tests -- always pass timeout=300."""
 
     return f"""{godot_status}
 
 BEFORE committing, run the full validation suite in order:
 
-   a) Script parse check — write res://_swarm_check.gd then run it:
+   a) Script parse check -- write res://_swarm_check.gd then run it:
       Content:
         extends SceneTree
         func _init():
@@ -617,7 +617,7 @@ BEFORE committing, run the full validation suite in order:
                 f = dir.get_next()
       Run: run_command("{godot_command} --headless --path {project_arg} --script res://_swarm_check.gd --quit 2>&1")
 
-   b) Scene load check — write res://_swarm_scene_check.gd then run it:
+   b) Scene load check -- write res://_swarm_scene_check.gd then run it:
       Content:
         extends SceneTree
         func _init():
@@ -658,7 +658,7 @@ BEFORE committing, run the full validation suite in order:
 
 
 # ---------------------------------------------------------------------------
-# Prompt loader — Jinja2 + YAML with << >> delimiters (no {} escaping needed)
+# Prompt loader -- Jinja2 + YAML with << >> delimiters (no {} escaping needed)
 # ---------------------------------------------------------------------------
 
 def _load_prompt(name: str, **vars) -> tuple:
@@ -709,7 +709,7 @@ def _load_prompt(name: str, **vars) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# generate_task_script — imported by swarm.api and swarm.orchestrator
+# generate_task_script -- imported by swarm.api and swarm.orchestrator
 # ---------------------------------------------------------------------------
 
 def generate_task_script(task: dict) -> str:
@@ -758,7 +758,7 @@ def generate_task_script(task: dict) -> str:
         retry_prefix = (
             "\n```\n// RESEARCH DIAGNOSIS (read before anything else)\n"
             "A dedicated research agent investigated why previous attempts failed.\n"
-            "Apply this diagnosis — do not repeat the same approaches that failed.\n\n"
+            "Apply this diagnosis -- do not repeat the same approaches that failed.\n\n"
             + metadata["research_context"][:2000]
             + "\n```\n\n"
         )
@@ -787,7 +787,7 @@ def generate_task_script(task: dict) -> str:
             "directive": "Previous approaches have not worked. Try a fundamentally different approach.",
         }
         retry_prefix = (
-            "\n```json\n// RETRY CONTEXT (attempt %d — try a different approach)\n" % attempt_number
+            "\n```json\n// RETRY CONTEXT (attempt %d -- try a different approach)\n" % attempt_number
             + json.dumps(retry_context, indent=2)
             + "\n```\n\n"
         )
@@ -935,6 +935,10 @@ def generate_task_script(task: dict) -> str:
     art_pass_system, art_pass_user = _load_prompt("art_pass", **_common)
     research_system, research_user = _load_prompt("research", **_common)
     gardener_system, gardener_user = _load_prompt("gardener", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR))
+    librarian_system, librarian_user = _load_prompt(
+        "librarian", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+        librarian_max_prompt_tasks=config.get("librarian_max_prompt_tasks", 3),
+    )
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1042,7 +1046,7 @@ def generate_task_script(task: dict) -> str:
     _extra_paths = list(dict.fromkeys(
         [_venv_site] + [p for p in sys.path if "site-packages" in p or "dist-packages" in p]
     ))
-    wrapper = f'#!/usr/bin/env python3\n"""\nAgent wrapper — {project} ({task_type})\nTask ID: {task_id}\n"""\n'
+    wrapper = f'#!/usr/bin/env python3\n"""\nAgent wrapper -- {project} ({task_type})\nTask ID: {task_id}\n"""\n'
     wrapper += f"""import sys
 import os
 from pathlib import Path
@@ -1125,6 +1129,8 @@ rt.RESEARCH_SYSTEM          = {repr(research_system)}
 rt.RESEARCH_USER            = {repr(research_user)}
 rt.GARDENER_SYSTEM          = {repr(gardener_system)}
 rt.GARDENER_USER            = {repr(gardener_user)}
+rt.LIBRARIAN_SYSTEM         = {repr(librarian_system)}
+rt.LIBRARIAN_USER           = {repr(librarian_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
