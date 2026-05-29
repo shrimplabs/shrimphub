@@ -326,9 +326,10 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
     _BASELINE_SKIP_TYPES = {"manager", "project_create", "qa", "research",
                             "harness_qa", "hybrid_qa", "project_plan", "audit",
                             "triage", "art_pass", "scenario_qa"}
-    if task.get("id") and task.get("type") not in _BASELINE_SKIP_TYPES and worktree_path is not None:
+    _baseline_path = worktree_path if worktree_path is not None else (WORKSPACE / project)
+    if task.get("id") and task.get("type") not in _BASELINE_SKIP_TYPES and _baseline_path.exists():
         try:
-            _validation.capture_validation_baseline(project, task["id"], worktree_path)
+            _validation.capture_validation_baseline(project, task["id"], _baseline_path)
         except Exception as _blerr:
             print(f"[Swarm] WARNING: pre-flight baseline failed for {task['id'][:8]}: {_blerr}")
 
