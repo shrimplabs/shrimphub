@@ -109,6 +109,16 @@ GARDENER_SKIP_PROJECTS: list = []
 LAST_GARDENER_RUN_TS: float = 0.0
 META_MODE_ENABLED: bool = False
 
+# Librarian: prompt-audit agent
+# LIBRARIAN_ENABLED gates auto-trigger
+# LIBRARIAN_TRIGGER_INTERVAL fires after this many task completions (default 50)
+# LIBRARIAN_MAX_PROMPT_TASKS limits refactor tasks created per run (default 3)
+# LIBRARIAN_COMPLETION_COUNTER tracks completed tasks -- incremented by agent_lifecycle
+LIBRARIAN_ENABLED: bool = False
+LIBRARIAN_TRIGGER_INTERVAL: int = 50
+LIBRARIAN_MAX_PROMPT_TASKS: int = 3
+LIBRARIAN_COMPLETION_COUNTER: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Webhook helper
@@ -525,6 +535,60 @@ def _fire_idle_gardener() -> None:
             })
             print(f"[Gardener] Idle trigger fired -- created gardener task {task_id} "
                   f"(last failure at {failure_ts}, last gardener at {LAST_GARDENER_RUN_TS})")
+
+
+def _fire_idle_librarian() -> None:
+    """Fire the librarian agent after every N task completions.
+
+    Triggers when:
+    - librarian is enabled via config
+    - no agents are currently running
+    - LIBRARIAN_COMPLETION_COUNTER >= LIBRARIAN_TRIGGER_INTERVAL
+    - META_MODE_ENABLED is True
+
+    This runs the librarian periodically to catch recurring prompt quality
+    issues before they compound across many tasks.
+    """
+    if not LIBRARIAN_ENABLED:
+        return
+    if not META_MODE_ENABLED:
+        return
+    if get_active_count() > 0:
+        return
+    if LIBRARIAN_COMPLETION_COUNTER < LIBRARIAN_TRIGGER_INTERVAL:
+        return
+
+    all_tasks = db.task_get_all()
+    # Don't fire if a librarian task is already pending or in_progress
+    already_running = any(
+        t.get("type") == "librarian"
+        and t.get("status") in ("pending", "in_progress")
+        for t in all_tasks
+    )
+    if not already_running:
+        task_id = f"librarian-{int(time.time())}"
+        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+        db.task_upsert({
+            "id": task_id,
+            "project": "swarm-controller",
+            "type": "librarian",
+            "description": (
+                "Run the librarian meta-agent. Scan recent task failures from swarm.db, "
+                "group recurring failure patterns by task type, identify instruction gaps "
+                "in prompts/*.yaml, and create up to 3 refactor tasks on swarm-controller "
+                "describing targeted prompt edits (before/after diff in description). "
+                "Write findings to data/LIBRARIAN_REPORT.md."
+            ),
+            "priority": 60,
+            "status": "pending",
+            "dependencies": deps,
+            "metadata": {"auto_spawned": True, "idle_trigger": True},
+            "attempts": 0,
+            "max_attempts": 1,
+        })
+        print(f"[Librarian] Idle trigger fired -- created librarian task {task_id} "
+              f"(completion_counter={LIBRARIAN_COMPLETION_COUNTER}, "
+              f"threshold={LIBRARIAN_TRIGGER_INTERVAL})")
 
 
 def _get_next_task() -> Optional[Dict]:

@@ -306,6 +306,18 @@
         </div>
     </div>
 
+    <!-- Task Info Panel (read-only, for completed/failed nodes) -->
+    <div class="modal" id="taskInfoModal" onclick="if(event.target===this)closeTaskInfoModal()">
+        <div class="modal-content" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
+            <div class="modal-header">
+                <h3 id="taskInfoTitle">Task Info</h3>
+                <button class="modal-close" onclick="closeTaskInfoModal()">×</button>
+            </div>
+            <div id="taskInfoBody" class="modal-body" style="padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;flex:1"></div>
+            <div id="taskInfoFooter" style="padding:10px 20px;border-top:1px solid #30363d;display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
+    </div>
+
     <!-- Reset Task Modal -->
     <div class="modal" id="resetTaskModal" onclick="if(event.target===this)closeResetModal()">
         <div class="modal-content" style="max-width:480px">

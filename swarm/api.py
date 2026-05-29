@@ -968,6 +968,7 @@ def create_app(
     # ---------- Webhook ----------
 
     from swarm.api_webhook import register_routes as _register_webhook_routes
+    from swarm.api_webhook import fire_webhook as _fire_webhook  # noqa: F401 re-export for tests
     _register_webhook_routes(
         app,
         config=config,
