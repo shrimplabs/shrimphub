@@ -359,6 +359,9 @@ def create_app(
         auto_mode_state=auto_mode_state,
         data_dir=data_dir,
         workspace=workspace,
+        project_registry=project_registry,
+        config_file=config_file,
+        config_write_lock=_config_write_lock,
     )
 
 

@@ -8,10 +8,11 @@ from flask import jsonify, request
 import time
 
 from swarm.task_chains import chain_to_project_head
+from swarm.api_projects import _sync_managed_projects
 from swarm.dependencies import is_dependency_met
 
 
-def register_routes(app, task_source, orchestrator, generate_task_script, config, db, auto_mode_state, data_dir, workspace):
+def register_routes(app, task_source, orchestrator, generate_task_script, config, db, auto_mode_state, data_dir, workspace, project_registry=None, config_file=None, config_write_lock=None):
     """Register spawn routes on the Flask app."""
     @app.route("/api/spawn", methods=["POST"])
     def spawn_task():
@@ -119,6 +120,17 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
             "dependencies": chain_to_project_head(db, "_swarm", ensure_head=True),
         }
         db.task_upsert(task)
+        # Also register the project so it appears in managed_projects immediately
+        project_path = workspace / name
+        db.project_upsert({
+            "name": name,
+            "path": str(project_path),
+            "managed": True,
+            "status": "active",
+        })
+        if project_registry is not None:
+            project_registry.add_project(name, managed=True)
+        _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"task": task})
 
     @app.route("/api/spawn-batch", methods=["POST"])
