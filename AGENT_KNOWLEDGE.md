@@ -144,3 +144,22 @@ swarm/gardener_knowledge.py: standalone knowledge store. JSONL at data/swarm_kno
 **Bug also existed in** `swarm/api_chat.py` and `swarm/api_wizard.py` — but those were already fixed (see broadcast log: "Auto-add project to managed_projects so it will be picked up", multiple agents fixing). Only `api_projects.py` registration endpoints were missing the sync.
 
 **Verified**: All 106 project-related tests pass. 7/7 managed-projects tests pass.
+
+---
+## scan_project bug fix (commit 6ab296a)
+
+**Bug**: POST /api/projects/<name>/scan did NOT add projects to managed_projects, even though the endpoint was supposed to register projects. The `update_file_counts()` method in `projects.py` creates projects with `managed=False` by default (since it uses `Project(name=project_name)` without passing `managed=True`), and `_sync_managed_projects` only syncs projects where `managed=True`.
+
+**Fix** (`swarm/api_projects.py` scan_project handler):
+- Added `if not project_registry.get(project_name): project_registry.add_project(project_name, managed=True)` before `update_file_counts`
+- This ensures projects scanned for the first time are auto-managed
+
+**Files changed**:
+- `swarm/api_projects.py` - scan_project handler now ensures managed=True on first scan
+- `tests/test_managed_projects.py` - new test file covering all 4 registration paths
+
+## Other bug fixes already present (verified working):
+- `swarm/api_projects.py` add_project (line 291): calls `_sync_managed_projects` ✓
+- `swarm/api_projects.py` update_project (line 312): calls `_sync_managed_projects` ✓
+- `swarm/api_projects.py` spawn_parallel (line 985): calls `_sync_managed_projects` ✓
+- `swarm/api_spawn.py` create_project_task (line 133): calls `_sync_managed_projects` ✓
