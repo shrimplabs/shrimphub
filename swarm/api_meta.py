@@ -38,7 +38,7 @@ def _agent_status() -> Dict[str, Any]:
             "trigger_interval": config_ref.get("librarian_trigger_interval", 50),
         },
         "archaeologist": {
-            "enabled": False,
+            "enabled": config_ref.get("archaeologist_enabled", False),
         },
         "auditor": {
             "enabled": config_ref.get("meta_auditor_enabled", False),

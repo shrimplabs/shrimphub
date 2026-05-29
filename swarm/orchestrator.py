@@ -135,6 +135,13 @@ META_AUDITOR_MAX_TASKS: int = 20
 CARTOGRAPHER_ENABLED: bool = False
 CARTOGRAPHER_INTERVAL_HOURS: int = 2
 
+# Archaeologist: stall-detection agent
+# ARCHAEOLOGIST_ENABLED gates auto-trigger and scheduled check
+# ARCHAEOLOGIST_STALL_THRESHOLD_HOURS triggers after N hours without success (default 72)
+# ARCHAEOLOGIST_MAX_CONCURRENT limits simultaneous archaeologist tasks (default 2)
+ARCHAEOLOGIST_ENABLED: bool = False
+ARCHAEOLOGIST_STALL_THRESHOLD_HOURS: int = 72
+ARCHAEOLOGIST_MAX_CONCURRENT: int = 2
 
 # ---------------------------------------------------------------------------
 # Webhook helper
@@ -442,6 +449,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
             _fire_idle_gardener()
             _fire_idle_librarian()
             _fire_weekly_auditor()
+            _fire_idle_archaeologist()
         return spawned, skipped
 
 
@@ -1082,3 +1090,162 @@ _spawn_review_task   = agent_lifecycle._spawn_review_task   # retire → swarm.a
 _handle_task_failure = agent_lifecycle._handle_task_failure # retire → swarm.agent_recovery
 _active_handles      = agent_lifecycle._active_handles      # retire → swarm.agent_lifecycle
 _handle_lock         = agent_lifecycle._handle_lock         # retire → swarm.agent_lifecycle
+
+_last_archaeologist_run_ts: float = 0.0
+
+
+def _fire_idle_archaeologist() -> None:
+    """Fire archaeologist tasks for projects that have stalled.
+
+    Triggers when:
+    - archaeologist is enabled via config
+    - META_MODE_ENABLED is True
+    - no agents are currently running
+    - a project qualifies as stalled (one of the three criteria)
+    - below max concurrent archaeologist tasks
+
+    Projects qualify as stalled when:
+    1. No successful task completion in >ARCHAEOLOGIST_STALL_THRESHOLD_HOURS
+    2. All tasks are failed/cancelled and the queue is empty
+    3. A recovery chain has >5 failed attempts
+    """
+    global _last_archaeologist_run_ts
+
+    if not ARCHAEOLOGIST_ENABLED:
+        return
+    if not META_MODE_ENABLED:
+        return
+    if get_active_count() > 0:
+        return
+
+    all_tasks = db.task_get_all()
+    # Count active archaeologist tasks
+    active_arch = [
+        t for t in all_tasks
+        if t.get("type") == "archaeologist"
+        and t.get("status") in ("pending", "in_progress")
+    ]
+    if len(active_arch) >= ARCHAEOLOGIST_MAX_CONCURRENT:
+        return
+
+    # Find stalled projects
+    stalled = _find_stalled_projects(all_tasks)
+    if not stalled:
+        return
+
+    # Don't fire too frequently (at most once per 10 minutes per project)
+    now = time.time()
+    if now - _last_archaeologist_run_ts < 600:
+        return
+
+    for project_name, stall_reason in stalled[:ARCHAEOLOGIST_MAX_CONCURRENT - len(active_arch)]:
+        # Skip if already running for this project
+        already_running = any(
+            (t.get("metadata") or {}).get("stalled_project") == project_name
+            for t in active_arch
+        )
+        if already_running:
+            continue
+
+        task_id = f"archaeologist-{project_name}-{int(now)}"
+        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+        db.task_upsert({
+            "id": task_id,
+            "project": "swarm-controller",
+            "type": "archaeologist",
+            "description": (
+                f"Run the Archaeologist meta-agent to diagnose why project '{project_name}' "
+                f"has stalled and produce a recovery task DAG.\n\n"
+                f"STALL REASON: {stall_reason}\n\n"
+                f"Investigate the stalled project, read git history, assess code state, "
+                f"write ARCHAEOLOGY_REPORT.md to the project root, and create a sequenced "
+                f"recovery task DAG via create_tasks()."
+            ),
+            "priority": 55,
+            "status": "pending",
+            "dependencies": deps,
+            "metadata": {
+                "auto_spawned": True,
+                "stalled_project": project_name,
+                "stall_reason": stall_reason,
+            },
+            "attempts": 0,
+            "max_attempts": 1,
+        })
+        print(f"[Archaeologist] Idle trigger fired -- created archaeologist task {task_id} "
+              f"for '{project_name}' ({stall_reason})")
+        active_arch.append({"id": task_id})  # prevent duplicate spawning in same cycle
+
+    _last_archaeologist_run_ts = now
+
+
+def _find_stalled_projects(all_tasks: list) -> list:
+    """Return a list of (project_name, stall_reason) for projects that qualify as stalled.
+
+    Stall criteria (any one):
+    1. No successful completion in >ARCHAEOLOGIST_STALL_THRESHOLD_HOURS
+    2. All tasks failed/cancelled and queue is empty (no pending tasks)
+    3. Recovery chain with >5 failed attempts
+    """
+    if not all_tasks:
+        return []
+
+    # Index tasks by project
+    from collections import defaultdict
+    project_tasks: dict = defaultdict(list)
+    for t in all_tasks:
+        if t.get("project"):
+            project_tasks[t["project"]].append(t)
+
+    stalled: list = []
+    now = time.time()
+    threshold_secs = ARCHAEOLOGIST_STALL_THRESHOLD_HOURS * 3600
+    managed = set(MANAGED_PROJECTS)
+
+    for project_name, tasks in project_tasks.items():
+        if project_name not in managed:
+            continue
+
+        # Skip if project is paused
+        if project_name in set(PAUSED_PROJECTS):
+            continue
+
+        statuses = {t.get("status") for t in tasks}
+        completed = [t for t in tasks if t.get("status") == "completed"]
+        failed = [t for t in tasks if t.get("status") == "failed"]
+        cancelled = [t for t in tasks if t.get("status") == "cancelled"]
+        pending_or_active = [
+            t for t in tasks
+            if t.get("status") in ("pending", "in_progress")
+        ]
+
+        # Criterion 1: no successful completion in threshold window
+        last_success_ts = 0.0
+        for t in completed:
+            completed_at = t.get("completed") or t.get("updated_at") or ""
+            if completed_at:
+                try:
+                    from datetime import datetime as _dt
+                    ts = _dt.fromisoformat(completed_at).timestamp()
+                    if ts > last_success_ts:
+                        last_success_ts = ts
+                except Exception:
+                    pass
+
+        if last_success_ts > 0 and now - last_success_ts > threshold_secs:
+            stalled.append((project_name, f"No successful completion in {ARCHAEOLOGIST_STALL_THRESHOLD_HOURS}h"))
+            continue
+
+        # Criterion 2: all tasks are failed/cancelled and no pending work
+        if statuses.issubset({"failed", "cancelled"}) and not pending_or_active:
+            stalled.append((project_name, "All tasks failed/cancelled, queue empty"))
+            continue
+
+        # Criterion 3: recovery chain with >5 failed attempts
+        recovery_attempts = sum(t.get("attempts", 0) for t in tasks
+                                 if (t.get("metadata") or {}).get("stall_recovery"))
+        if recovery_attempts > 5:
+            stalled.append((project_name, "Recovery chain exceeds 5 failed attempts"))
+            continue
+
+    return stalled

@@ -946,6 +946,9 @@ def generate_task_script(task: dict) -> str:
     cartographer_system, cartographer_user = _load_prompt(
         "cartographer", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
     )
+    archaeologist_system, archaeologist_user = _load_prompt(
+        "archaeologist", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+    )
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
@@ -1142,6 +1145,8 @@ rt.AUDITOR_SYSTEM           = {repr(auditor_system)}
 rt.AUDITOR_USER             = {repr(auditor_user)}
 rt.CARTOGRAPHER_SYSTEM      = {repr(cartographer_system)}
 rt.CARTOGRAPHER_USER        = {repr(cartographer_user)}
+rt.ARCHAEOLOGIST_SYSTEM     = {repr(archaeologist_system)}
+rt.ARCHAEOLOGIST_USER       = {repr(archaeologist_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}
 rt.HARNESS_QA_USER          = {repr(harness_qa_user)}
 rt.SCENARIO_QA_SYSTEM       = {repr(scenario_qa_system)}
