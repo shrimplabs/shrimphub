@@ -62,9 +62,9 @@ def _run_cartographer_task() -> str:
         "project": project,
         "type": "cartographer",
         "description": (
-            "Run the Cartographer meta-agent. Survey all managed projects in the swarm, "
+            "Run the Cartographer meta-agent. Survey managed projects in the swarm, "
             "collect health signals (task queue state, agent activity, health scores, "
-            "recent commit dates), cross-reference known patterns from "
+            "recent commit dates), and cross-reference known patterns from"
             "data/swarm_knowledge.jsonl, and write the narrative PROJECT_MAP.md and "
             "machine-readable SWARM_SUMMARY.json to the swarm data directory. "
             "This is a READ-ONLY survey -- do not edit any project files."
@@ -123,7 +123,8 @@ def _schedule_cartographer() -> None:
     def _fire():
         try:
             _run_cartographer_task()
-            print(f"[Cartographer] Scheduled run fired at {datetime.now(timezone.utc).isoformat()}")
+            fired = datetime.now(timezone.utc).isoformat()
+            print(f"[Cartographer] Scheduled run fired at {fired}")
         except Exception as exc:
             print(f"[Cartographer] Scheduled run failed: {exc}")
         finally:
@@ -170,7 +171,8 @@ def register_routes(app, config: Dict,
     if state_file.exists():
         try:
             state = json.loads(state_file.read_text(encoding="utf-8"))
-            config["_cartographer_last_run_ts"] = state.get("_cartographer_last_run_ts", 0.0)
+            ts = state.get("_cartographer_last_run_ts", 0.0)
+            config["_cartographer_last_run_ts"] = ts
         except Exception:
             pass
 
@@ -210,9 +212,10 @@ def register_routes(app, config: Dict,
         """Return current cartographer configuration."""
         return jsonify({
             "cartographer_enabled": config_ref.get("cartographer_enabled", False),
-            "cartographer_interval_hours": config_ref.get("cartographer_interval_hours", 2),
+            "cartographer_interval_hours": config_ref.get(
+                "cartographer_interval_hours", 2
+            ),
         })
-
 
     @app.route("/api/cartographer/config", methods=["POST"])
     def cartographer_config_set():
@@ -235,7 +238,9 @@ def register_routes(app, config: Dict,
 
         return jsonify({
             "cartographer_enabled": config_ref.get("cartographer_enabled", False),
-            "cartographer_interval_hours": config_ref.get("cartographer_interval_hours", 2),
+            "cartographer_interval_hours": config_ref.get(
+                "cartographer_interval_hours", 2
+            ),
         })
 
     # Start the scheduler after routes are registered

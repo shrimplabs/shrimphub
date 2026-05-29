@@ -425,20 +425,24 @@ func _references_autoload(path: String, autoload_names: Array[String]) -> bool:
                     capture_output=True, text=True, timeout=120,
                 )
                 combined = (result.stdout or "") + (result.stderr or "")
-                if result.returncode != 0:
+                # Always scan for real parse errors regardless of exit code.
+                # Godot exits non-zero for resource-leak warnings at shutdown
+                # ("N resources still in use at exit") even when scripts parsed fine.
+                # Only fail on actual ERROR:/SCRIPT ERROR: lines.
+                bad = [ln for ln in combined.splitlines()
+                       if ("ERROR:" in ln or "SCRIPT ERROR:" in ln)
+                       and "RID allocations" not in ln
+                       and "PN18TextServer" not in ln
+                       and "resources still in use" not in ln]
+                if bad:
                     validation_failed = True
-                    error_output = f"Script parse errors:\n{combined}"
+                    error_output = "Script parse errors:\n" + "\n".join(bad)
+                    print(f"[PostValidation] Script check FAILED for {project}")
+                elif result.returncode != 0:
+                    # Non-zero exit but no real errors — likely resource cleanup noise, pass.
+                    print(f"[PostValidation] Script check passed for {project} (exit={result.returncode}, no parse errors)")
                 else:
-                    bad = [ln for ln in combined.splitlines()
-                           if ("ERROR:" in ln or "SCRIPT ERROR:" in ln)
-                           and "RID allocations" not in ln
-                           and "PN18TextServer" not in ln]
-                    if bad:
-                        validation_failed = True
-                        error_output = "Script parse errors:\n" + "\n".join(bad)
-                        print(f"[PostValidation] Script check FAILED for {project}")
-                    else:
-                        print(f"[PostValidation] Script check passed for {project}")
+                    print(f"[PostValidation] Script check passed for {project}")
             except Exception as e:
                 print(f"[PostValidation] Script check error: {e}")
             finally:

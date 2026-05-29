@@ -58,12 +58,17 @@ func _ready() -> void:
 	# Always process even if the scene tree is paused (e.g. during godot-rl training steps)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# Read port from command-line user args: -- --state-port 11012
-	# Falls back to DEFAULT_PORT if not specified (backward-compatible).
+	# Falls back to STATE_PORT env var, then DEFAULT_PORT (backward-compatible).
 	var user_args := OS.get_cmdline_user_args()
 	for i in range(user_args.size() - 1):
 		if user_args[i] == "--state-port":
 			_port = int(user_args[i + 1])
 			break
+	# Env var overrides default but loses to explicit cmdline arg
+	if _port == DEFAULT_PORT:
+		var env_port := OS.get_environment("STATE_PORT")
+		if env_port != "":
+			_port = int(env_port)
 	_server = TCPServer.new()
 	var err = _server.listen(_port)
 	if err == OK:
