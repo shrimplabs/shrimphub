@@ -840,3 +840,135 @@ function inlineMd(text) {
         .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input,#0d1117);border:1px solid var(--border-faint);border-radius:3px;padding:1px 5px;font-size:11px;font-family:\'IBM Plex Mono\',monospace;color:var(--text-accent,#ff7b72)">$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
+
+/* ── Gardener ─────────────────────────────────────────────────────────────── */
+let gardenerEnabled = false;
+async function loadGardenerState() {
+    try {
+        const res = await fetch(API + '/api/gardener/status');
+        if (res.ok) {
+            const data = await res.json();
+            gardenerEnabled = data.enabled || false;
+            _updateGardenerToggle();
+            _updateGardenerStatusRow(data);
+        }
+    } catch(e) {}
+}
+
+function _updateGardenerToggle() {
+    const btn = document.getElementById('gardenerToggleBtn');
+    if (!btn) return;
+    if (gardenerEnabled) {
+        btn.textContent = '\u27f3 On';
+        btn.classList.add('active');
+    } else {
+        btn.textContent = '\u27f3 Off';
+        btn.classList.remove('active');
+    }
+}
+
+function _updateGardenerStatusRow(data) {
+    const row = document.getElementById('gardenerStatusRow');
+    if (!row) return;
+    row.style.display = '';
+    const lastRun = document.getElementById('gardenerLastRun');
+    const count = document.getElementById('gardenerKnowledgeCount');
+    if (lastRun) lastRun.textContent = _formatRelativeTime(data.last_run_ts);
+    if (count) count.textContent = (data.knowledge_count !== undefined) ? data.knowledge_count : '-';
+}
+
+async function toggleGardener() {
+    const btn = document.getElementById('gardenerToggleBtn');
+    if (btn) btn.disabled = true;
+    const newState = !gardenerEnabled;
+    try {
+        const res = await fetch(API + '/api/gardener/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({gardener_enabled: newState}),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            gardenerEnabled = data.gardener_enabled || false;
+        }
+    } catch(e) {
+        gardenerEnabled = !newState;
+    }
+    _updateGardenerToggle();
+    if (btn) btn.disabled = false;
+}
+
+async function runGardener() {
+    const btn = document.getElementById('runGardenerBtn');
+    const status = document.getElementById('gardenerRunStatus');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Running...';
+    try {
+        const res = await fetch(API + '/api/gardener/run', {method: 'POST'});
+        const data = await res.json();
+        if (status) {
+            status.textContent = 'Task created: ' + (data.task_id || 'OK');
+            status.style.color = 'var(--green)';
+        }
+        showToast('Gardener task created: ' + (data.task_id || 'OK'));
+    } catch(e) {
+        if (status) {
+            status.textContent = 'Error: ' + e.message;
+            status.style.color = 'var(--red)';
+        }
+    }
+    if (btn) btn.disabled = false;
+}
+
+async function openGardenerKnowledgePanel() {
+    const panel = document.getElementById('gardenerKnowledgePanel');
+    if (!panel) return;
+    panel.classList.add('active');
+    const entriesDiv = document.getElementById('gkEntries');
+    const countEl = document.getElementById('gkEntryCount');
+    if (!entriesDiv) return;
+    entriesDiv.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:32px">Loading...</div>';
+    try {
+        const res = await fetch(API + '/api/gardener/knowledge');
+        const data = await res.json();
+        const entries = data.entries || [];
+        if (countEl) countEl.textContent = entries.length + ' entry' + (entries.length === 1 ? '' : 's');
+        if (entries.length === 0) {
+            entriesDiv.innerHTML = '<div class="gk-empty">No knowledge entries yet. Run the gardener to collect patterns.</div>';
+            return;
+        }
+        entriesDiv.innerHTML = entries.map(entry => _renderGardenerEntry(entry)).join('');
+    } catch(e) {
+        entriesDiv.innerHTML = '<div style="color:var(--red);font-size:13px;padding:32px;text-align:center">Failed to load: ' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function _renderGardenerEntry(entry) {
+    const conf = entry.confidence || 'suspected';
+    const confClass = conf === 'confirmed' ? 'confirmed' : conf === 'suspected' ? 'suspected' : 'disputed';
+    const projects = (entry.affected_projects || []).join(', ') || 'any project';
+    const lastSeen = _formatRelativeTime(entry.last_seen_ts || entry.last_seen);
+    const ttl = entry.ttl_days || 0;
+    const fix = entry.fix_summary || entry.fix || '(no summary)';
+    const sig = escapeHtml(entry.pattern_signature || entry.sig || '(unknown pattern)');
+    return `<div class="gk-entry">
+        <div class="gk-entry-header">
+            <span class="gk-entry-sig">${sig}</span>
+            <span class="gk-badge ${confClass}">${conf}</span>
+            <span class="gk-entry-meta">${lastSeen} | TTL: ${ttl}d</span>
+        </div>
+        <div class="gk-entry-fix">${escapeHtml(fix)}</div>
+        <div class="gk-entry-projects">Affected: ${escapeHtml(projects)}</div>
+    </div>`;
+}
+
+/* Relative time helper */
+function _formatRelativeTime(ts) {
+    if (!ts || ts === 0) return 'never';
+    const now = Date.now() / 1000;
+    const diff = now - ts;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}

@@ -13,7 +13,6 @@ Functions:
 
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -23,7 +22,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-from swarm.branch_intent import branch_intent_metadata, format_branch_intent
 from swarm.integrity import active_agent_matches_task, can_task_accept_agent, is_continuity_eligible_task
 from swarm.platform import popen_session_kwargs, kill_godot_children
 from swarm.agent_recovery import (  # noqa: F401

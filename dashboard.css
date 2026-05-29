@@ -2686,3 +2686,77 @@ input[id*="webhook"], input[id*="Webhook"] {
     background: rgba(63,185,80,0.1); color: var(--green);
     border-color: var(--green);
 }
+
+/* Gardener knowledge panel */
+.gk-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+.gk-badge.confirmed {
+    background: rgba(63,185,80,0.12);
+    color: #3fb950;
+    border: 1px solid rgba(63,185,80,0.3);
+}
+.gk-badge.suspected {
+    background: rgba(240,136,62,0.12);
+    color: #f0883e;
+    border: 1px solid rgba(240,136,62,0.3);
+}
+.gk-badge.disputed {
+    background: rgba(136,136,136,0.12);
+    color: #8b949e;
+    border: 1px solid rgba(136,136,136,0.3);
+}
+.gk-entry {
+    background: var(--bg-card);
+    border: 1px solid var(--border-muted);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: border-color 0.15s;
+}
+.gk-entry:hover { border-color: rgba(var(--accent-rgb), 0.25); }
+.gk-entry-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.gk-entry-sig {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--text-accent);
+    font-weight: 600;
+}
+.gk-entry-meta {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: auto;
+}
+.gk-entry-fix {
+    font-size: 12px;
+    color: var(--text);
+    background: rgba(63,185,80,0.06);
+    border: 1px solid rgba(63,185,80,0.15);
+    border-radius: 6px;
+    padding: 6px 10px;
+    line-height: 1.5;
+}
+.gk-entry-projects {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+.gk-entry-ttl {
+    font-size: 10px;
+    color: var(--text-faint);
+}
+.gk-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 32px;
+}

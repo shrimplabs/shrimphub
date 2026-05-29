@@ -33,13 +33,13 @@
             <div class="stat-pill stat-pill-active"><span class="stat-pill-value" id="activeTasks">-</span><span class="stat-pill-label">active</span></div>
             <div class="stat-pill"><span class="stat-pill-value" id="pendingTasks">-</span><span class="stat-pill-label">pending</span></div>
             <div class="stat-pill stat-pill-done"><span class="stat-pill-value" id="completedTasks">-</span><span class="stat-pill-label">done 24h</span></div>
-            <div class="stat-pill stat-pill-failed" title="Active recovery tasks — broken chains being repaired"><span class="stat-pill-value" id="recoveringCount">-</span><span class="stat-pill-label">recovering</span></div>
+            <div class="stat-pill stat-pill-failed" title="Active recovery tasks -- broken chains being repaired"><span class="stat-pill-value" id="recoveringCount">-</span><span class="stat-pill-label">recovering</span></div>
             <div class="stat-pill"><span class="stat-pill-value" id="agentsPerHour">-</span><span class="stat-pill-label">agents/hr</span></div>
             <div class="stat-pill stat-pill-tokens" title="Total tokens in use across all active agents right now"><span class="stat-pill-value" id="totalTokens">-</span><span class="stat-pill-label">tokens live</span></div>
         </div>
         <div class="header-actions">
-            <button onclick="openNewProjectModal()" class="header-action-btn" title="Describe your project in chat — AI will plan tasks for you">✦ New Project</button>
-            <button onclick="openWizard()" class="header-action-btn" title="Fill in a form — AI generates a task plan from your inputs">🧙 Wizard</button>
+            <button onclick="openNewProjectModal()" class="header-action-btn" title="Describe your project in chat -- AI will plan tasks for you">✦ New Project</button>
+            <button onclick="openWizard()" class="header-action-btn" title="Fill in a form -- AI generates a task plan from your inputs">🧙 Wizard</button>
             <button onclick="openAppendPhaseModal()" class="header-action-btn" title="Queue a new batch of tasks after the current ones, with an optional QA gate before they start">➕ Next Phase</button>
             <button onclick="openInstantModal()" class="header-action-btn header-action-btn--instant" title="AI invents and builds a project with zero input from you">⚡ Instant</button>
             <button onclick="openSettingsPanel()" class="header-action-btn header-icon-btn" title="Settings">⚙ Settings</button>
@@ -92,7 +92,7 @@
                 <option value="5">5</option>
             </select>
             <button type="button" class="deps-graph-btn" id="playbackToggleBtn" onclick="toggleDepPlayback()" style="display:none;margin-left:8px">⏵ Playback</button>
-            <span id="depsGraphHint">Wheel: zoom · Drag: pan · Focus Active: live tasks · 0: fit · +/-: zoom · R: reset</span>
+            <span id="depsGraphHint">Wheel: zoom * Drag: pan * Focus Active: live tasks * 0: fit * +/-: zoom * R: reset</span>
         </div>
         <div id="depsPlaybackBar" style="display:none">
             <div class="playback-controls">
@@ -107,13 +107,13 @@
                     <input type="range" id="playbackScrubber" class="playback-scrubber" min="0" max="100" value="0" oninput="depPlaybackScrub(this.value)">
                     <div id="playbackMarkers" class="playback-markers"></div>
                 </div>
-                <span id="playbackTimestamp" class="playback-timestamp">—</span>
+                <span id="playbackTimestamp" class="playback-timestamp">--</span>
                 <button type="button" class="deps-graph-btn playback-btn" onclick="depPlaybackExit()" style="margin-left:4px;opacity:0.6">✕</button>
             </div>
             <div id="playbackCallout" class="playback-callout" style="display:none"></div>
         </div>
         <div id="depsSvg">
-            Loading dependency graph…
+            Loading dependency graph...
         </div>
         <div class="deps-legend">
             <span><span class="deps-legend-swatch deps-legend-pending"></span>pending</span>
@@ -126,7 +126,7 @@
             <div class="integrity-panel-header">
                 <div>
                     <div class="integrity-panel-title">Integrity</div>
-                    <div class="integrity-panel-subtitle" id="integritySubtitle">Loading diagnostics…</div>
+                    <div class="integrity-panel-subtitle" id="integritySubtitle">Loading diagnostics...</div>
                 </div>
                 <button type="button" class="deps-graph-btn" onclick="loadIntegrityPanel()">Refresh</button>
             </div>
@@ -200,7 +200,7 @@
             <button class="modal-close" onclick="closeInstantModal()">×</button>
         </div>
         <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px">
-            <p style="color:var(--text-muted);font-size:13px;margin:0">The AI will invent a concept, plan all tasks, and create the project — no input required.</p>
+            <p style="color:var(--text-muted);font-size:13px;margin:0">The AI will invent a concept, plan all tasks, and create the project -- no input required.</p>
             <div style="display:flex;flex-direction:column;gap:6px">
                 <label style="font-size:12px;color:var(--text-muted)">Type</label>
                 <select id="instantType" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
@@ -212,15 +212,15 @@
             </div>
             <div style="display:flex;flex-direction:column;gap:6px">
                 <label style="font-size:12px;color:var(--text-muted)">Creative nudge <span style="opacity:0.5">(optional)</span></label>
-                <input id="instantHint" type="text" placeholder="e.g. something weird, horror themed, massive scope…" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
+                <input id="instantHint" type="text" placeholder="e.g. something weird, horror themed, massive scope..." style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
             </div>
             <div style="display:flex;flex-direction:column;gap:6px">
                 <label style="font-size:12px;color:var(--text-muted)">Scope</label>
                 <select id="instantScope" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px">
-                    <option value="tiny">Tiny — ~10 tasks (rapid testing)</option>
-                    <option value="small">Small — ~20 tasks</option>
-                    <option value="medium" selected>Medium — ~40 tasks</option>
-                    <option value="large">Large — ~60 tasks</option>
+                    <option value="tiny">Tiny -- ~10 tasks (rapid testing)</option>
+                    <option value="small">Small -- ~20 tasks</option>
+                    <option value="medium" selected>Medium -- ~40 tasks</option>
+                    <option value="large">Large -- ~60 tasks</option>
                 </select>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px">
@@ -244,7 +244,7 @@
                 <div class="output-log" id="modalOutput">Loading...</div>
             </div>
             <div style="padding:12px 20px;border-top:1px solid #30363d;display:flex;gap:8px;align-items:center">
-                <input id="modalHintInput" type="text" placeholder="Send hint to agent…" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 10px;font-size:12px;color:#e6edf3;display:none" onkeydown="if(event.key==='Enter')sendHintFromModal()">
+                <input id="modalHintInput" type="text" placeholder="Send hint to agent..." style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 10px;font-size:12px;color:#e6edf3;display:none" onkeydown="if(event.key==='Enter')sendHintFromModal()">
                 <button id="modalHintBtn" onclick="sendHintFromModal()" style="display:none;background:#1a3a1a;color:#3fb950;border:1px solid #3fb950;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer">↩ Send Hint</button>
                 <button id="modalKillBtn" onclick="killAgentFromModal()" style="display:none;background:#6e1a1a;color:#f85149;border:1px solid #f85149;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;margin-left:auto">✕ Kill Agent</button>
             </div>
@@ -518,7 +518,7 @@
     <div class="modal" id="wizardModal" onclick="if(event.target===this)closeWizard()">
         <div class="modal-content" style="max-width:640px">
             <div class="modal-header">
-                <h3 id="wizardTitle">🧙 New Project — Wizard</h3>
+                <h3 id="wizardTitle">🧙 New Project -- Wizard</h3>
                 <button class="modal-close" onclick="closeWizard()">×</button>
             </div>
 
@@ -542,10 +542,10 @@
                         </div>
                     </div>
                     <div>
-                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">What are you building? <span style="color:#6e7681">(be specific — agents will use this)</span></label>
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">What are you building? <span style="color:#6e7681">(be specific -- agents will use this)</span></label>
                         <textarea id="wzDescription" rows="5"
                             style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"
-                            placeholder="Describe the project goal, key features, tech choices, anything the agents should know…"></textarea>
+                            placeholder="Describe the project goal, key features, tech choices, anything the agents should know..."></textarea>
                     </div>
                     <div style="display:flex;gap:12px;align-items:flex-end">
                         <div style="flex:1">
@@ -561,17 +561,17 @@
                         <div style="flex:3;padding-bottom:1px">
                             <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Scope hint</label>
                             <select id="wzScope" onchange="wzApplyScope(this.value)" style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px">
-                                <option value="">— custom —</option>
-                                <option value="tiny">Tiny (prototype / jam, 5–15)</option>
-                                <option value="small">Small (simple app, 15–30)</option>
-                                <option value="medium" selected>Medium (typical game, 30–80)</option>
-                                <option value="large">Large (complex game, 60–120)</option>
-                                <option value="epic">Epic (full product, 100–200)</option>
+                                <option value="">-- custom --</option>
+                                <option value="tiny">Tiny (prototype / jam, 5-15)</option>
+                                <option value="small">Small (simple app, 15-30)</option>
+                                <option value="medium" selected>Medium (typical game, 30-80)</option>
+                                <option value="large">Large (complex game, 60-120)</option>
+                                <option value="epic">Epic (full product, 100-200)</option>
                             </select>
                         </div>
                     </div>
                     <div>
-                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project notes <span style="color:#6e7681">(optional — prepended to every agent prompt)</span></label>
+                        <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Project notes <span style="color:#6e7681">(optional -- prepended to every agent prompt)</span></label>
                         <textarea id="wzNotes" rows="2"
                             style="width:100%;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical;box-sizing:border-box"
                             placeholder="e.g. Always use camelCase. Main scene is scenes/main.tscn."></textarea>
@@ -589,7 +589,7 @@
                 <div class="modal-body" style="padding:16px 20px">
                     <div id="wzLoadingMsg" style="text-align:center;padding:32px;color:#8b949e;font-size:14px">
                         <div style="font-size:24px;margin-bottom:8px">✨</div>
-                        Asking the LLM to plan your project…
+                        Asking the LLM to plan your project...
                     </div>
                     <div id="wzTaskList" style="display:none;display:flex;flex-direction:column;gap:8px"></div>
                     <div style="margin-top:10px;display:none" id="wzAddTaskRow">
@@ -635,8 +635,8 @@
         <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:560px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
             <div style="padding:16px 20px;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between">
                 <div>
-                    <div style="font-size:15px;font-weight:600">💬 New Project — Chat</div>
-                    <div style="font-size:12px;color:#8b949e;margin-top:2px">Describe your idea — the AI will ask questions and generate a task plan</div>
+                    <div style="font-size:15px;font-weight:600">💬 New Project -- Chat</div>
+                    <div style="font-size:12px;color:#8b949e;margin-top:2px">Describe your idea -- the AI will ask questions and generate a task plan</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px">
                     <select id="npProjectType" onchange="handleNpProjectTypeChange()" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;padding:5px 8px;font-size:12px;cursor:pointer" title="Choose whether this chat designs a game or software project">
@@ -732,7 +732,7 @@
                     <span id="visionSaveStatus" style="font-size:11px;color:var(--text-muted)"></span>
                 </div>
                 <div style="font-size:11px;color:var(--text-faint)">
-                    Format: <code>anthropic_native</code> (Claude) · <code>openai</code> (ollama/mlx) · <code>mcp</code> (Minimax).
+                    Format: <code>anthropic_native</code> (Claude) * <code>openai</code> (ollama/mlx) * <code>mcp</code> (Minimax).
                 </div>
             </div>
 
@@ -745,6 +745,27 @@
                     <button class="settings-theme-btn" onclick="setTheme('light')" data-theme-val="light">☀️ Light</button>
                 </div>
             </div>
+
+            <!-- Gardener -->
+            <div class="settings-section">
+                <div class="settings-section-label">Gardener</div>
+                <div class="settings-row" style="align-items:center;justify-content:space-between">
+                    <span class="settings-label">Gardener</span>
+                    <button id="gardenerToggleBtn" onclick="toggleGardener()" class="settings-toggle-btn">🐛 Loading...</button>
+                </div>
+                <div id="gardenerStatusRow" class="settings-row" style="display:none">
+                    <span style="font-size:11px;color:var(--text-muted)">Last run: <span id="gardenerLastRun" style="color:var(--text)">-</span></span>
+                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px">Knowledge: <span id="gardenerKnowledgeCount" style="color:var(--text)">-</span></span>
+                </div>
+                <div class="settings-row">
+                    <button onclick="runGardener()" id="runGardenerBtn" class="apply-btn" style="font-size:12px;padding:5px 12px">🚀 Run Gardener</button>
+                    <span id="gardenerRunStatus" style="font-size:11px;color:var(--text-muted)"></span>
+                </div>
+                <div class="settings-row">
+                    <button onclick="openGardenerKnowledgePanel()" style="font-size:12px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer">📚 View Knowledge</button>
+                </div>
+            </div>
+
 
             <!-- Debug -->
             <div class="settings-section">
@@ -768,12 +789,12 @@
         </div>
         <div id="unifiedChatMessages" class="unified-chat-messages"></div>
         <div class="unified-chat-input-row">
-            <textarea id="unifiedChatInput" placeholder="Ask anything about the swarm or selected project…" rows="2"></textarea>
+            <textarea id="unifiedChatInput" placeholder="Ask anything about the swarm or selected project..." rows="2"></textarea>
             <div class="unified-chat-input-btns">
                 <button id="unifiedSendBtn" onclick="sendUnifiedChat()">Send</button>
             </div>
         </div>
-        <div class="unified-chat-hint">Shift+Enter for newline · Esc to stop</div>
+        <div class="unified-chat-hint">Shift+Enter for newline * Esc to stop</div>
     </div>
 
     <!-- Confirm Challenge Dialog (for destructive actions) -->
@@ -801,7 +822,7 @@
         </div>
         <div style="padding:10px 20px;border-bottom:1px solid var(--border)">
             <select id="knowledgeSearch" onchange="filterKnowledge()" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-size:13px;color:var(--text)">
-                <option value="">— select a project —</option>
+                <option value="">-- select a project --</option>
             </select>
         </div>
         <div id="knowledgeList" style="overflow-y:auto;flex:1;padding:16px 20px">
@@ -817,6 +838,29 @@
             <button class="modal-close" onclick="document.getElementById('closureModal').classList.remove('active')">×</button>
         </div>
         <div id="closureModalBody" style="overflow-y:auto;flex:1;padding:16px 20px">
+        </div>
+    </div>
+</div>
+
+<!-- Gardener Knowledge Panel -->
+<div class="modal" id="gardenerKnowledgePanel" onclick="if(event.target===this)document.getElementById('gardenerKnowledgePanel').classList.remove('active')">
+    <div class="modal-content" style="max-width:780px;max-height:88vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+            <h3>Gardener Knowledge</h3>
+            <button class="modal-close" onclick="document.getElementById('gardenerKnowledgePanel').classList.remove('active')">×</button>
+        </div>
+        <div style="padding:12px 20px;border-bottom:1px solid var(--border-muted);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span id="gkEntryCount" style="font-size:12px;color:var(--text-muted)"></span>
+            <span style="font-size:11px;color:var(--text-faint)">|</span>
+            <span style="font-size:11px;color:var(--text-faint)">confidence:</span>
+            <span class="gk-badge confirmed">confirmed</span>
+            <span class="gk-badge suspected">suspected</span>
+            <span class="gk-badge disputed">disputed</span>
+        </div>
+        <div id="gkEntries" style="overflow-y:auto;flex:1;padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="color:var(--text-muted);font-size:13px;text-align:center;padding:32px">
+                Loading knowledge entries...
+            </div>
         </div>
     </div>
 </div>

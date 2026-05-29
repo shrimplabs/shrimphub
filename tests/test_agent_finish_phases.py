@@ -9,11 +9,9 @@ Covers:
 - _finish_agent ordering: agent finished before task completion; project lock released
 """
 
-import json
 import threading
-import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
