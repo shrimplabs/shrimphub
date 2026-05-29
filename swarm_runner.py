@@ -912,7 +912,7 @@ def generate_task_script(task: dict) -> str:
     )
     art_pass_system, art_pass_user = _load_prompt("art_pass", **_common)
     research_system, research_user = _load_prompt("research", **_common)
-    gardener_system, gardener_user = _load_prompt("gardener", **_common, task_id=task_id)
+    gardener_system, gardener_user = _load_prompt("gardener", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR))
 
     # ---- Python prompts ----
     python_feature_system, python_feature_user = _load_prompt("python/feature", **_common)
