@@ -468,8 +468,15 @@
             const dx = event.clientX - _depGraphState.startX;
             const dy = event.clientY - _depGraphState.startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
-            _depGraphState.translateX = _depGraphState.originX + dx;
-            _depGraphState.translateY = _depGraphState.originY + dy;
+            // Convert screen-pixel delta to SVG coordinate space.
+            // The SVG is stretched to fill the container, so we need the ratio
+            // between the SVG's viewBox size and its actual rendered CSS size.
+            const svgRect = _depGraphState.svg.getBoundingClientRect();
+            const vb = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
+            const scaleX = (vb && vb.width && svgRect.width)  ? vb.width  / svgRect.width  : 1;
+            const scaleY = (vb && vb.height && svgRect.height) ? vb.height / svgRect.height : 1;
+            _depGraphState.translateX = _depGraphState.originX + dx * scaleX;
+            _depGraphState.translateY = _depGraphState.originY + dy * scaleY;
             applyDepGraphTransform();
             saveDepGraphView();
         };
@@ -522,8 +529,12 @@
                 const dx = t.clientX - _depGraphState.startX;
                 const dy = t.clientY - _depGraphState.startY;
                 if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _depGraphState.dragMoved = true;
-                _depGraphState.translateX = _depGraphState.originX + dx;
-                _depGraphState.translateY = _depGraphState.originY + dy;
+                const svgRect2 = _depGraphState.svg.getBoundingClientRect();
+                const vb2 = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
+                const sx2 = (vb2 && vb2.width && svgRect2.width)   ? vb2.width  / svgRect2.width  : 1;
+                const sy2 = (vb2 && vb2.height && svgRect2.height)  ? vb2.height / svgRect2.height : 1;
+                _depGraphState.translateX = _depGraphState.originX + dx * sx2;
+                _depGraphState.translateY = _depGraphState.originY + dy * sy2;
                 applyDepGraphTransform();
                 saveDepGraphView();
             } else if (ids.length === 2 && _lastPinchDist) {
@@ -630,8 +641,12 @@
         },
         panDepGraph(dx, dy) {
             if (!_depGraphState) return;
-            _depGraphState.translateX += dx;
-            _depGraphState.translateY += dy;
+            const svgRect = _depGraphState.svg.getBoundingClientRect();
+            const vb = _depGraphState.svg.viewBox && _depGraphState.svg.viewBox.baseVal;
+            const sx = (vb && vb.width && svgRect.width)   ? vb.width  / svgRect.width  : 1;
+            const sy = (vb && vb.height && svgRect.height)  ? vb.height / svgRect.height : 1;
+            _depGraphState.translateX += dx * sx;
+            _depGraphState.translateY += dy * sy;
             applyDepGraphTransform();
             saveDepGraphView();
         },
