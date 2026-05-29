@@ -192,7 +192,7 @@ def register_routes(app, config: Dict, data_dir: Path,
         report = _get_report(data_dir)
         enabled = config.get("gardener_enabled", False)
         try:
-            entries = knowledge_load()
+            entries = knowledge_load(data_dir)
             knowledge_count = len(entries)
         except Exception:
             knowledge_count = 0
@@ -207,7 +207,7 @@ def register_routes(app, config: Dict, data_dir: Path,
     def gardener_knowledge():
         """Return all knowledge entries from the gardener store."""
         try:
-            entries = knowledge_load()
+            entries = knowledge_load(data_dir)
             return jsonify({"entries": entries})
         except Exception as exc:
             return jsonify({"entries": [], "error": str(exc)}), 200

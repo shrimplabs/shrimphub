@@ -28,6 +28,12 @@ _DATA_DIR = Path(__file__).parent.parent / "data"
 JSONL_PATH = _DATA_DIR / "swarm_knowledge.jsonl"
 MARKDOWN_PATH = _DATA_DIR / "SWARM_KNOWLEDGE.md"
 
+
+def _jsonl_path(data_dir: Path | None = None) -> Path:
+    if data_dir is not None:
+        return data_dir / "swarm_knowledge.jsonl"
+    return JSONL_PATH
+
 # ---------------------------------------------------------------------------
 # Schema helpers
 # ---------------------------------------------------------------------------
@@ -62,12 +68,13 @@ def _is_expired(entry: dict[str, Any]) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-def load() -> list[dict[str, Any]]:
+def load(data_dir: Path | None = None) -> list[dict[str, Any]]:
     """Read all entries from the JSONL store."""
-    if not JSONL_PATH.exists():
+    path = _jsonl_path(data_dir)
+    if not path.exists():
         return []
     entries: list[dict[str, Any]] = []
-    with JSONL_PATH.open("r", encoding="utf-8") as fh:
+    with path.open("r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -79,17 +86,18 @@ def load() -> list[dict[str, Any]]:
     return entries
 
 
-def append_entry(entry: dict[str, Any]) -> str:
+def append_entry(entry: dict[str, Any], data_dir: Path | None = None) -> str:
     """
     Append one entry to the JSONL store.
 
     Required fields: pattern_signature, godot_version
     Optional: confidence, ttl_days, affected_projects, evidence_task_ids,
-              fix_summary, created_by
+              fix_summary, created_by, data_dir
 
     Returns the generated id.
     """
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    target_dir = data_dir or _DATA_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     now = _now_date()
     record: dict[str, Any] = {
@@ -107,13 +115,13 @@ def append_entry(entry: dict[str, Any]) -> str:
         "created_by": entry.get("created_by", "gardener"),
     }
 
-    with JSONL_PATH.open("a", encoding="utf-8") as fh:
+    with _jsonl_path(data_dir).open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, separators=(",", ":")) + "\n")
 
     return record["id"]
 
 
-def update_confidence(pattern_id: str, confidence: str) -> bool:
+def update_confidence(pattern_id: str, confidence: str, data_dir: Path | None = None) -> bool:
     """
     Update the confidence level of an existing entry by its id.
 
@@ -122,7 +130,7 @@ def update_confidence(pattern_id: str, confidence: str) -> bool:
     if confidence not in VALID_CONFIDENCE:
         raise ValueError(f"confidence must be one of {VALID_CONFIDENCE!r}")
 
-    entries = load()
+    entries = load(data_dir)
     updated = False
     for entry in entries:
         if entry.get("id") == pattern_id:
@@ -132,17 +140,17 @@ def update_confidence(pattern_id: str, confidence: str) -> bool:
             break
 
     if updated:
-        _write_all(entries)
+        _write_all(entries, data_dir)
     return updated
 
 
-def expire_stale() -> int:
+def expire_stale(data_dir: Path | None = None) -> int:
     """
     Mark all active entries whose TTL has passed as status=expired.
 
     Returns the number of entries expired.
     """
-    entries = load()
+    entries = load(data_dir)
     expired = 0
     for entry in entries:
         if _is_expired(entry):
@@ -150,17 +158,17 @@ def expire_stale() -> int:
             expired += 1
 
     if expired:
-        _write_all(entries)
+        _write_all(entries, data_dir)
     return expired
 
 
-def render_markdown() -> str:
+def render_markdown(data_dir: Path | None = None) -> str:
     """
     Generate a readable markdown document from all non-expired entries,
     grouped by confidence level.
     """
     by_conf = {"confirmed": [], "suspected": [], "disputed": []}
-    for entry in load():
+    for entry in load(data_dir):
         if entry.get("status") == "expired":
             continue
         conf = entry.get("confidence", "suspected")
@@ -229,8 +237,9 @@ def render_markdown() -> str:
 # Internals
 # ---------------------------------------------------------------------------
 
-def _write_all(entries: list[dict[str, Any]]) -> None:
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with JSONL_PATH.open("w", encoding="utf-8") as fh:
+def _write_all(entries: list[dict[str, Any]], data_dir: Path | None = None) -> None:
+    target_dir = data_dir or _DATA_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with _jsonl_path(data_dir).open("w", encoding="utf-8") as fh:
         for entry in entries:
             fh.write(json.dumps(entry, separators=(",", ":")) + "\n")
