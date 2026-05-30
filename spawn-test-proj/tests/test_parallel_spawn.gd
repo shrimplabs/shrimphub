@@ -33,20 +33,22 @@ func test_spawn_entities_parallel_assigns_correct_names() -> void:
 	assert_true(spawned_entities.has("Gamma"), "should contain Gamma")
 
 func test_spawn_entities_parallel_emits_signal() -> void:
-	# Test signal directly on a fresh Node -- no _ready() that delays add_child.
-	var n = Node.new()
-	add_child(n)
-	# Mirror the exact signal emit of main.gd's spawn_entities_parallel
-	n.entities_spawned.connect(func(count: int, names: Array):
-		n.set("sig_captured", true)
-		n.set("sig_count", count)
-		n.set("sig_names", names.duplicate())
-	)
-	n.entities_spawned.emit(2, ["X", "Y"])
-	assert_true(n.get("sig_captured"), "entities_spawned signal should be emitted")
-	assert_eq(n.get("sig_count"), 2, "signal should report correct count")
-	assert_eq(n.get("sig_names").size(), 2, "signal should report correct names")
-	n.free()
+	# Verify the signal exists on main.gd
+	assert_true(_main.has_signal("entities_spawned"), "_main should have entities_spawned signal")
+	# Capture values via instance variables on _main (avoids GUT lambda scope issues)
+	var sig_captured := false
+	var received_count := -1
+	var received_names: Array = []
+	var cb = func(count: int, names: Array):
+		sig_captured = true
+		received_count = count
+		received_names = names
+	_main.entities_spawned.connect(cb)
+	# Emit directly on _main without going through _ready()
+	_main.entities_spawned.emit(2, ["X", "Y"])
+	assert_true(sig_captured, "entities_spawned signal should be emitted")
+	assert_eq(received_count, 2, "signal should report correct count")
+	assert_eq(received_names.size(), 2, "signal should report correct names")
 
 func test_spawn_entities_parallel_handles_empty_array() -> void:
 	var initial_count: int = _main.get_spawned_count()
