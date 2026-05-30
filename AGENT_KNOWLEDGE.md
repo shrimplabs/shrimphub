@@ -260,3 +260,38 @@ scan_learnings.py (project root): the canonical scanner for all audit_learnings 
 - swarm/api_tasks.py: `update_task` route (PATCH /api/tasks/<id>) already supports dependency updates
 - swarm/db.py: `task_update()` method handles dependency updates
 - No code changes needed -- the fix was a data repair via the API
+
+---
+## test fixture cleanup ordering bug (test_api_scheduler.py)
+
+**Root cause**: `pytest` fixture cleanup in `yield` block runs when the fixture goes out of scope, not before the next test's setup. With test-class-scoped fixtures, pytest may re-enter the fixture for the next class before the previous class's yield-cleanup has run.
+
+**Effect**: When `TestSchedulerRunCreates` (creates a scheduler task) runs before `TestSchedulerRunPrevents`, the pending scheduler task from the previous class bleeds into the new class's first POST, causing 409 instead of 200.
+
+**Fix**: Two-part cleanup:
+1. **Pre-yield cleanup block** (before `yield app`) — runs before each test via pytest's fixture re-invocation. This is the key fix.
+2. **Post-yield finally block** (around `yield app`) — runs cleanup after each test.
+
+**Pattern**:
+```python
+# Pre-yield: guaranteed before each test by pytest's fixture re-invocation
+with _lock:
+    if _timer is not None:
+        _timer.cancel()
+try:
+    from swarm import db as _db
+    for t in _db.task_get_all():
+        if t.get("type") == "scheduler" and t.get("status") in ("pending", "in_progress"):
+            _db.task_delete(t["id"])
+except Exception:
+    pass
+
+app.config["TESTING"] = True
+try:
+    yield app
+finally:
+    # Post-test cleanup (same logic, runs after each test)
+    ...
+```
+
+**Note**: The `test_creates_scheduler_task` test in `TestSchedulerRunCreates` creates a task that `test_prevents_duplicate_scheduler_tasks` in `TestSchedulerRunPrevents` needs to NOT see — this is why the test classes were separated (pytest shares same app fixture across classes, so without pre-yield cleanup, task from one class bleeds into the next).
