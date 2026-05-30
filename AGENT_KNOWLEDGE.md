@@ -427,3 +427,22 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 **Prior run (scheduler-1780109015, 23:47 UTC)**: 60% utilization, 76 failed, recommended archaeologist
 **This run (scheduler-1780109916, 00:03 UTC)**: 52% utilization, 83 failed (+7), archaeologist still idle
 **Trend**: Failed backlog growing (+7) faster than archaeologist can triage. Key bottleneck: echoes-of-the-unmade (15 failed, _swarm_*.gd bitrot).
+
+---
+## Scheduler meta-agent state (2026-05-30 03:29 UTC)
+
+**Key finding this run**: ALL 21 pending tasks are BLOCKED (have unresolved dependencies). This is the primary concern -- the queue is effectively stalled. Prior runs showed ~5 blocked, now 21/21 blocked. Phantom dependencies from `chain_to_project_head()` returning non-existent IDs are the likely cause (pattern documented in archaeologist deep-time-ecology bug fix). Archaeologist should patch blocked tasks via PATCH /api/tasks/<id> to clear phantom deps.
+
+**Quota**: 11,959/15,000 = 79.7%, rising at ~3.3 pp/hour. 90% threshold ~3.1 hours away. Next run should consider run_after on harness_qa if >82%.
+
+**Failed backlog**: 89 total (stable), echoes-of-the-unmade at 16 failed (systemic _swarm_*.gd bitrot pattern, recommended archaeologist for 5 consecutive runs).
+
+**API endpoints for scheduler**:
+- GET /api/scheduler/status — returns `{"last_run_ts": float, "scheduler_enabled": bool}`
+- GET /api/agents — returns `{"agents": [...]}` (agents in `d['agents']` list)
+- GET /api/quota-limit — returns `{"over_limit": bool, "remaining_percent": float, ...}`
+- GET /api/tasks?status=X&limit=N — returns `{"tasks": [...]}`
+- GET /api/metrics — returns aggregate stats
+- GET /api/config — returns full config including max_active_agents
+
+**SCHEDULER_LOG.md is in .gitignore** — write the file but skip git add/commit.
