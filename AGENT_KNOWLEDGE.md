@@ -346,3 +346,21 @@ SCHEDULER TASK TYPE: use "meta_scheduler" NOT "scheduler"
 - Prompt: prompts/scheduler.yaml loaded via _load_prompt("scheduler", ...) which sets the SCHEDULER_SYSTEM/SCHEDULER_USER rt globals
 - Key implication: if a scheduler task has type="scheduler" it will NOT receive the scheduler.yaml prompt, will get the default feature prompt instead
 - Fix committed in 57acb7e: api_scheduler.py now creates type="meta_scheduler" tasks (two locations: _run_scheduler_task and _is_scheduler_running guard)
+
+---
+## Scheduler integration (fully committed, working)
+
+The Scheduler meta-agent integration was completed over multiple sessions:
+- swarm/api_scheduler.py (routes, timer, state persistence)
+- prompts/scheduler.yaml (meta-agent prompt)
+- swarm/orchestrator.py (_fire_idle_scheduler, SCHEDULER_ENABLED, etc.)
+- swarm_runner.py (prompt loading for meta_scheduler)
+- swarm/agent_runtime.py (dispatch for meta_scheduler task type)
+- data/SCHEDULER_LOG.md (94-line decision log from actual meta-agent run)
+- SCHEDULER_LOG.md covers: agent utilization (16/25=64%), queue health (4336 tasks), project health (84 healthy), 5 scheduling decisions, recommendation to enable scheduler in config.json.
+
+Key fix (commit 57acb7e): api_scheduler.py task type must be `meta_scheduler` (not `scheduler`) -- agent_runtime.py only handles `meta_scheduler` type.
+
+Key fix (commit 6915b7b): test_api_scheduler.py fixture must run timer+DB cleanup in PRE-yield block to prevent test-class bleed (scheduler task from TestSchedulerRunCreates bleeds into TestSchedulerRunPrevents, causing spurious 409).
+
+Test: 47 tests pass (test_api_scheduler.py: 10, test_lifecycle.py: 37). App starts clean with Scheduler + Gardener timers running.

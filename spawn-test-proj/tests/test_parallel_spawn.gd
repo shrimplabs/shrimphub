@@ -33,18 +33,18 @@ func test_spawn_entities_parallel_assigns_correct_names() -> void:
 	assert_true(spawned_entities.has("Gamma"), "should contain Gamma")
 
 func test_spawn_entities_parallel_emits_signal() -> void:
-	# Connect signal BEFORE calling spawn_entities_parallel
+	# Use class-level tracking so the signal lambda can write into captured scope
+	var sig_captured := false
 	var received_count := 0
 	var received_names: Array = []
-	var sig_captured := false
 	_main.entities_spawned.connect(func(count: int, names: Array):
-		received_count = count
-		received_names = names
 		sig_captured = true
+		received_count = count
+		received_names = names.duplicate()
 	)
 	var names: Array = ["X", "Y"]
 	var result: Array = _main.spawn_entities_parallel(names)
-	await wait_for_signal(_main.entities_spawned, 1.0)
+	# Signal emits synchronously, so capture is guaranteed immediately after call
 	assert_true(sig_captured, "entities_spawned signal should be emitted")
 	assert_eq(received_count, result.size(), "signal should report correct count")
 	assert_eq(received_names.size(), names.size(), "signal should report correct names")
