@@ -390,3 +390,16 @@ Test: 47 tests pass (test_api_scheduler.py: 10, test_lifecycle.py: 37). App star
 **No code changes made** — fix was pure data repair via API.
 
 **Pattern**: Phantom deps from `chain_to_project_head()` returning a non-existent head task ID is a recurring bug. When a task is chained to a project head that doesn't exist, it creates a phantom blocking dependency. Fix via PATCH /api/tasks/<id>.
+
+---
+## Service port for different workspaces
+swarm-controller service runs on localhost:5001 (not 18792) when started via start.sh at ~USER/workspace/swarm-controller/. The ~USER/workspace/swarm-controller/ path is a different workspace (this one). The running service at 5001 is the workspace workspace.
+
+## Current scheduler state (run scheduler-1780106314, 2026-05-29 22:30 UTC)
+- 15 active agents / 25 ceiling = 60% utilization
+- 20 pending + 14 in_progress = 34 actionable tasks
+- 76 failed tasks in backlog (advisory: needs archaeologist triage)
+- Quota: 8,104/15,000 = 54% used, no pressure
+- scheduler_enabled=true, meta_mode_enabled=true
+- No decisions made: utilization healthy, no quota pressure, no project failures
+- SCHEDULER_LOG.md written to data/ (not git-ignored, unlike AUDIT_LEARNINGS_REPORT.md)
