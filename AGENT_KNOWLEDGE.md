@@ -527,3 +527,27 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 - GET /api/tasks?limit=5000 returns all tasks in `d['tasks']` (not at root)
 - Agent IDs are UUIDs (e.g., `6938eb6f-a0b5-4cee-a611-6e5feb286e19`) — project names come from task.project not agent
 - `recovery-c75a3aa6` shows loop 171 via agent.output field in /api/agents (via token count heuristic, actual loop count not in API)
+
+---
+## Scheduler run (scheduler-1780119821, 2026-05-30 06:25 UTC)
+
+**Key finding — Phantom deps EXECUTED this run:** Previous scheduler runs (scheduler-1780118019, scheduler-1780118920) documented phantom deps but did NOT execute repairs. This scheduler executed 20+ PATCH /api/tasks/<id> calls directly, clearing all phantom deps from pending tasks. Result: 17 pending tasks all unblocked.
+
+**Phantom dep patterns found:**
+- Self-referential deps: bug-bug-bug-recovery-3851dc8a, bug-bug-bug-117901515-271, bug-bug-bug-recovery-db93e047
+- Non-existent task IDs returned by chain_to_project_head(): qa-temporal-residue-rerun-47eb, qa-100706359-agent, etc.
+- Chain deps on in-progress tasks not yet in DB: qa-auto-neon-breaker-1780120672 etc.
+- QA tasks depending on non-existent QA reruns: qa-pacman-chase-rerun-*, qa-fusion-foundry-3d-rerun-*
+
+**Repair strategy:** When patching, check if the task has real (non-phantom) deps — if so, keep those and only remove phantom ones. Use PATCH /api/tasks/<id> with {"dependencies": [real_dep1, real_dep2]} or {"dependencies": []} if all deps are phantom.
+
+**Get full task ID:** The API may truncate IDs in list responses. Always query individual tasks to get the full ID before patching.
+
+**Quota:** 26.2% used (3,931/15,000), 73.8% remaining — healthy.
+**Utilization:** 48% (12/25 agents) — healthy.
+
+**SCHEDULER_LOG.md is in .gitignore** — write but skip git add/commit.
+
+**Failed backlog:** 101 total. echoes-of-the-unmade at 19 (6th+ occurrence, _swarm_*.gd bitrot). Archaeologist should investigate chain_to_project_head() root cause.
+
+**Pending queue:** 17 tasks, 0 phantom deps — fully unblocked.
