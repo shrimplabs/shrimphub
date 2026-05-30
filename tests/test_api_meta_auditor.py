@@ -125,7 +125,6 @@ class TestAuditorRun:
 
     def test_run_updates_last_run_ts(self, client, app):
         """POST /api/meta-auditor/run updates the last_run_ts in config."""
-        import time
         r = client.post("/api/meta-auditor/run",
                         content_type="application/json")
         assert r.status_code == 200
