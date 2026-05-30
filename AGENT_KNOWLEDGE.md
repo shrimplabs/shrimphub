@@ -246,3 +246,17 @@ scan_learnings.py (project root): the canonical scanner for all audit_learnings 
 **Root cause of stall**: Validation scaffolding kept getting deleted between agent runs (bitrot pattern), causing smoke validation to always fail. QA was actually passing (zero bugs found in Cycle 3/3) but the completion signal never propagated.
 
 **Pattern**: This is the 3rd time _swarm_*.gd files were restored for ghost-circuit (history shows repeated "Restore smoke validation files" commits). Investigate if agent runs are doing `git checkout` or similar that wipes uncommitted changes.
+
+---
+## Archaeologist task: phantom project-head dep bug (archaeologist-deep-time-ecology-1780097277)
+
+**Bug found**: When `create_tasks()` or batch task creation chains tasks to the project head via `chain_to_project_head()`, if the returned project head task ID doesn't exist in the DB, the task gets a phantom dependency that blocks it forever. The bug tasks (`bug-99887159-0044/0180/0229`) all depended on `qa-deep-time-ecology-rerun-a474afe50400` which did not exist.
+
+**Fix**: PATCH /api/tasks/<id> with `{"dependencies": []}` to remove phantom deps. The `update_task` route in `swarm/api_tasks.py` handles this.
+
+**Verification**: Bug tasks went from blocked (phantom dep) to RUNNABLE after patching.
+
+**Files touched**:
+- swarm/api_tasks.py: `update_task` route (PATCH /api/tasks/<id>) already supports dependency updates
+- swarm/db.py: `task_update()` method handles dependency updates
+- No code changes needed -- the fix was a data repair via the API
