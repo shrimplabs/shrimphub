@@ -228,7 +228,7 @@ Use `meta_auditor` (NOT `audit` — audit is per-project design audit).
 
 ## Two-Workspace Gotcha (CRITICAL)
 
-The service runs at **localhost:5001** from `~USER/workspace/swarm-controller/` (PID <pid>). The workspace at `~USER/workspace/swarm-controller/` is a DIFFERENT copy. All API calls to localhost:5001 hit workspace. DB operations and module imports from workspace fail with `ModuleNotFoundError`.
+The service runs at **localhost:5001** from the swarm-controller directory. If you have a second copy of the repo in your workspace, DB operations and module imports from the workspace copy will fail with `ModuleNotFoundError` — ensure API calls hit the correct running instance.
 
 **Always**: API calls → localhost:5001 (workspace), file edits → workspace path.
 

@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 
-TEMPLATE_PATH = "~USER/workspace/swarm-controller/templates/godot/autoload/state_server.gd"
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates/godot/autoload/state_server.gd")
 PROJECTS = [
     "echoes-of-exile",
     "echoes-of-the-unmade",

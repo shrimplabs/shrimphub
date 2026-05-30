@@ -174,7 +174,7 @@ Validates the art pass pipeline: vision assessment → asset discovery → file 
 ## Environment Setup
 
 ```bash
-cd ~USER/workspace/swarm-controller
+cd /path/to/swarm-controller
 
 # Create virtualenv and install deps
 python3 -m venv .venv

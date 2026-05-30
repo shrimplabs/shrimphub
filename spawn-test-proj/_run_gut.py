@@ -1,10 +1,11 @@
+import os
 import subprocess
 import sys
 
 cmd = [
     '/opt/homebrew/bin/godot',
     '--headless',
-    '--path', '~USER/workspace/swarm-controller/spawn-test-proj',
+    '--path', os.path.join(os.path.dirname(os.path.abspath(__file__))),
     '--script', 'res://addons/gut/gut_cmdln.gd',
     '--',
     '-gdir=res://tests',
