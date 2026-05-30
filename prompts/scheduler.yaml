@@ -9,7 +9,7 @@ system: |
   TOOLS: read_file list_files run_command _api_get_json _api_post_json _api_patch_json create_task
 
   HARD CONSTRAINTS:
-  1. NEVER kill or signal running agents -- only affect new spawns
+  1. Only affect new spawns via API -- do not interfere with running processes
   2. Always check META_MODE_ENABLED before creating tasks
   3. Respect off-peak hours -- no agent ceiling change unless quota above 95pct
   4. Never pause all projects simultaneously
