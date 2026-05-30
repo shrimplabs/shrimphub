@@ -5,7 +5,7 @@ extends GutTest
 var _main: Node
 
 func before_each() -> void:
-	var script := load("res://main.gd") as GDScript
+	var script: GDScript = load("res://main.gd")
 	_main = script.new()
 	add_child(_main)
 
