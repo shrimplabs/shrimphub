@@ -33,7 +33,6 @@ _swarm_progress.md
 # Runtime data (all excluded; only .gitkeep is tracked)
 data/*
 !data/.gitkeep
-!data/scheduler_check.py
 
 # Beads / Dolt files (added by bd init)
 .dolt/
