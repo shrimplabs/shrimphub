@@ -4,7 +4,7 @@ ShrimpHub is an open-source swarm orchestration system for agentic software deve
 
 Point it at a workspace full of projects, give it API keys, and it autonomously plans, implements, tests, and fixes — in parallel, across as many projects as you want. Supports Godot, Python, and TypeScript out of the box; extensible to any language via the plugin system.
 
-> **Early software:** expect bugs, changing APIs, and hands-on log inspection.
+> **Early software:** expect bugs, changing APIs, and hands-on log inspection. Primarily tested with MiniMax M2.7 — other providers (Claude, OpenRouter, Kimi) are supported but may be less stable.
 
 ![System Diagram](https://raw.githubusercontent.com/shrimplabs/shrimphub/main/system_diagram.svg)
 
