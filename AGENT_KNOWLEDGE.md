@@ -233,3 +233,16 @@ scan_learnings.py (project root): the canonical scanner for all audit_learnings 
 - Skips if a meta_auditor task is already pending/in_progress
 
 **Dashboard: feature-67530299-0610** will need to add Auditor toggle + status panel following the same pattern as the Gardener dashboard UI (dashboard-config.js, dashboard.css, dashboard.html, dashboard.js bootstrap)
+
+---
+## ghost-circuit recovery (commit 009ba35)
+
+**Bug**: duplicate `signal tile_cleared` in `autoload/state_server.gd` (line 54 and 57). This is a parse error that causes `_swarm_check.gd` to report script load failures, making `boot_ok=false` in PROJECT_CLOSURE.md.
+
+**Fix**: Remove one of the two identical signal declarations.
+
+**Also fixed**: _swarm_*.gd validation scaffolding files were missing from working tree (git status showed them deleted). Restored via `git checkout baa4409 -- _swarm_*.gd`.
+
+**Root cause of stall**: Validation scaffolding kept getting deleted between agent runs (bitrot pattern), causing smoke validation to always fail. QA was actually passing (zero bugs found in Cycle 3/3) but the completion signal never propagated.
+
+**Pattern**: This is the 3rd time _swarm_*.gd files were restored for ghost-circuit (history shows repeated "Restore smoke validation files" commits). Investigate if agent runs are doing `git checkout` or similar that wipes uncommitted changes.
