@@ -327,3 +327,16 @@ The scheduler agent (9d9a441f) got stuck in a recursive loop: it read_file_range
 **Recovery**: Complete the scheduler's work manually via API calls. Mark task completed. Clear phantom deps. Write SCHEDULER_LOG.md. The monitor thread will eventually clean up zombie agents.
 
 **Prevention**: The injected PROJECT KNOWLEDGE + broadcast context (~1155 lines) may cause the scheduler agent to hit context limits before its first LLM response loop. Consider reducing injected context size for scheduler tasks.
+
+---
+## API Response Wrappers (2026-05-30)
+
+Most endpoints return `{"task": {...}}` (singular) or `{"tasks": [...]}` (plural). The `/api/tasks` endpoint returns `{"tasks": [...]}`, NOT a raw list. Always use `data['tasks']` not `data` directly. Same for single task GET: `d.get('task', d)`. This caught me multiple times.
+
+## Phantom Dep Detection (2026-05-30)
+
+Full DB scan (limit=2000) finds more phantom deps than paginated checks. Always use `limit=2000` or the largest available when checking for phantom deps. Self-referential deps (`task_id == dep_id`) are the most common pattern. NOT_FOUND deps come from deleted tasks. Clear with `PATCH /api/tasks/:id {"dependencies": []}`.
+
+## SCHEDULER_LOG.md is gitignored via *.log pattern
+
+Always append to `data/SCHEDULER_LOG.md` without committing. Working tree should remain clean after scheduler runs.
