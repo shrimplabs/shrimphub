@@ -347,3 +347,15 @@ Always append to `data/SCHEDULER_LOG.md` without committing. Working tree should
 When the scheduler spawns fresh agents after phantom dep repairs, NEW phantom deps appear in those newly-spawned tasks (e.g. recovery-fc35bf09 dep on temporal-residue-genesis, bug-recovery-e0ad5309 dep on self). Always run the diagnostic twice: first pass repairs known phantoms, second pass catches new ones introduced by fresh agent spawns. Total phantom-blocked should be 0 after pass 2.
 
 Pattern: scheduler spawns → new in-progress tasks → some have bad deps → PATCH → new tasks spawn → repeat until stable.
+
+---
+## scan_learnings.py (2026-05-30)
+
+The `scan_learnings.py` script at project root does exactly what audit_learnings tasks need — just run `python3 scan_learnings.py` from the project root. It outputs to `data/AUDIT_LEARNINGS_REPORT.md` which is in `.gitignore`. Do NOT git commit the report. Working tree should remain clean after running.
+
+Results: 110 projects, 489 learning files → 291-line report with per-type clusters, cross-cutting observations, and recommendations. 14 task types covered. No task creation.
+
+## Known issues found in audit
+- `hybrid_qa` has 100% fail rate (2 files, 6 failed) — sample size too small to be meaningful
+- `art_pass` avg 89.1 loops suggests these are complex/long tasks
+- Godot 4 API and refactor re-export breakage are the top actionable patterns
