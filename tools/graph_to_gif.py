@@ -2,9 +2,9 @@
 """
 graph_to_gif.py — Render the dep graph playback as an animated GIF.
 
-Fetches task history from the swarm API, replays it step-by-step using
-Graphviz, and assembles frames into a looping animated GIF.
-No browser required — works even when the server is busy.
+Fetches task history from the swarm API, replays completions chronologically,
+renders each frame with Graphviz (fixed layout so nodes don't jump), and
+assembles a looping animated GIF via ffmpeg.
 
 Usage:
     python3 tools/graph_to_gif.py --project pebble-pop --output pebble-pop.gif
@@ -18,46 +18,66 @@ Options:
     --fps           Playback speed in frames per second (default: 6)
     --width         Output image width in px (default: 1400)
     --height        Output image height in px (default: 820)
-    --steps         Max frames to render (default: all)
+    --steps         Max animation frames (default: all)
     --pause-start   Extra seconds to hold first frame (default: 1.5)
     --pause-end     Extra seconds to hold last frame (default: 3)
-    --history       Number of historical snapshots to replay (default: 20)
+    --history       Number of completed tasks to replay (default: 40)
     --dpi           Graphviz render DPI (default: 96)
 """
 
 import argparse
 import io
 import json
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageFilter, ImageChops
 except ImportError:
     print("ERROR: Pillow not installed. Run: pip install Pillow")
-    sys.exit(1)
-
-try:
-    import imageio
-    import numpy as np
-except ImportError:
-    print("ERROR: imageio/numpy not installed. Run: pip install imageio numpy")
     sys.exit(1)
 
 
 # ── Status colours (match dashboard CSS) ────────────────────────────────────
 STATUS_COLOR = {
-    "completed":   ("#2ea043", "#ffffff"),   # green fill, white text
-    "in_progress": ("#0e7a8a", "#00ffff"),   # teal fill, cyan text
-    "failed":      ("#6e1535", "#ff5b9c"),   # dark red fill, pink text
-    "pending":     ("#1c2128", "#c8a84b"),   # dark fill, amber text
+    "completed":   ("#3fb950", "#ffffff"),   # bright green — easier to isolate for glow
+    "in_progress": ("#0e7a8a", "#00ffff"),
+    "failed":      ("#6e1535", "#ff5b9c"),
+    "pending":     ("#1c2128", "#c8a84b"),
     "cancelled":   ("#161b22", "#666666"),
 }
+COMPLETED_GLOW_COLOR = (63, 185, 80)   # RGB of #3fb950
 BG_COLOR = "#0d1117"
 EDGE_COLOR = "#3d444d"
-FONT = "IBM Plex Mono"
+
+
+def _add_glow(img: Image.Image) -> Image.Image:
+    """Add a green glow around completed (bright green) nodes."""
+    rgb = img.convert("RGB")
+    r, g, b = rgb.split()
+
+    # Mask: pixels that are "green enough" — completed node fill colour
+    # #3fb950 = (63, 185, 80); isolate by: g high, r low-mid, b low
+    r_arr = r.point(lambda x: 255 if x < 120 else 0)   # r < 120
+    g_arr = g.point(lambda x: 255 if x > 140 else 0)   # g > 140
+    b_arr = b.point(lambda x: 255 if x < 110 else 0)   # b < 110
+
+    # Combine: all three conditions must hold
+    mask = ImageChops.multiply(ImageChops.multiply(r_arr, g_arr), b_arr)
+
+    # Build glow layer: green tinted, blurred outward
+    glow_layer = Image.new("RGB", img.size, (0, 0, 0))
+    glow_layer.paste(Image.new("RGB", img.size, (40, 220, 80)), mask=mask)
+    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=6))
+    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=4))  # double for intensity
+
+    # Screen blend: lighten where glow is bright
+    return ImageChops.screen(rgb, glow_layer)
 
 
 def _api(base: str, path: str):
@@ -66,127 +86,126 @@ def _api(base: str, path: str):
         return json.load(r)
 
 
-def _task_dot(tasks: list[dict], highlight_ids: set[str] | None = None) -> str:
-    """Build a Graphviz DOT string for a snapshot of tasks."""
+def _task_dot(tasks: list[dict], positions: dict[str, tuple] | None = None) -> str:
+    """Build a DOT string. If positions provided, freeze layout with pos=."""
+    known_ids = {t["id"] for t in tasks}
+
     lines = [
         'digraph G {',
         f'  bgcolor="{BG_COLOR}"',
         '  rankdir=LR',
-        '  node [fontname="IBM Plex Mono" fontsize=10 style=filled penwidth=1.5 margin="0.15,0.08"]',
-        f'  edge [color="{EDGE_COLOR}" penwidth=1.2 arrowsize=0.7]',
-        '  graph [pad="0.4" nodesep="0.35" ranksep="0.7"]',
+        '  node [fontname="Courier" fontsize=9 style="filled,rounded" shape=box penwidth=1.5 margin="0.12,0.08"]',
+        f'  edge [color="#7d8590" penwidth=1.5 arrowsize=0.7]',
+        '  graph [pad="0.5" nodesep="0.3" ranksep="0.6"]',
     ]
 
     for t in tasks:
         tid = t["id"]
         status = t.get("status", "pending")
         fill, font_color = STATUS_COLOR.get(status, STATUS_COLOR["pending"])
-        label_parts = [t.get("type", "?"), tid[-8:]]
-        label = "\\n".join(label_parts)
-        border = "#58a6ff" if highlight_ids and tid in highlight_ids else fill
-        lw = "3" if highlight_ids and tid in highlight_ids else "1.5"
+        label = f"{t.get('type','?')}\\n{tid[-6:]}"
+        pos_attr = ""
+        if positions and tid in positions:
+            x, y = positions[tid]
+            pos_attr = f' pos="{x:.2f},{y:.2f}!"'
         lines.append(
             f'  "{tid}" [label="{label}" fillcolor="{fill}" fontcolor="{font_color}" '
-            f'color="{border}" penwidth={lw}]'
+            f'color="{fill}"{pos_attr}]'
         )
 
-    # Draw edges
-    seen_edges = set()
+    seen = set()
     for t in tasks:
         for dep in t.get("dependencies", []):
-            edge = (dep, t["id"])
-            if edge not in seen_edges:
-                seen_edges.add(edge)
+            # Skip ghost deps (tasks not in this snapshot)
+            if dep not in known_ids:
+                continue
+            if (dep, t["id"]) not in seen:
+                seen.add((dep, t["id"]))
                 lines.append(f'  "{dep}" -> "{t["id"]}"')
 
     lines.append("}")
     return "\n".join(lines)
 
 
-def _dot_to_image(dot_src: str, width: int, height: int, dpi: int) -> Image.Image:
-    """Render a DOT string to a PIL Image using the graphviz `dot` command."""
+def _compute_positions(tasks: list[dict], dpi: int) -> dict[str, tuple]:
+    """Run dot once to get node positions; returns {task_id: (x_pts, y_pts)}."""
+    dot_src = _task_dot(tasks)
     result = subprocess.run(
-        ["dot", "-Tpng", f"-Gdpi={dpi}"],
-        input=dot_src.encode(),
-        capture_output=True,
-        timeout=30,
+        ["dot", "-Txdot", f"-Gdpi={dpi}"],
+        input=dot_src.encode(), capture_output=True, timeout=60,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"dot failed: {result.stderr.decode()[:200]}")
-    img = Image.open(io.BytesIO(result.stdout)).convert("RGB")
+        return {}
 
-    # Fit into (width, height) preserving aspect ratio, pad with bg
+    xdot = result.stdout.decode()
+    positions = {}
+    # xdot format: "node_id" [pos="x,y" ...]
+    for m in re.finditer(r'"([^"]+)"\s*\[([^\]]*)\]', xdot):
+        node_id, attrs = m.group(1), m.group(2)
+        pm = re.search(r'pos="([\d.]+),([\d.]+)"', attrs)
+        if pm:
+            positions[node_id] = (float(pm.group(1)), float(pm.group(2)))
+    return positions
+
+
+def _dot_to_image(dot_src: str, width: int, height: int, dpi: int,
+                  use_neato: bool = False) -> Image.Image:
+    """Render DOT to PIL Image."""
+    if use_neato:
+        cmd = ["neato", "-Tpng", f"-Gdpi={dpi}", "-n1"]
+    else:
+        cmd = ["dot", "-Tpng", f"-Gdpi={dpi}"]
+    result = subprocess.run(cmd, input=dot_src.encode(), capture_output=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode()[:300])
+
+    img = Image.open(io.BytesIO(result.stdout)).convert("RGB")
+    img = _add_glow(img)   # glow at native res before downscale (sharper mask)
     iw, ih = img.size
     scale = min(width / iw, height / ih)
     nw, nh = int(iw * scale), int(ih * scale)
     img = img.resize((nw, nh), Image.LANCZOS)
-
     canvas = Image.new("RGB", (width, height), BG_COLOR)
-    ox, oy = (width - nw) // 2, (height - nh) // 2
-    canvas.paste(img, (ox, oy))
+    canvas.paste(img, ((width - nw) // 2, (height - nh) // 2))
     return canvas
 
 
 def build_snapshots(tasks: list[dict], history_limit: int) -> list[list[dict]]:
     """
-    Replay tasks in chronological order to produce a list of graph snapshots.
-    Each snapshot is the full task list with statuses as they were at that point.
-
-    Strategy:
-      - Sort completed tasks by their approximate completion order.
-      - Walk through them, building up the visible set frame by frame.
-      - Pending tasks appear from the start; status changes are the "events".
+    Replay completed tasks in chronological order (by completed timestamp).
+    Returns a list of snapshots; each is the full task list with statuses
+    as they were at that point in time.
     """
-    # Separate by status
-    completed = [t for t in tasks if t["status"] == "completed"]
-    in_progress = [t for t in tasks if t["status"] == "in_progress"]
-    failed = [t for t in tasks if t["status"] == "failed"]
-    pending = [t for t in tasks if t["status"] == "pending"]
-    other = [t for t in tasks if t["status"] not in ("completed", "in_progress", "failed", "pending")]
+    completed = [t for t in tasks if t["status"] == "completed" and t.get("completed")]
 
-    # Sort completed tasks — use task ID suffix as a rough proxy for creation order
-    def _sort_key(t):
-        # IDs often end in a numeric timestamp suffix
-        parts = t["id"].rsplit("-", 1)
-        try:
-            return (0, int(parts[-1]))
-        except ValueError:
-            return (1, t["id"])
+    # Sort by actual completion timestamp
+    completed_sorted = sorted(completed, key=lambda t: t["completed"])
 
-    completed_sorted = sorted(completed, key=_sort_key)
-
-    # Limit history
+    # Limit to most recent N
     if history_limit and len(completed_sorted) > history_limit:
         completed_sorted = completed_sorted[-history_limit:]
 
-    # Build snapshots: start with everything pending, then flip completed one by one
-    all_ids = {t["id"] for t in tasks}
-    status_map = {t["id"]: t["status"] for t in tasks}
+    # We'll show all tasks in every frame, just changing statuses
+    # Initially: completed tasks shown as pending, everything else at current status
+    completed_ids = {t["id"] for t in completed_sorted}
 
-    # Initial state: all non-completed tasks at current status, completed = pending
-    def _snapshot(flip_completed: set[str]) -> list[dict]:
+    def _snapshot(flipped: set[str]) -> list[dict]:
         result = []
         for t in tasks:
-            if t["id"] in flip_completed:
+            if t["id"] in completed_ids and t["id"] not in flipped:
+                # Show as pending (not yet completed in this frame)
                 fake = dict(t)
-                fake["status"] = "completed"
+                fake["status"] = "pending"
                 result.append(fake)
             else:
                 result.append(t)
         return result
 
-    snapshots = []
+    snapshots = [_snapshot(set())]  # start: all replayed tasks shown as pending
     flipped = set()
-
-    # Frame 0: nothing completed yet (all completed shown as pending)
-    snapshots.append(_snapshot(flipped))
-
     for t in completed_sorted:
         flipped.add(t["id"])
         snapshots.append(_snapshot(flipped))
-
-    # Final frame: actual current state
-    snapshots.append(list(tasks))
 
     return snapshots
 
@@ -194,8 +213,6 @@ def build_snapshots(tasks: list[dict], history_limit: int) -> list[list[dict]]:
 def capture_gif(project: str, output: Path, api: str, fps: int, width: int, height: int,
                 steps: int | None, pause_start: float, pause_end: float,
                 history: int, dpi: int):
-
-    frame_delay_ms = int(1000 / fps)
 
     print(f"Fetching tasks for project: {project}")
     try:
@@ -211,36 +228,43 @@ def capture_gif(project: str, output: Path, api: str, fps: int, width: int, heig
 
     print(f"Found {len(tasks)} tasks")
 
-    # Verify graphviz is available
-    try:
-        subprocess.run(["dot", "-V"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        print("ERROR: graphviz not installed. Run: brew install graphviz")
+    for tool in ["dot", "neato"]:
+        if not shutil.which(tool):
+            print(f"ERROR: graphviz not installed (missing '{tool}'). Run: brew install graphviz")
+            sys.exit(1)
+    if not shutil.which("ffmpeg"):
+        print("ERROR: ffmpeg not installed. Run: brew install ffmpeg")
         sys.exit(1)
 
     snapshots = build_snapshots(tasks, history_limit=history)
     print(f"Built {len(snapshots)} playback snapshots")
 
-    # Limit steps
+    # Compute fixed layout from the final (fully-completed) snapshot
+    print("Computing fixed layout...")
+    positions = _compute_positions(snapshots[-1], dpi)
+    print(f"Got positions for {len(positions)} nodes")
+
+    # Downsample if needed
     if steps and len(snapshots) > steps:
-        # Keep first, last, and evenly-spaced middle frames
-        indices = [0] + [int(i * (len(snapshots) - 1) / (steps - 1)) for i in range(1, steps - 1)] + [len(snapshots) - 1]
-        snapshots = [snapshots[i] for i in sorted(set(indices))]
+        indices = sorted(set(
+            [0] + [int(i * (len(snapshots) - 1) / (steps - 1)) for i in range(1, steps - 1)] + [len(snapshots) - 1]
+        ))
+        snapshots = [snapshots[i] for i in indices]
         print(f"Downsampled to {len(snapshots)} frames")
 
+    # Render frames
     frames: list[Image.Image] = []
-
     for i, snapshot in enumerate(snapshots):
         if i % 5 == 0:
             print(f"  Rendering frame {i+1}/{len(snapshots)}...")
-        dot = _task_dot(snapshot)
+        dot = _task_dot(snapshot, positions=positions if positions else None)
         try:
-            frame = _dot_to_image(dot, width, height, dpi)
+            frame = _dot_to_image(dot, width, height, dpi, use_neato=bool(positions))
             frames.append(frame)
         except Exception as e:
-            print(f"  Warning: frame {i} render failed: {e}")
+            print(f"  Warning: frame {i} failed: {e}")
             if frames:
-                frames.append(frames[-1].copy())  # duplicate last good frame
+                frames.append(frames[-1].copy())
 
     if not frames:
         print("ERROR: No frames rendered")
@@ -250,30 +274,25 @@ def capture_gif(project: str, output: Path, api: str, fps: int, width: int, heig
     hold_start = max(1, int(pause_start * fps))
     hold_end = max(1, int(pause_end * fps))
     final_frames = [frames[0].copy()] * hold_start + frames + [frames[-1].copy()] * hold_end
-    print(f"Total frames: {len(final_frames)} ({hold_start} start hold + {len(frames)} playback + {hold_end} end hold)")
+    print(f"Total frames: {len(final_frames)} ({hold_start} + {len(frames)} + {hold_end})")
 
+    # Assemble GIF via ffmpeg (most reliable)
     print(f"Saving → {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write frames as PNGs to a temp dir, then use ffmpeg to assemble the GIF
-    import tempfile, shutil
     tmpdir = Path(tempfile.mkdtemp())
     try:
         for i, f in enumerate(final_frames):
             f.convert("RGB").save(tmpdir / f"frame_{i:04d}.png")
 
-        # ffmpeg: read PNG sequence → palette → GIF
         palette = tmpdir / "palette.png"
         subprocess.run([
-            "ffmpeg", "-y",
-            "-framerate", str(fps),
+            "ffmpeg", "-y", "-framerate", str(fps),
             "-i", str(tmpdir / "frame_%04d.png"),
             "-vf", "palettegen=max_colors=256:stats_mode=full",
             str(palette),
         ], check=True, capture_output=True)
         subprocess.run([
-            "ffmpeg", "-y",
-            "-framerate", str(fps),
+            "ffmpeg", "-y", "-framerate", str(fps),
             "-i", str(tmpdir / "frame_%04d.png"),
             "-i", str(palette),
             "-lavfi", "paletteuse=dither=bayer:bayer_scale=5",
@@ -289,33 +308,25 @@ def capture_gif(project: str, output: Path, api: str, fps: int, width: int, heig
 
 def main():
     parser = argparse.ArgumentParser(description="Render dep graph playback as animated GIF")
-    parser.add_argument("--project", required=True, help="Project name")
+    parser.add_argument("--project", required=True)
     parser.add_argument("--output", help="Output GIF path (default: <project>.gif)")
-    parser.add_argument("--api", default="http://localhost:5001", help="Swarm API URL")
-    parser.add_argument("--fps", type=int, default=6, help="Frames per second")
-    parser.add_argument("--width", type=int, default=1400, help="Output width in px")
-    parser.add_argument("--height", type=int, default=820, help="Output height in px")
-    parser.add_argument("--steps", type=int, default=None, help="Max frames to render")
-    parser.add_argument("--pause-start", type=float, default=1.5, help="Seconds to hold first frame")
-    parser.add_argument("--pause-end", type=float, default=3.0, help="Seconds to hold last frame")
-    parser.add_argument("--history", type=int, default=20, help="Completed tasks to replay (most recent N)")
-    parser.add_argument("--dpi", type=int, default=96, help="Graphviz render DPI")
+    parser.add_argument("--api", default="http://localhost:5001")
+    parser.add_argument("--fps", type=int, default=6)
+    parser.add_argument("--width", type=int, default=1400)
+    parser.add_argument("--height", type=int, default=820)
+    parser.add_argument("--steps", type=int, default=None)
+    parser.add_argument("--pause-start", type=float, default=1.5)
+    parser.add_argument("--pause-end", type=float, default=3.0)
+    parser.add_argument("--history", type=int, default=40)
+    parser.add_argument("--dpi", type=int, default=96)
     args = parser.parse_args()
 
     output = Path(args.output) if args.output else Path(f"{args.project}.gif")
-
     capture_gif(
-        project=args.project,
-        output=output,
-        api=args.api,
-        fps=args.fps,
-        width=args.width,
-        height=args.height,
-        steps=args.steps,
-        pause_start=args.pause_start,
-        pause_end=args.pause_end,
-        history=args.history,
-        dpi=args.dpi,
+        project=args.project, output=output, api=args.api,
+        fps=args.fps, width=args.width, height=args.height,
+        steps=args.steps, pause_start=args.pause_start, pause_end=args.pause_end,
+        history=args.history, dpi=args.dpi,
     )
 
 

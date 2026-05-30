@@ -110,6 +110,11 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.ARCHAEOLOGIST_ENABLED           = config.get("archaeologist_enabled", False)
     orchestrator.ARCHAEOLOGIST_STALL_THRESHOLD_HOURS = config.get("archaeologist_stall_threshold_hours", 72)
     orchestrator.ARCHAEOLOGIST_MAX_CONCURRENT    = config.get("archaeologist_max_concurrent", 2)
+    orchestrator.SCHEDULER_ENABLED           = config.get("scheduler_enabled", False)
+    orchestrator.SCHEDULER_INTERVAL_MINUTES  = config.get("scheduler_interval_minutes", 15)
+    orchestrator.SCHEDULER_ALLOW_PAUSE       = config.get("scheduler_allow_pause", True)
+    orchestrator.SCHEDULER_ALLOW_AGENT_CEILING_ADJUST = config.get("scheduler_allow_agent_ceiling_adjust", True)
+    orchestrator.SCHEDULER_OFF_PEAK_HOURS    = config.get("scheduler_off_peak_hours", [0, 6])
 
     agent_lifecycle.configure(
         workspace=workspace,
@@ -861,6 +866,7 @@ def create_app(
     _reg_cartographer(
         app,
         config=config,
+        data_dir=data_dir,
         config_file=config_file,
         _config_write_lock=_config_write_lock,
     )

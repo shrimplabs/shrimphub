@@ -153,7 +153,7 @@ def _stop_scheduler() -> None:
 # ---------------------------------------------------------------------------
 
 
-def register_routes(app, config: Dict,
+def register_routes(app, config: Dict, data_dir: Path = None,
                config_file: Any = None,
                _config_write_lock: threading.Lock | None = None) -> None:
     """Register cartographer routes on the Flask app."""
@@ -162,11 +162,12 @@ def register_routes(app, config: Dict,
     app_ref = app
     config_ref = config
 
-    # Load persisted last-run state
-    try:
-        data_dir = Path(app.config["DATA_DIR"])
-    except Exception:
-        data_dir = Path(__file__).parent.parent / "data"
+    # Resolve data_dir
+    if data_dir is None:
+        try:
+            data_dir = Path(app.config["DATA_DIR"])
+        except Exception:
+            data_dir = Path(__file__).parent.parent / "data"
     state_file = data_dir / "cartographer_state.json"
     if state_file.exists():
         try:

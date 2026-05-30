@@ -357,7 +357,16 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         # Anthropic-compatible Bearer (Minimax, OpenRouter anthropic mode, etc.)
         url = f"{base_url}/messages"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        body = {"model": model, "max_tokens": max_tok, "system": sys_prompt, "messages": messages}
+        # Use structured system prompt with cache_control so MiniMax caches the full
+        # system prompt (not just the small auto-cached header). This dramatically
+        # reduces input token cost on long-running agents that call the same system
+        # prompt repeatedly across many tool loops.
+        body = {
+            "model": model,
+            "max_tokens": max_tok,
+            "system": [{"type": "text", "text": sys_prompt, "cache_control": {"type": "ephemeral"}}],
+            "messages": messages,
+        }
         # Minimax group_id extra param
         group_id = os.environ.get("MINIMAX_GROUP_ID", "")
         if group_id and provider_name == "minimax":

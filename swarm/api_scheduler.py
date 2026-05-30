@@ -173,6 +173,10 @@ def _schedule_scheduler(app: Any, config: Dict, data_dir: Path) -> None:
 
     def _fire():
         try:
+            # Re-check enabled flag in case it was toggled since scheduling
+            if not config.get("scheduler_enabled", False):
+                print("[Scheduler] scheduler_enabled=False -- skipping scheduled run")
+                return
             # Check META_MODE_ENABLED before creating a task
             meta_mode_on = False
             try:

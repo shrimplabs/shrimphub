@@ -910,8 +910,6 @@ function _renderMetaAgentsTable() {
         const state = _metaAgentsData[agent.id] || {};
         const enabled = state.enabled || false;
         const lastRun = _formatRelativeTime(state.last_run_ts || 0);
-        const badgeClass = enabled ? 'yes' : 'no';
-        const badgeText = enabled ? 'Yes' : 'No';
         // Librarian gets an extra autonomous-edits toggle
         const isLibrarian = agent.id === 'librarian';
         const autoEdits = state.autonomous_edits || false;
@@ -923,10 +921,14 @@ function _renderMetaAgentsTable() {
             : '';
         return `<div class="meta-agent-row">
             <span class="meta-agent-name">${agent.label}</span>
-            <span class="meta-agent-badge ${badgeClass}">${badgeText}</span>
             <span class="meta-agent-last-run">${lastRun}</span>
             <span class="meta-agent-actions">
                 ${autoEditsBtn}
+                <button id="mm-toggle-${agent.id}"
+                        class="meta-agent-toggle-btn ${enabled ? 'enabled' : ''}"
+                        onclick="toggleMetaAgent('${agent.id}')">
+                    ${enabled ? 'Enabled' : 'Disabled'}
+                </button>
                 <button id="mm-run-${agent.id}" onclick="runMetaAgent('${agent.id}')">Run</button>
             </span>
         </div>`;
@@ -955,6 +957,33 @@ async function toggleMetaMode() {
         showToast('Error: ' + e.message, '#f85149');
     }
     if (btn) btn.disabled = false;
+}
+
+async function toggleMetaAgent(agentId) {
+    const agent = META_AGENTS.find(a => a.id === agentId);
+    if (!agent) return;
+    const btn = document.getElementById('mm-toggle-' + agentId);
+    if (btn) btn.disabled = true;
+    const currentlyEnabled = (_metaAgentsData[agentId] || {}).enabled || false;
+    const newState = !currentlyEnabled;
+    const enabledKey = agentId + '_enabled';
+    try {
+        const res = await fetch(API + agent.configEndpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({[enabledKey]: newState}),
+        });
+        if (res.ok) {
+            _metaAgentsData[agentId] = _metaAgentsData[agentId] || {};
+            _metaAgentsData[agentId].enabled = newState;
+            _renderMetaAgentsTable();
+            showToast(agent.label + ' ' + (newState ? 'enabled' : 'disabled'));
+        } else {
+            showToast('Error toggling ' + agent.label, '#f85149');
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message, '#f85149');
+    }
 }
 
 async function runMetaAgent(agentId) {

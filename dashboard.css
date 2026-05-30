@@ -2840,6 +2840,23 @@ input[id*="webhook"], input[id*="Webhook"] {
     border-color: rgba(63,185,80,0.4);
 }
 
+/* Per-agent enable/disable toggle */
+.meta-agent-actions button.meta-agent-toggle-btn {
+    border-color: rgba(139,148,158,0.3);
+    color: #8b949e;
+    min-width: 64px;
+}
+.meta-agent-actions button.meta-agent-toggle-btn.enabled {
+    border-color: rgba(63,185,80,0.4);
+    color: #3fb950;
+    background: rgba(63,185,80,0.07);
+}
+.meta-agent-actions button.meta-agent-toggle-btn:hover {
+    border-color: rgba(var(--accent-rgb),0.4);
+    color: var(--text-accent);
+    background: rgba(var(--accent-rgb),0.06);
+}
+
 /* Librarian autonomous-edits toggle */
 .meta-agent-actions button.autonomous-toggle {
     font-size: 10px;
