@@ -14,6 +14,16 @@ def app():
     """Create a Flask app with scheduler routes registered."""
     from swarm.api import create_app
 
+    # Reset api_scheduler module-level state so each test gets a fresh timer.
+    # The module shares _scheduler_timer and _last_scheduler_run_ts across Flask
+    # app instances within the same process.
+    import swarm.api_scheduler as _sched_mod
+    with _sched_mod._scheduler_lock:
+        if _sched_mod._scheduler_timer is not None:
+            _sched_mod._scheduler_timer.cancel()
+            _sched_mod._scheduler_timer = None
+        _sched_mod._last_scheduler_run_ts = 0.0
+
     with tempfile.TemporaryDirectory() as tmpdir:
         data_dir = Path(tmpdir) / "data"
         data_dir.mkdir()
@@ -45,6 +55,23 @@ def app():
         )
         app.config["TESTING"] = True
         yield app
+
+        # After each test: cancel the timer and clean up scheduler tasks from the DB.
+        # Without this, a pending scheduler task from one test bleeds into the next
+        # test's _is_scheduler_running() check, causing spurious 409 responses.
+        with _sched_mod._scheduler_lock:
+            if _sched_mod._scheduler_timer is not None:
+                _sched_mod._scheduler_timer.cancel()
+                _sched_mod._scheduler_timer = None
+        try:
+            from swarm import db as _db
+            for t in _db.task_get_all():
+                if t.get("type") == "scheduler" and t.get("status") in (
+                    "pending", "in_progress"
+                ):
+                    _db.task_delete(t["id"])
+        except Exception:
+            pass
 
 
 @pytest.fixture
@@ -150,7 +177,7 @@ class TestSchedulerOrchestratorGlobals:
         # The fixture sets scheduler_enabled=True and interval=15
         from swarm import orchestrator
         assert orchestrator.SCHEDULER_ENABLED is True
-        assert orchestrator.SCHEDULER_INTERVAL_MINUTES == 15
+        assert orchestrator.SCHEDULER_INTERVAL_MINUTES == 15  # from fixture config
         assert orchestrator.SCHEDULER_ALLOW_PAUSE is True
         assert orchestrator.SCHEDULER_ALLOW_AGENT_CEILING_ADJUST is True
         assert orchestrator.SCHEDULER_OFF_PEAK_HOURS == [0, 6]
