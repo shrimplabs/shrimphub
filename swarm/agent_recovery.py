@@ -914,6 +914,33 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
     orig_deps = list(original_task.get("dependencies") or [])
     orig_deps = [d for d in orig_deps if d != research_task_id]
 
+    # Cycle cap: track how many times this task has gone through the research feeder
+    # path. If it exceeds the cap, cancel instead of resetting — prevents infinite
+    # research→retry→fail→research loops on tasks with unfixable root causes.
+    MAX_RESEARCH_CYCLES = 2
+    cycles = orig_meta.get("research_feeder_cycles", 0) + 1
+    orig_meta["research_feeder_cycles"] = cycles
+
+    if not needs_human_review and cycles > MAX_RESEARCH_CYCLES:
+        orig_meta["needs_human_review"] = True
+        orig_meta["human_review_reason"] = (
+            f"Research feeder cycle cap reached ({cycles} cycles). "
+            f"Task has gone through research→retry {cycles} times without resolving. "
+            f"Needs human diagnosis."
+        )
+        run_after = (datetime.now() + timedelta(hours=24)).isoformat()
+        db_ref.task_update(original_task_id, {
+            "status": "failed",
+            "dependencies": orig_deps,
+            "metadata": orig_meta,
+            "run_after": run_after,
+        })
+        print(
+            f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_CYCLES}) reached for "
+            f"{original_task_id[:12]} — cancelling instead of resetting (cycle {cycles})"
+        )
+        return
+
     update: dict = {
         "status": "pending",
         "attempts": 0,

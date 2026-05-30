@@ -554,7 +554,7 @@ def register_routes(app, task_source, db, workspace):
                 "already has the old description baked into its script and will "
                 "not see this update until its next attempt."
             )
-        for key in ["status", "priority", "description", "type", "project", "agent_id", "max_attempts", "dependencies", "metadata", "acceptance_test"]:
+        for key in ["status", "priority", "description", "type", "project", "agent_id", "max_attempts", "dependencies", "metadata", "acceptance_test", "run_after"]:
             if key in data:
                 if key == "dependencies":
                     deps = _normalize_dependencies(data[key])

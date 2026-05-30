@@ -504,7 +504,7 @@ def _populate_registry():
 
     # --- Godot game verification (all non-readonly Godot projects) ---
     _reg("launch_game",   lambda a, ws, p: launch_game_headless(a.get("project_path", str(ws / p))),   godot_only=True)
-    _reg("get_game_state",lambda a, ws, p: qa_get_game_state(),                                          godot_only=True)
+    _reg("get_game_state",lambda a, ws, p: qa_get_game_state(command=a.get("command", "state")),         godot_only=True)
     _reg("wait",          lambda a, ws, p: qa_wait(a.get("seconds", 1)),                                 godot_only=True)
     _reg("kill_game",     lambda a, ws, p: qa_kill_game(),                                               godot_only=True)
 

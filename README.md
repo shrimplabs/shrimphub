@@ -1,8 +1,10 @@
 # Shrimphub
 
-An agent orchestration platform that spawns LLM-powered agents to build, refactor, and maintain code projects. Point it at a workspace full of projects, give it API keys, and it autonomously plans, implements, tests, and fixes — in parallel, across as many projects as you want.
+ShrimpHub is an open-source swarm orchestration system for agentic software development. It coordinates planning, implementation, QA, research, and meta-agents through task graphs, provider-backed LLM agents, runtime validation, and project memory.
 
-Supports Godot, Python, and TypeScript projects out of the box. Extensible to any language via the plugin system.
+Point it at a workspace full of projects, give it API keys, and it autonomously plans, implements, tests, and fixes — in parallel, across as many projects as you want. Supports Godot, Python, and TypeScript out of the box; extensible to any language via the plugin system.
+
+> **Early software:** expect bugs, changing APIs, and hands-on log inspection.
 
 ![System Diagram](https://raw.githubusercontent.com/shrimplabs/shrimphub/main/system_diagram.svg)
 
