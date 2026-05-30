@@ -34,7 +34,7 @@ def app():
     try:
         from swarm import db as _db
         for t in _db.task_get_all():
-            if t.get("type") == "scheduler" and t.get("status") in (
+            if t.get("type") == "meta_scheduler" and t.get("status") in (
                 "pending", "in_progress"
             ):
                 _db.task_delete(t["id"])
@@ -82,7 +82,7 @@ def app():
         try:
             from swarm import db as _db
             for t in _db.task_get_all():
-                if t.get("type") == "scheduler" and t.get("status") in (
+                if t.get("type") == "meta_scheduler" and t.get("status") in (
                     "pending", "in_progress"
                 ):
                     _db.task_delete(t["id"])
