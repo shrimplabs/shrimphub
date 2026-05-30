@@ -403,3 +403,27 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 - scheduler_enabled=true, meta_mode_enabled=true
 - No decisions made: utilization healthy, no quota pressure, no project failures
 - SCHEDULER_LOG.md written to data/ (not git-ignored, unlike AUDIT_LEARNINGS_REPORT.md)
+
+---
+## Scheduler meta-agent state (2026-05-30 00:03 UTC)
+
+**Task type**: "scheduler" (NOT "meta_scheduler") — the scheduler meta-agent uses task_type="scheduler" while the scheduler integration (orchestrator timer) uses type="meta_scheduler". Confusing but intentional.
+
+**API endpoints for scheduler**:
+- GET /api/scheduler/status — returns `{"last_run_ts": float, "scheduler_enabled": bool}`
+- GET /api/agents — returns `{"agents": [...]}` (no "summary" key; agents are in `d['agents']` list)
+- GET /api/quota-limit — returns `{"limit_percent": 90, "over_limit": bool, "remaining_percent": float, ...}`
+- GET /api/tasks?status=X&limit=N — returns `{"tasks": [...]}` (no "total" key)
+- GET /api/metrics — returns aggregate stats
+- GET /api/config — returns full config including max_active_agents
+
+**Decision criteria** (from SCHEDULER_LOG.md patterns):
+- Utilization < 75%: no ceiling change
+- Quota < 75%: no throttling
+- >50 failed tasks + archaeologist idle: recommend archaeologist triage
+- echoes-of-the-unmade: systemic _swarm_*.gd bitrot pattern (15 failed tasks)
+- SCHEDULER_LOG.md is in .gitignore — write but do not git commit
+
+**Prior run (scheduler-1780109015, 23:47 UTC)**: 60% utilization, 76 failed, recommended archaeologist
+**This run (scheduler-1780109916, 00:03 UTC)**: 52% utilization, 83 failed (+7), archaeologist still idle
+**Trend**: Failed backlog growing (+7) faster than archaeologist can triage. Key bottleneck: echoes-of-the-unmade (15 failed, _swarm_*.gd bitrot).
