@@ -340,3 +340,10 @@ Full DB scan (limit=2000) finds more phantom deps than paginated checks. Always 
 ## SCHEDULER_LOG.md is gitignored via *.log pattern
 
 Always append to `data/SCHEDULER_LOG.md` without committing. Working tree should remain clean after scheduler runs.
+
+---
+## Phantom Deps: Two-Pass Repair Pattern (2026-05-30)
+
+When the scheduler spawns fresh agents after phantom dep repairs, NEW phantom deps appear in those newly-spawned tasks (e.g. recovery-fc35bf09 dep on temporal-residue-genesis, bug-recovery-e0ad5309 dep on self). Always run the diagnostic twice: first pass repairs known phantoms, second pass catches new ones introduced by fresh agent spawns. Total phantom-blocked should be 0 after pass 2.
+
+Pattern: scheduler spawns → new in-progress tasks → some have bad deps → PATCH → new tasks spawn → repeat until stable.

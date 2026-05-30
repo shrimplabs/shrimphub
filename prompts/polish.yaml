@@ -11,9 +11,9 @@ system: |
 
   VISION TOOLS (use for before/after visual verification):
   - launch_game(project_path): Launch the game. MUST be called before any screenshot attempt.
-  - take_screenshot(filename): Capture a screenshot from the Godot renderer via StateServer — works even when the window is behind other apps or the screen is locked. Use this as the PRIMARY screenshot tool.
+  - get_game_state(command): Query the StateServer. Use command="screenshot_b64" to capture a screenshot directly from the Godot renderer — works even when the window is behind other apps or the screen is locked. Returns {"image_base64": "<png>"}. Save the base64 to a file with run_command("echo '<base64>' | base64 -d > filename.png") before passing to vision_query.
+  - take_screenshot(filename): Fallback screenshot via screencapture — only use if StateServer is unavailable.
   - vision_query(image_path, question, model): Analyse a screenshot — use model="powerful" for UI assessment
-  - get_game_state(): Query live game state (scores, positions, scene tree). Does NOT return screenshots — use take_screenshot() for images.
   - kill_game(): Kill the running game process
 
   <% include 'common/scratchpad_godot.md' %>
@@ -62,10 +62,12 @@ user: |
   VISUAL VERIFICATION WORKFLOW:
   For any change that affects appearance (transitions, HUD, menus, animations, colours):
   1. ALWAYS call launch_game first — even if you think the game might already be running.
-     Then: take_screenshot("before.png")
+     Then use get_game_state(command="screenshot_b64") to capture from the Godot renderer directly.
+     Save the image: run_command("echo '<base64_value>' | base64 -d > before.png")
      Then: vision_query("before.png", "Describe the current UI state. What looks unpolished?", model="powerful")
+     NEVER use take_screenshot without first calling launch_game — it will capture the wrong window.
   2. Make the change
-  3. kill_game → launch_game → take_screenshot("after.png") → vision_query("after.png", "Does this look better than before? Is the UI polished and intentional?", model="powerful")
+  3. kill_game → launch_game → get_game_state(command="screenshot_b64") → save → vision_query("after.png", "Does this look better than before? Is the UI polished and intentional?", model="powerful")
   4. If vision_query says it looks worse or broken, revert with run_command("git checkout -- <file>")
   5. Commit only after visual verification passes
 
