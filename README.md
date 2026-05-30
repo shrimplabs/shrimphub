@@ -6,7 +6,7 @@ Point it at a workspace full of projects, give it API keys, and it autonomously 
 
 > **Early software:** expect bugs, changing APIs, and hands-on log inspection. Primarily tested with MiniMax M2.7 — other providers (Claude, OpenRouter, Kimi) are supported but may be less stable.
 
-![System Diagram](https://raw.githubusercontent.com/shrimplabs/shrimphub/main/system_diagram.svg)
+![System Diagram](./system_diagram.svg)
 
 ## Features
 
