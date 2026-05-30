@@ -57,7 +57,7 @@ The QA report on file shows 37/37 tests passing, all critical flows verified, ze
 
 - **Which project's plan agent created it.** The genesis task is gone. Something running around 20:00–21:00 on May 28 decided to call `create_project("spawn-test-proj", ...)` and the swarm accepted it.
 - **Why it was named that.** The name is self-describing in a very agent-flavored way — it sounds like what you'd call something if you were an agent trying to test spawn infrastructure.
-- **Why it targeted the real workspace.** The first continuation task shows file paths in a pytest temp directory, but the git repo ended up in the real `~USER/workspace/spawn-test-proj`. Either the registration and the build diverged, or there were two separate attempts with the same project name.
+- **Why it targeted the real workspace.** The first continuation task shows file paths in a pytest temp directory, but the git repo ended up in the real workspace at `~/workspace/spawn-test-proj`. Either the registration and the build diverged, or there were two separate attempts with the same project name.
 
 ## What This Means
 
