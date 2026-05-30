@@ -474,3 +474,16 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 - known_patterns=[] for all — patterns not returned by API
 
 **data/swarm_knowledge.jsonl exists** but was not cross-referenced (per survey process, patterns would come from that file but it doesn't contain per-project pattern data in the format the cartographer prompt expected)
+
+---
+## Scheduler run (2026-05-30 03:45 UTC) — quota acceleration crisis
+
+**Critical finding**: Quota consumed at 86.5% (from 79.7% in prior run 16 min earlier). Rate: 25.5 pp/hour vs 3.3 pp/hour in prior run — 7.7x acceleration. The scheduler recommended setting `run_after` on `harness_qa` and `qa` pending tasks to throttle QA capacity. This requires the service to be restarted to pick up the `run_after` PATCH fix in api_tasks.py.
+
+**run_after PATCH fix**: `swarm/api_tasks.py` line 557 — `run_after` added to allowed PATCH keys. Feature was committed in 67121e5 (Refactor: update api_tasks.py, test_release_hygiene.py).
+
+**Throttle scripts** created but in .gitignore: `data/throttle_qa.py` (Python), `data/throttle_qa.sh` (bash sqlite3). Can't execute via API without service restart.
+
+**Two workspace gotcha**: Service runs from `~USER/workspace/swarm-controller/` (PID <pid>, port 5001). The workspace at `~USER/workspace/swarm-controller/` is a different copy. API calls to localhost:5001 hit workspace. DB operations and module imports from workspace fail with `ModuleNotFoundError`.
+
+**Key pattern**: Quota can spike rapidly (25+ pp/hour) requiring immediate throttling. The `run_after` feature on tasks is the built-in throttle mechanism. Without service restart to pick up the PATCH fix, throttling must be done via direct sqlite3 on the workspace DB.
