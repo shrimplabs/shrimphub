@@ -42,7 +42,7 @@ def _is_scheduler_running(config: Dict) -> bool:
     try:
         all_tasks = db.task_get_all()
         return any(
-            t.get("type") == "scheduler"
+            t.get("type") == "meta_scheduler"
             and t.get("status") in ("pending", "in_progress")
             for t in all_tasks
         )
@@ -70,7 +70,7 @@ def _run_scheduler_task(config: Dict, data_dir: Path) -> str:
     db.task_upsert({
         "id": task_id,
         "project": project,
-        "type": "scheduler",
+        "type": "meta_scheduler",
         "description": (
             "Run the Scheduler meta-agent. Read agent distribution via GET /api/agents, "
             "quota usage via GET /api/quota-limit, task breakdown via GET /api/tasks, "
