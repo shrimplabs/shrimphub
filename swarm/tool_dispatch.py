@@ -71,6 +71,7 @@ from swarm.tools.tasks import (
 from swarm.tools.knowledge import (
     scratchpad_write, scratchpad_read,
     read_agent_knowledge, update_knowledge,
+    update_validation_state, read_validation_state,
     get_task_context, read_shared_knowledge, update_shared_knowledge,
 )
 from swarm.qa_tools import (
@@ -489,8 +490,9 @@ def _populate_registry():
     # --- Knowledge / scratchpad ---
     _reg("scratchpad_write",    lambda a, ws, p: scratchpad_write(a.get("type", "note"), a.get("content", ""), a.get("files"), a.get("key")))
     _reg("scratchpad_read",     lambda a, ws, p: scratchpad_read(a.get("files"), a.get("type"), a.get("key")))
-    _reg("update_knowledge",    lambda a, ws, p: update_knowledge(a.get("content", "")),                                   ["content"])
-    _reg("read_agent_knowledge",lambda a, ws, p: read_agent_knowledge())
+    _reg("update_knowledge",         lambda a, ws, p: update_knowledge(a.get("content", "")),         ["content"])
+    _reg("update_validation_state",  lambda a, ws, p: update_validation_state(a.get("content", "")), ["content"])
+    _reg("read_agent_knowledge",     lambda a, ws, p: read_agent_knowledge())
     _reg("get_task_context",    lambda a, ws, p: get_task_context())
     _reg("read_shared_knowledge",   lambda a, ws, p: read_shared_knowledge(a.get("topic", "")))
     _reg("update_shared_knowledge", lambda a, ws, p: update_shared_knowledge(a.get("content", ""), a.get("topic", "")),   ["content"])

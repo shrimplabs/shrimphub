@@ -5,7 +5,7 @@ extends GutTest
 var _main: Node
 
 func before_each() -> void:
-	var script: GDScript = load("res://main.gd")
+	var script := load("res://main.gd") as GDScript
 	_main = script.new()
 	add_child(_main)
 
@@ -60,6 +60,8 @@ func test_game_state_spawned_entities_list_matches_count() -> void:
 	var state: Dictionary = _main.get_game_state()
 	assert_eq(state["spawned_count"], state["spawned_entities"].size(), "Count should match array length")
 
-func test_game_state_service_ready_is_true() -> void:
+func test_game_state_service_ready_is_true_after_async() -> void:
+	# Wait for async _await_service_ready() to complete
+	await get_tree().create_timer(0.6).timeout
 	var state: Dictionary = _main.get_game_state()
-	assert_eq(state["service_ready"], true, "service_ready should be true after init")
+	assert_eq(state["service_ready"], true, "service_ready should be true after async init")

@@ -1000,8 +1000,14 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
         escalation = get_escalation_policy(task_type)
         on_exhaust = escalation.get("on_exhaust", "cancel")
 
-        if task_meta.get("is_recovery_task"):
-            # Legacy recovery task (pre-feeder) — continue with terminal continuation
+        if task_meta.get("is_recovery_task") and task_type == "bug" and project:
+            # Legacy recovery task (pre-feeder): redirect to research feeder instead of
+            # spawning another terminal continuation. These have already gone through
+            # multiple recovery generations — research is the right next step.
+            print(f"[Swarm] Legacy recovery task {task_id} exhausted — escalating to research feeder")
+            _spawn_research_feeder(task, attempts, agent_output)
+        elif task_meta.get("is_recovery_task"):
+            # Legacy recovery task of a non-bug type — terminal continuation as before
             _spawn_terminal_recovery_continuation(task, attempts, agent_output)
         elif task_meta.get("is_research_feeder"):
             # Research feeder exhausted — mark cancelled, flag original for human review

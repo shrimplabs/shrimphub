@@ -164,13 +164,55 @@ def _compact_knowledge(knowledge_path: Path) -> bool:
         return False
 
 
+def update_validation_state(content: str) -> dict:
+    """Overwrite VALIDATION_STATE.md with the current validation status.
+
+    Unlike update_knowledge (which appends), this REPLACES the file each time
+    so it always reflects the latest known-good state — no accumulation of
+    redundant validation entries. Use this for:
+      - Current validation command results (Scripts OK, Scenes OK, Main scene OK)
+      - Exclusion lists (_swarm_check.gd patterns, scene skip lists)
+      - Recurring gotchas (e.g. ghost file that keeps being deleted)
+      - Validation commands (exact godot --headless invocations)
+    Do NOT use this for structural facts (autoloads, class names, systems) —
+    those belong in update_knowledge().
+    """
+    if READONLY:
+        return {"ok": False, "error": "Read-only task: update_validation_state is disabled"}
+    project_root = Path(_project_root())
+    state_path = project_root / "VALIDATION_STATE.md"
+    try:
+        state_path.write_text(content.strip() + "\n", encoding="utf-8")
+        return {"ok": True, "path": str(state_path)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def read_validation_state(project_path: str) -> str:
+    """Read VALIDATION_STATE.md from project root if it exists."""
+    state_path = os.path.join(project_path, "VALIDATION_STATE.md")
+    try:
+        if os.path.exists(state_path):
+            from swarm.tools.core import _read_text_with_fallback
+            text, _ = _read_text_with_fallback(state_path)
+            # Hard cap — validation state should be compact by design
+            if len(text) > 4000:
+                return text[:4000] + "\n[VALIDATION_STATE truncated]"
+            return text
+    except Exception:
+        pass
+    return ""
+
+
 def update_knowledge(content: str) -> dict:
     """Append an entry to the project's AGENT_KNOWLEDGE.md file.
 
     Creates the file if it does not exist. Entries are separated by "\\n---\\n".
     If the file exceeds _KNOWLEDGE_COMPACT_THRESHOLD chars after writing, triggers
     LLM compaction to keep the file lean for future agents.
-    Call this at session end for structural facts future agents should know.
+    Use this for structural facts: key file locations, class names, API patterns,
+    system architecture, gotchas. For validation status and exclusion lists,
+    use update_validation_state() instead.
     """
     if READONLY:
         return {"ok": False, "error": "Read-only task: update_knowledge is disabled"}

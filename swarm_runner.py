@@ -855,6 +855,16 @@ def generate_task_script(task: dict) -> str:
     except Exception:
         pass
 
+    # Validation State: inject current validation status from VALIDATION_STATE.md
+    # This is a separate overwrite-only file so it never grows unboundedly.
+    try:
+        from swarm.tools.knowledge import read_validation_state
+        _validation_state = read_validation_state(str(project_path))
+        if _validation_state:
+            description = f"VALIDATION STATE:\n{_validation_state}\n\n{description}"
+    except Exception:
+        pass
+
     # Broadcast log: inject recent entries from other agents working on this project
     try:
         _broadcast_path = DATA_DIR / "broadcast" / f"{project.replace('/', '_').replace(chr(92), '_')}.log"
@@ -938,16 +948,25 @@ def generate_task_script(task: dict) -> str:
     librarian_system, librarian_user = _load_prompt(
         "librarian", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
         librarian_max_prompt_tasks=_config.get("librarian_max_prompt_tasks", 3),
+        librarian_autonomous_edits=_config.get("librarian_autonomous_edits", False),
     )
     auditor_system, auditor_user = _load_prompt(
         "auditor", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
         meta_auditor_max_tasks=_config.get("meta_auditor_max_tasks", 20),
+        managed_projects_list=", ".join(_config.get("managed_projects", [])),
+        managed_projects=", ".join(_config.get("managed_projects", [])),
+        template_checksums="",   # populated at runtime by the auditor task description
+        previous_report="",      # populated at runtime by the auditor task description
+        swarm_knowledge="",      # populated at runtime by the auditor task description
     )
     cartographer_system, cartographer_user = _load_prompt(
         "cartographer", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
     )
     archaeologist_system, archaeologist_user = _load_prompt(
         "archaeologist", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+        stall_reason="",         # populated at runtime by the archaeologist task description
+        recent_failures="",      # populated at runtime by the archaeologist task description
+        git_log_summary="",      # populated at runtime by the archaeologist task description
     )
     scheduler_system, scheduler_user = _load_prompt(
         "scheduler", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),

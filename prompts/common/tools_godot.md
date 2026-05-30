@@ -15,7 +15,8 @@ AVAILABLE TOOLS (use EXACTLY these names):
 - list_subtasks(): List sub-tasks you have spawned (id, status, description)
 - delegate_helper(question, files, scope, max_chars): Use this exact tool name for read-only helper analysis. It is a normal swarm tool, not an MCP server.
 - delegate_task_batch(children, mode, project): Use this exact tool name to create durable child tasks with declared file ownership. It is a normal swarm tool, not an MCP server.
-- update_knowledge(content): Save persistent structural facts about this project for future agents
+- update_knowledge(content): Save persistent structural facts (autoloads, class names, patterns, gotchas) — appended and compacted over time
+- update_validation_state(content): Overwrite current validation status, exclusion lists, and validation commands — always replaces, never appends
 - get_task_context(): Get active agents, recent completed tasks, and last 5 commits for this project
 - read_shared_knowledge(topic): Read cross-project knowledge base (optional topic filter)
 - update_shared_knowledge(content, topic): Save a cross-project fact for all future agents

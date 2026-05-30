@@ -66,6 +66,7 @@ ALLOW_SELF_MODIFICATION: bool = False
 TASK_SELECTION_STRATEGY: str = "least_recently_worked"
 WEBHOOK_URL: str = ""
 LLM_PROVIDER: str = "minimax"
+FALLBACK_PROVIDERS: list = []
 MINIMAX_API_KEY: str = ""
 MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 

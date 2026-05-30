@@ -14,15 +14,32 @@ def app():
     """Create a Flask app with scheduler routes registered."""
     from swarm.api import create_app
 
-    # Reset api_scheduler module-level state so each test gets a fresh timer.
-    # The module shares _scheduler_timer and _last_scheduler_run_ts across Flask
-    # app instances within the same process.
     import swarm.api_scheduler as _sched_mod
+
+    # Cancel any pre-existing timer FIRST -- it holds a closure over a previous
+    # app's data_dir and config dict. If left running, its periodic _fire() call
+    # can race with the new test's first POST, call _run_scheduler_task() using
+    # the new test's fresh data_dir, and insert a stale task into the new DB,
+    # causing the test to see a 409 instead of the expected 200 on its first
+    # POST /api/scheduler/run.
     with _sched_mod._scheduler_lock:
         if _sched_mod._scheduler_timer is not None:
             _sched_mod._scheduler_timer.cancel()
             _sched_mod._scheduler_timer = None
         _sched_mod._last_scheduler_run_ts = 0.0
+
+    # Clean up any stale scheduler tasks that may have been left behind by
+    # previous test classes or a prior test's teardown (e.g. if the process
+    # was killed before cleanup ran).
+    try:
+        from swarm import db as _db
+        for t in _db.task_get_all():
+            if t.get("type") == "scheduler" and t.get("status") in (
+                "pending", "in_progress"
+            ):
+                _db.task_delete(t["id"])
+    except Exception:
+        pass
 
     with tempfile.TemporaryDirectory() as tmpdir:
         data_dir = Path(tmpdir) / "data"
