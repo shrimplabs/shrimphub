@@ -288,3 +288,22 @@ def patch_paths(self, tmp_path):
     gk.MARKDOWN_PATH = tmp_path / "test.md"
     gk._DATA_DIR = tmp_path
 ```
+
+---
+## Phantom Dep Fix Script (2026-05-30)
+
+Phantom deps appear when a task depends on another task ID that no longer exists in the DB. All instances found:
+1. Self-referential deps: `deps=[task-id-same-as-parent]` → clear all
+2. Completed-task shadow deps: completed task creates recovery with dep on itself → clear
+3. Re-run phantom refs: `qa-neon-breaker-rerun-*` pointing to `pol-auto-neon-*` prefix mismatch → clear
+4. Chain continuation ghosts: `bug-bug-recovery-*` depending on `bug-recovery-*` (completed) → clear
+5. Scheduler self-dep: `scheduler-*` depending on previous `scheduler-*` (completed) → clear
+6. QA on-completed phantom: `qa-ghost-circuit-rerun` depending on already-completed QA tasks → clear
+
+Pattern: ALWAYS verify dep target status before clearing. Completed deps are NOT phantom — only NOT_FOUND deps need clearing. For `qa-neon-breaker-rerun` case where the task itself exists but had wrong dep ID, keep the task and fix the dep to point to the valid completed task.
+
+Fix: PATCH `/api/tasks/<id>` with `{"dependencies": []}` or updated valid list.
+Diagnostic: `data/scheduler_check.py` (now tracked in git).
+
+## data/scheduler_check.py (git-tracked)
+Diagnostic script for scheduler runs. Run: `python3 data/scheduler_check.py`. Checks: agent count, quota, pending/in-progress/failed counts, phantom deps, pending dep status, failed backlog by project. Replace SCHEDULER_LOG.md with each run.
