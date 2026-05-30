@@ -359,3 +359,17 @@ Results: 110 projects, 489 learning files → 291-line report with per-type clus
 - `hybrid_qa` has 100% fail rate (2 files, 6 failed) — sample size too small to be meaningful
 - `art_pass` avg 89.1 loops suggests these are complex/long tasks
 - Godot 4 API and refactor re-export breakage are the top actionable patterns
+
+---
+## Bug: Priority Parsing ValueError in api_tasks.py (fixed, commit e9bd3d2)
+
+Root cause: 3 endpoints in `swarm/api_tasks.py` called `int()` directly on the raw `priority` field without normalizing word values like 'high' or 'P0'.
+
+Locations fixed (all 3 now use `_normalize_priority()`):
+1. `PATCH /api/tasks/<id>` (line ~573): `setattr(task, key, _normalize_priority(data[key]))` for priority key
+2. `POST /api/tasks/<gate_id>/insert-before-gate` (line ~817): `_normalize_priority(data.get("priority"), default=90)`
+3. `POST /api/tasks/import` (line ~885): `_normalize_priority(item.get("priority"), default=50)`
+
+`_normalize_priority` handles: int, float, numeric string, word aliases (low=25, normal=50, medium=50, high=80, critical=100, urgent=100), and falls back to default on unrecognized strings.
+
+Note: `POST /api/tasks` (line 316), `POST /api/tasks/batch` (line 433), and `PUT /api/tasks/<id>/reparent` (line 754) already used `_normalize_priority` correctly.
