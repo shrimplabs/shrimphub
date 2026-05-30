@@ -17,7 +17,7 @@ class SpawnHandler(BaseHTTPRequestHandler):
             global spawn_count
             spawn_count += 1
             content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length) if content_length > 0 else b'{}
+            body = self.rfile.read(content_length) if content_length > 0 else b'{}'
             
             response = json.dumps({
                 "status": "ok", 

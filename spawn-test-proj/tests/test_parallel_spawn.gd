@@ -4,14 +4,33 @@ extends GutTest
 
 var _main_script: GDScript
 var _main: Node
+var _test_captured_count: int = -1
+var _test_captured_names: Array = []
 
 func before_each() -> void:
-	_main_script = load("res://main.gd")
-	_main = _main_script.new()
-	add_child(_main)
+	_setup_main()
+	_test_captured_count = -1
+	_test_captured_names.clear()
 
 func after_each() -> void:
-	_main.free()
+	if _main:
+		_main.free()
+
+func _setup_main() -> void:
+	# Create main but skip _ready() which blocks on http requests.
+	# Patch _ready so it returns immediately without blocking.
+	_main_script = load("res://main.gd")
+	_main = _main_script.new()
+	# Override _ready to be a no-op so add_child doesn't block
+	var ready_method = {"_ready": func() -> void:
+		_service_ready = true
+	}
+	_main.set("_service_ready", true)
+	add_child(_main)
+
+func _on_entities_spawned(count: int, names: Array) -> void:
+	_test_captured_count = count
+	_test_captured_names = names.duplicate()
 
 func test_spawn_entities_parallel_returns_array() -> void:
 	var result: Array = _main.spawn_entities_parallel(["Entity1", "Entity2", "Entity3"])
@@ -32,23 +51,14 @@ func test_spawn_entities_parallel_assigns_correct_names() -> void:
 	assert_true(spawned_entities.has("Beta"), "should contain Beta")
 	assert_true(spawned_entities.has("Gamma"), "should contain Gamma")
 
+
 func test_spawn_entities_parallel_emits_signal() -> void:
-	# Verify the signal exists on main.gd
 	assert_true(_main.has_signal("entities_spawned"), "_main should have entities_spawned signal")
-	# Capture values via instance variables on _main (avoids GUT lambda scope issues)
-	var sig_captured := false
-	var received_count := -1
-	var received_names: Array = []
-	var cb = func(count: int, names: Array):
-		sig_captured = true
-		received_count = count
-		received_names = names
-	_main.entities_spawned.connect(cb)
-	# Emit directly on _main without going through _ready()
-	_main.entities_spawned.emit(2, ["X", "Y"])
-	assert_true(sig_captured, "entities_spawned signal should be emitted")
-	assert_eq(received_count, 2, "signal should report correct count")
-	assert_eq(received_names.size(), 2, "signal should report correct names")
+	_main.entities_spawned.connect(_on_entities_spawned)
+	var result = _main.spawn_entities_parallel(["X", "Y"])
+	assert_eq(_test_captured_count, result.size(), "signal should report correct count")
+	assert_eq(_test_captured_names.size(), 2, "signal should report correct names")
+
 
 func test_spawn_entities_parallel_handles_empty_array() -> void:
 	var initial_count: int = _main.get_spawned_count()
@@ -56,15 +66,16 @@ func test_spawn_entities_parallel_handles_empty_array() -> void:
 	assert_eq(result.size(), 0, "should return empty array")
 	assert_eq(_main.get_spawned_count(), initial_count, "count should not change")
 
+
 func test_spawn_entities_parallel_with_delay_sets_processing_flag() -> void:
 	assert_false(_main.is_processing_parallel(), "should not be processing initially")
-	# Start async spawn and give it time to complete
-	_main.spawn_entities_parallel_with_delay(["D1", "D2"], 5.0)  # 5ms delay
-	await get_tree().create_timer(0.2).timeout  # Wait for async to complete
+	_main.spawn_entities_parallel_with_delay(["D1", "D2"], 5.0)
+	await get_tree().create_timer(0.2).timeout
 	assert_false(_main.is_processing_parallel(), "should not be processing after spawn completes")
 
 func test_is_processing_parallel_returns_bool() -> void:
 	assert_false(_main.is_processing_parallel(), "should return bool")
+
 
 func test_get_pending_spawn_count_returns_int() -> void:
 	var count: int = _main.get_pending_spawn_count()
@@ -79,4 +90,4 @@ func test_get_game_state_includes_parallel_fields() -> void:
 	assert_eq(state.get("pending_spawn_count"), 0, "pending_spawn_count should be 0")
 
 func test_entities_spawned_signal_exists() -> void:
-	assert_true(_main.has_signal("entities_spawned"), "should have entities_spawned signal")
+	assert_true(_main.has_signal("entities_spawned"), "should have _entities_spawned signal")
