@@ -551,3 +551,19 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 **Failed backlog:** 101 total. echoes-of-the-unmade at 19 (6th+ occurrence, _swarm_*.gd bitrot). Archaeologist should investigate chain_to_project_head() root cause.
 
 **Pending queue:** 17 tasks, 0 phantom deps — fully unblocked.
+
+---
+## Scheduler run (scheduler-1780121621, 2026-05-30 06:48 UTC)
+
+**State:** 13 active agents/25 (52%), quota 40% used, 108 failed backlog.
+**Actions:** 7 PATCH phantom-dep repairs (6 pending + 1 found during final verify). All 14 pending tasks unblocked.
+**No decisions:** utilization and quota both healthy, no ceiling/throttle changes needed.
+**Archaeologist recommended:** echoes-of-the-unmade (20 failed, _swarm_*.gd bitrot), negative-space (15 failed, recovery loop), temporal-residue (14 failed), 102/108 failed tasks have phantom deps.
+
+**Phantom dep patterns found this run:**
+- Self-referential: bug-bug-recovery-c368dae7 → deps=[]
+- Typo variant: `pol-auto-neon-breaker-1780120672` (pol vs qa prefix)
+- Standard phantom: non-existent task IDs from chain_to_project_head()
+
+
+**Key pattern:** Stale /tmp/all_tasks.json (fetched before PATCH repairs) causes false "blocked" count. Always do a FRESH fetch of all tasks for phantom-dep verification after repairs.
