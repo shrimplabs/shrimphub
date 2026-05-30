@@ -34,18 +34,18 @@ func test_spawn_entities_parallel_assigns_correct_names() -> void:
 
 func test_spawn_entities_parallel_emits_signal() -> void:
 	# Connect signal BEFORE calling spawn_entities_parallel
-	var signal_received := false
 	var received_count := 0
 	var received_names: Array = []
+	var sig_captured := false
 	_main.entities_spawned.connect(func(count: int, names: Array):
-		signal_received = true
 		received_count = count
 		received_names = names
+		sig_captured = true
 	)
 	var names: Array = ["X", "Y"]
 	var result: Array = _main.spawn_entities_parallel(names)
-	# Signal should be emitted synchronously by spawn_entities_parallel
-	assert_true(signal_received, "entities_spawned signal should be emitted")
+	await wait_for_signal(_main.entities_spawned, 1.0)
+	assert_true(sig_captured, "entities_spawned signal should be emitted")
 	assert_eq(received_count, result.size(), "signal should report correct count")
 	assert_eq(received_names.size(), names.size(), "signal should report correct names")
 

@@ -19,8 +19,9 @@ func after_all() -> void:
 		_server_thread.wait_to_finish()
 
 func _run_server_background() -> void:
+	var script_path = ProjectSettings.globalize_path("res://service.py")
 	var output = []
-	OS.execute("python3", ["res://service.py"], output, true)
+	OS.execute("python3", [script_path], output, false)
 
 func test_service_health_endpoint_responds() -> void:
 	var http_req = HTTPRequest.new()
@@ -60,8 +61,7 @@ func _make_request(http_req: HTTPRequest, url: String, method := HTTPClient.METH
 	var response_data = null
 	var response_code := 0
 	var completed := false
-	
-	func callback(result: int, code: int, headers: PackedStringArray, body_bytes: PackedByteArray):
+	var callback = func(result: int, code: int, headers: PackedStringArray, body_bytes: PackedByteArray):
 		response_code = code
 		if code == 200:
 			response_data = JSON.parse_string(body_bytes.get_string_from_utf8())

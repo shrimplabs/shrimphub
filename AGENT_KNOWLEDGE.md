@@ -316,3 +316,33 @@ cd ~USER/workspace/ghost-circuit && git add -A && git commit -m "qa: commit cycl
 - Likely the Cycle 3 artifacts are already committed in 009ba35 — confirm via `git log --oneline -5` in ghost-circuit
 
 **Resolution**: Either reclassify this agent as build/recovery, or verify artifacts already committed in 009ba35 and close as complete.
+
+---
+## qa-99549038-agent Final Smoke QA (ghost-circuit, 2026-05-29)
+
+QA task cannot use run_command, create_task, write_file, append_file, or patch_file.
+Only read-only tools available (list_files, read_file, get_file_outline, delegate_helper, broadcast_read, etc.).
+
+### Findings: ALL CLEAN
+- PROJECT_CLOSURE.md: boot_ok=true, tests_ok=true, critical_flow_count=1, max_open_regressions=0 → GREEN
+- AGENT_KNOWLEDGE.md: _swarm_check.gd All scripts OK, _swarm_scene_check.gd All scenes OK, _swarm_main_check.gd Main scene OK, 186/186 GUT exit 0
+- QA_REPORT.md Cycle 0 (2026-05-27): main menu renders, gameplay scene loads with player/HUD, movement abilities work
+- Code inspection: game_controller.gd correct flow, new_game_flow.tscn has script=ExtResource on root node (fixed baa4409), scene structure intact
+- No regressions detected
+- QA_FINAL_PASS.md could not be written (blocked by tool restrictions)
+- QA_REPORT.md append/patch also blocked
+
+### Closure Gate: GREEN
+### Stall Recovery: true, project=ghost-circuit
+### Status: PASS
+
+---
+SCHEDULER TASK TYPE: use "meta_scheduler" NOT "scheduler"
+- agent_runtime.py dispatches TASK_TYPE=="meta_scheduler" → SCHEDULER_SYSTEM/SCHEDULER_USER prompts (line 420)
+- agent_runtime.py has NO branch for TASK_TYPE=="scheduler" -- it falls through to default feature prompt
+- orchestrator._fire_idle_scheduler() creates type="meta_scheduler" tasks (correct)
+- api_scheduler.py _run_scheduler_task() now creates type="meta_scheduler" tasks (fixed in 57acb7e)
+- swarm_runner.py generate_task_script loads SCHEDULER_SYSTEM/SCHEDULER_USER for task_type=="meta_scheduler" only
+- Prompt: prompts/scheduler.yaml loaded via _load_prompt("scheduler", ...) which sets the SCHEDULER_SYSTEM/SCHEDULER_USER rt globals
+- Key implication: if a scheduler task has type="scheduler" it will NOT receive the scheduler.yaml prompt, will get the default feature prompt instead
+- Fix committed in 57acb7e: api_scheduler.py now creates type="meta_scheduler" tasks (two locations: _run_scheduler_task and _is_scheduler_running guard)
