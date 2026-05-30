@@ -53,12 +53,11 @@ def app():
                 "scheduler_off_peak_hours": [0, 6],
             },
         )
-        app.config["TESTING"] = True
-        yield app
-
-        # After each test: cancel the timer and clean up scheduler tasks from the DB.
-        # Without this, a pending scheduler task from one test bleeds into the next
-        # test's _is_scheduler_running() check, causing spurious 409 responses.
+        # Clean up any stale scheduler tasks BEFORE the app is used.
+        # This prevents bleed-over from previous test class runs (e.g.
+        # TestSchedulerRunCreates runs before TestSchedulerRunPrevents and
+        # leaves a pending scheduler task that causes the first POST in
+        # TestSchedulerRunPrevents to return 409 instead of 200).
         with _sched_mod._scheduler_lock:
             if _sched_mod._scheduler_timer is not None:
                 _sched_mod._scheduler_timer.cancel()
@@ -72,6 +71,27 @@ def app():
                     _db.task_delete(t["id"])
         except Exception:
             pass
+
+        app.config["TESTING"] = True
+        try:
+            yield app
+        finally:
+            # After each test: cancel the timer and clean up scheduler tasks from the DB.
+            # Without this, a pending scheduler task from one test bleeds into the next
+            # test's _is_scheduler_running() check, causing spurious 409 responses.
+            with _sched_mod._scheduler_lock:
+                if _sched_mod._scheduler_timer is not None:
+                    _sched_mod._scheduler_timer.cancel()
+                    _sched_mod._scheduler_timer = None
+            try:
+                from swarm import db as _db
+                for t in _db.task_get_all():
+                    if t.get("type") == "scheduler" and t.get("status") in (
+                        "pending", "in_progress"
+                    ):
+                        _db.task_delete(t["id"])
+            except Exception:
+                pass
 
 
 @pytest.fixture
