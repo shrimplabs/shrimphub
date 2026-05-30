@@ -1,7 +1,7 @@
 # RFC: Immutable Task History Refactor
 
 **Status:** Under review  
-**Authors:** SHRIMP Maintainers, Claude Sonnet 4.6, Claude Opus 4.6  
+**Authors:** SHRIMP contributors
 **Date:** 2026-05-25
 
 ---

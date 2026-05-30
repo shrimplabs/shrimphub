@@ -3,7 +3,7 @@
 
 Scans every directory in SEARCH_ROOTS for a project.godot file, regardless
 of whether the project is in managed_projects. This ensures old projects in
-~/workspace/ and any other locations stay up to date.
+the configured workspace and any optional extra roots stay up to date.
 
 Skip patterns: worktree dirs (.wt-*), backup dirs (*-backup-*), hidden dirs.
 """
@@ -14,6 +14,11 @@ import subprocess
 import sys
 
 WORKSPACE = os.environ.get("WORKSPACE", os.path.expanduser("~/workspace"))
+EXTRA_SEARCH_ROOTS = [
+    os.path.expanduser(p)
+    for p in os.environ.get("SWARM_TEMPLATE_SEARCH_ROOTS", "").split(os.pathsep)
+    if p
+]
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "templates", "godot", "autoload")
 TEMPLATE_STATE_SERVER = os.path.join(TEMPLATE_DIR, "state_server.gd")
@@ -22,8 +27,7 @@ TEMPLATE_TEST_HARNESS = os.path.join(TEMPLATE_DIR, "test_harness.gd")
 # All root directories to scan for Godot projects (one level deep)
 SEARCH_ROOTS = [
     WORKSPACE,
-    os.path.expanduser("~/workspace"),
-]
+] + EXTRA_SEARCH_ROOTS
 
 # Directory name patterns to skip
 SKIP_PATTERNS = (".wt-", "-backup-", "swarm-controller", "game-harness",

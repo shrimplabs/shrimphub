@@ -29,6 +29,7 @@ __pycache__/
 # Logs
 *.log
 _swarm_progress.md
+VALIDATION_STATE.md
 
 # Runtime data (all excluded; only .gitkeep is tracked)
 data/*

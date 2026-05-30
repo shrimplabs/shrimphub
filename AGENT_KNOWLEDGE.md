@@ -228,9 +228,9 @@ Use `meta_auditor` (NOT `audit` — audit is per-project design audit).
 
 ## Two-Workspace Gotcha (CRITICAL)
 
-The service runs at **localhost:5001** from the swarm-controller directory. If you have a second copy of the repo in your workspace, DB operations and module imports from the workspace copy will fail with `ModuleNotFoundError` — ensure API calls hit the correct running instance.
+The service runs at **localhost:5001** from the active swarm-controller checkout. If you have a second copy of the repo in your workspace, DB operations and module imports from the workspace copy will fail with `ModuleNotFoundError` — ensure API calls hit the correct running instance.
 
-**Always**: API calls → localhost:5001 (workspace), file edits → workspace path.
+**Always**: API calls → localhost:5001, file edits → the intended project workspace path.
 
 ## Cartographer Survey (cartographer-1780111710, commit a83f3f7)
 
