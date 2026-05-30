@@ -487,3 +487,21 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 **Two workspace gotcha**: Service runs from `~USER/workspace/swarm-controller/` (PID <pid>, port 5001). The workspace at `~USER/workspace/swarm-controller/` is a different copy. API calls to localhost:5001 hit workspace. DB operations and module imports from workspace fail with `ModuleNotFoundError`.
 
 **Key pattern**: Quota can spike rapidly (25+ pp/hour) requiring immediate throttling. The `run_after` feature on tasks is the built-in throttle mechanism. Without service restart to pick up the PATCH fix, throttling must be done via direct sqlite3 on the workspace DB.
+
+---
+## Scheduler run (scheduler-1780118019, 2026-05-30 04:35 UTC)
+
+**Key finding — Phantom dependency crisis:** 10 pending tasks have 12 phantom deps (task IDs not in DB). Completely blocks 18/18 pending tasks. Root cause: `chain_to_project_head()` returned non-existent IDs, and DB records for completed tasks (e.g., task-3608cecf5f13 was completed but later shows as phantom). Pattern: when a task is chained to a project head that doesn't exist, creates phantom blocking dependency. Fix via PATCH /api/tasks/<id> with `{"dependencies": []}` to clear phantom deps.
+
+**Phantom dep targets identified:** task-7bbf5d914135, task-df934429ec9d, task-620ad72398eb, task-9db1b06d8e8c, bug-bug-feature-108534026-agent, bug-bug-bug-recovery-e1db2456, task-b1855a3bb794, qa-neon-breaker-rerun-b4cc3d815f77, qa-neon-breaker-rerun-e0bea4c2c0b0, qa-echoes-of-exile-rerun-84fd96d59e39, task-9f8de346944e.
+
+**Also noted:** task-3608cecf5f13 was previously completed (ghost-circuit bug fix, completed 2026-05-30T01:14) but now shows as phantom — DB record was deleted post-completion. The archaeologist should investigate this pattern.
+
+**Systemic patterns:** echoes-of-the-unmade (18 failed) + threshold-cartographer (4 failed) from _swarm_*.gd bitrot. Negative-space (12 failed) from scene load recovery loop.
+
+
+**Quota:** 7.1% used (1,063/15,000) — healthy. Prior run reporting 86.5% was from workspace workspace service.
+
+**No action taken:** Quota healthy, utilization 48%, no ceiling change needed. archaeologist called for phantom-dep repair + echoes-of-the-unmade triage.
+
+**SCHEDULER_LOG.md** written to data/ (gitignored, 142 lines).
