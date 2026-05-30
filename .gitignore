@@ -30,12 +30,9 @@ __pycache__/
 *.log
 _swarm_progress.md
 
-# Runtime data (all excluded; only .gitkeep and cartographer outputs are tracked)
+# Runtime data (all excluded; only .gitkeep is tracked)
 data/*
 !data/.gitkeep
-!data/PROJECT_MAP.md
-!data/SWARM_SUMMARY.json
-!data/scheduler_check.py
 
 # Beads / Dolt files (added by bd init)
 .dolt/
@@ -51,5 +48,8 @@ workspace/
 
 # Vim swap files
 *.swp
+
+# Accidental shell artifact
+]
 data/AUDIT_LEARNINGS_REPORT.md
 data/audit_learnings_last_run.txt
