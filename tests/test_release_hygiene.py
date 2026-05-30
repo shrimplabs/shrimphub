@@ -56,13 +56,15 @@ def test_no_runtime_or_session_artifacts_are_tracked():
         ".log",
     )
 
+    # Cartographer survey outputs are intentionally versioned alongside the map
+    allowed_in_data = {"data/PROJECT_MAP.md", "data/SWARM_SUMMARY.json"}
     offenders = []
     for path in _tracked_files(repo):
         if path in forbidden_exact:
             offenders.append(path)
         if path.startswith(forbidden_prefixes):
             offenders.append(path)
-        if path.startswith("data/") and path != "data/.gitkeep":
+        if path.startswith("data/") and path != "data/.gitkeep" and path not in allowed_in_data:
             offenders.append(path)
         if path.endswith(forbidden_suffixes):
             offenders.append(path)
