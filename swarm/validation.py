@@ -1315,6 +1315,10 @@ def _spawn_validation_bug_task(
             print(f"[Swarm] Failed to trigger recovery for deep chain: {_e}")
         return None
 
+    # Carry the research_feeder_cycles counter forward from the parent task so the
+    # cycle cap in _apply_research_feeder_result accumulates across the full chain.
+    parent_cycles = (original_task.get("metadata") or {}).get("research_feeder_cycles", 0)
+
     metadata: dict = {
         "parent_task": original_task_id,
         "last_failure": error_output[:2000],
@@ -1323,6 +1327,7 @@ def _spawn_validation_bug_task(
         "fix_notes": fix_notes or [],
         "chain_depth": chain_depth,
         "deep_chain": deep_chain,
+        "research_feeder_cycles": parent_cycles,
         **branch_intent_metadata(original_task),
     }
     if worktree_path is not None:
