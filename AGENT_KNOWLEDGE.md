@@ -307,3 +307,12 @@ Diagnostic: `data/scheduler_check.py` (now tracked in git).
 
 ## data/scheduler_check.py (git-tracked)
 Diagnostic script for scheduler runs. Run: `python3 data/scheduler_check.py`. Checks: agent count, quota, pending/in-progress/failed counts, phantom deps, pending dep status, failed backlog by project. Replace SCHEDULER_LOG.md with each run.
+
+---
+## test_release_hygiene.py allowlist fix (commit 065b434)
+
+`data/scheduler_check.py` was committed to git (540be9f) as a tracked diagnostic script. The `test_no_runtime_or_session_artifacts_are_tracked` test in `tests/test_release_hygiene.py` had `allowed_in_data` set that didn't include it, causing a false positive failure.
+
+Fix: add `"data/scheduler_check.py"` to `allowed_in_data` set alongside `"data/PROJECT_MAP.md"`, `"data/SWARM_SUMMARY.json"`.
+
+Pattern: any intentionally-versioned diagnostic/output file under `data/` needs to be added to `allowed_in_data` in this test.
