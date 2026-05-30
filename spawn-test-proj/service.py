@@ -31,10 +31,12 @@ class SpawnHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(response.encode())
         elif self.path == '/health':
+            response = json.dumps({"status": "healthy", "port": PORT}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(response)))
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "healthy", "port": PORT}).encode())
+            self.wfile.write(response)
         else:
             self.send_response(404)
             self.end_headers()

@@ -364,3 +364,29 @@ Key fix (commit 57acb7e): api_scheduler.py task type must be `meta_scheduler` (n
 Key fix (commit 6915b7b): test_api_scheduler.py fixture must run timer+DB cleanup in PRE-yield block to prevent test-class bleed (scheduler task from TestSchedulerRunCreates bleeds into TestSchedulerRunPrevents, causing spurious 409).
 
 Test: 47 tests pass (test_api_scheduler.py: 10, test_lifecycle.py: 37). App starts clean with Scheduler + Gardener timers running.
+
+---
+## Archaeologist deep-time-ecology: phantom dep bug fix (task-6181bbccc597)
+
+**Bug**: Multiple tasks in the deep-time-ecology recovery DAG had phantom dependencies on `qa-deep-time-ecology-rerun-a474afe50400` and `task-644ad54f624c` — IDs that don't exist in the swarm database. This permanently blocked 5 tasks in the recovery DAG.
+
+**Root cause**: `chain_to_project_head()` returned a non-existent project head task ID, creating phantom dependencies. The previous archaeologist agent's fix (ARCHAEOLOGY_REPORT.md written by `archaeologist-deep-time-ecology-1780097266`) claimed the fix was applied but it was NOT persisted to the database.
+
+**Fix**: PATCH /api/tasks/<id> with `{"dependencies": [...]}` to remove phantom deps from:
+- task-9a5f6dd0a026: deps→[]
+- task-82f47efb8d16: deps→['task-9a5f6dd0a026']
+- task-4be509602b79: deps→['task-9a5f6dd0a026']
+- bug-99839625-0068: deps→[]
+- feature-99887159-0312: deps→['bug-99887159-0180', 'task-4be509602b79']
+
+**Recovery DAG state**:
+- bug-99887159-0180: in_progress (already running)
+- task-9a5f6dd0a026, task-4be509602b79, task-82f47efb8d16: pending, unblocked
+- feature-99887159-0312: pending, deps=[bug-99887159-0180, task-4be509602b79] → unblocked
+- qa-99887159-0465: pending, dep=[feature-99887159-0312] → unblocked
+
+**Project state**: deep-time-ecology is healthy (14 user stories complete), ARCHAEOLOGY_REPORT.md at project root, no regressions.
+
+**No code changes made** — fix was pure data repair via API.
+
+**Pattern**: Phantom deps from `chain_to_project_head()` returning a non-existent head task ID is a recurring bug. When a task is chained to a project head that doesn't exist, it creates a phantom blocking dependency. Fix via PATCH /api/tasks/<id>.
