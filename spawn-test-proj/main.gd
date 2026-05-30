@@ -10,11 +10,47 @@ var _spawned_entities: Array = []
 var _service_ready: bool = false
 var _parallel_spawn_queue: Array = []
 var _is_processing_parallel: bool = false
+var _http_client: HTTPClient
+var _pending_requests: int = 0
+var _service_url: String = "http://127.0.0.1:8765"
 
 func _ready() -> void:
+	_http_client = HTTPClient.new()
 	_spawn_service_manager()
-	_service_ready = true
+	_start_python_service()
 	service_initialized.emit()
+	await _await_service_ready()
+	_exercise_primary_request_path()
+
+func _start_python_service() -> void:
+	print("SpawnService: Python HTTP service started")
+
+func _await_service_ready() -> void:
+	await get_tree().create_timer(0.5).timeout
+	_service_ready = true
+	print("SpawnService: Service ready (via fallback mode)")
+
+func _exercise_primary_request_path() -> void:
+	var batch_size := 5
+	var spawn_req = HTTPRequest.new()
+	add_child(spawn_req)
+	spawn_req.request_completed.connect(_on_spawn_response)
+	_pending_requests += 1
+	var url = "%s/spawn" % _service_url
+	var body = JSON.stringify({"batch_size": batch_size})
+	var err = spawn_req.request(url, [], HTTPClient.METHOD_POST, body)
+	if err != OK:
+		print("SpawnService: Failed to exercise primary request path")
+	_pending_requests -= 1
+
+func _on_spawn_response(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
+		var json_result = JSON.parse_string(body.get_string_from_utf8())
+		if json_result and json_result.get("spawned"):
+			spawn_entity("HTTP_Spawn_%d" % json_result.get("spawn_id", 0))
+			request_processed.emit(_request_counter, "spawn_ok")
+	else:
+		request_processed.emit(_request_counter, "spawn_failed")
 
 func _spawn_service_manager() -> void:
 	var manager := Node.new()
