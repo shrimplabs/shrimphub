@@ -164,6 +164,8 @@ ARCHAEOLOGIST_SYSTEM: str = ""
 ARCHAEOLOGIST_USER: str = ""
 SCHEDULER_SYSTEM: str = ""
 SCHEDULER_USER: str = ""
+CARTOGRAPHER_SYSTEM: str = ""
+CARTOGRAPHER_USER: str = ""
 # Plugin prompt -- set by the wrapper when a plugin is registered for this task_type.
 # Non-empty PLUGIN_SYSTEM takes priority over all built-in prompt routing below.
 PLUGIN_SYSTEM: str = ""

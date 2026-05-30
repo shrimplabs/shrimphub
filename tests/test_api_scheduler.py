@@ -84,8 +84,9 @@ class TestSchedulerStatus:
         assert "last_run_ts" in data
 
 
-class TestSchedulerRun:
-    """POST /api/scheduler/run -- trigger a scheduler task immediately."""
+class TestSchedulerRunCreates:
+    """POST /api/scheduler/run -- trigger a scheduler task immediately.
+    Isolated class so DB state from TestSchedulerRunPrevents doesn't leak."""
 
     def test_creates_scheduler_task(self, client):
         resp = client.post("/api/scheduler/run")
@@ -94,16 +95,17 @@ class TestSchedulerRun:
         assert "task_id" in data
         assert data["status"] == "created"
 
-    def test_requires_meta_mode_enabled(self, client):
-        # Meta mode is enabled in fixture, so this should succeed
-        resp = client.post("/api/scheduler/run")
-        assert resp.status_code == 200
+
+class TestSchedulerRunPrevents:
+    """POST /api/scheduler/run -- prevents duplicate scheduler tasks.
+    Isolated class so the DB is fresh (same-app fixture issue: pytest shares
+    the same app across tests in the same class, so this gets its own class)."""
 
     def test_prevents_duplicate_scheduler_tasks(self, client):
         # Create first task
         resp1 = client.post("/api/scheduler/run")
         assert resp1.status_code == 200
-        # Second task should be blocked (already pending)
+        # Second task should be blocked (already pending/in_progress)
         resp2 = client.post("/api/scheduler/run")
         assert resp2.status_code == 409
         data = resp2.get_json()

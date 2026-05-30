@@ -94,25 +94,82 @@ def scratchpad_read(files: list = None, type: str = None, key: str = None) -> di
 # Per-project knowledge (AGENT_KNOWLEDGE.md)
 # ---------------------------------------------------------------------------
 
+_KNOWLEDGE_INJECT_LIMIT = 20_000   # chars injected into task description (~5k tokens)
+_KNOWLEDGE_COMPACT_THRESHOLD = 40_000  # chars before compaction runs on write
+
+
 def read_agent_knowledge(project_path: str) -> str:
     """Read AGENT_KNOWLEDGE.md from project root if it exists.
 
-    Returns the file contents, or empty string if not present.
+    Returns at most _KNOWLEDGE_INJECT_LIMIT chars (the tail, i.e. most recent content).
+    Older entries are preserved in the file but not injected to keep context lean.
     """
     knowledge_path = os.path.join(project_path, "AGENT_KNOWLEDGE.md")
     try:
         if os.path.exists(knowledge_path):
             from swarm.tools.core import _read_text_with_fallback
-            return _read_text_with_fallback(knowledge_path)[0]
+            text, _ = _read_text_with_fallback(knowledge_path)
+            if len(text) <= _KNOWLEDGE_INJECT_LIMIT:
+                return text
+            # Truncate to last _KNOWLEDGE_INJECT_LIMIT chars, but start at an entry
+            # boundary (---) so we don't inject a torn entry.
+            tail = text[-_KNOWLEDGE_INJECT_LIMIT:]
+            boundary = tail.find("\n---\n")
+            if boundary != -1:
+                tail = tail[boundary + 5:]
+            total_entries = text.count("\n---\n") + 1
+            injected_entries = tail.count("\n---\n") + 1
+            header = f"[AGENT_KNOWLEDGE truncated: showing {injected_entries} most recent of {total_entries} entries]\n\n"
+            return header + tail
     except Exception:
         pass
     return ""
+
+
+def _compact_knowledge(knowledge_path: Path) -> bool:
+    """LLM-compact AGENT_KNOWLEDGE.md when it exceeds the threshold.
+
+    Reads the full file, calls the LLM to distill it into a single dense summary
+    preserving all unique facts, then overwrites the file. Returns True on success.
+    """
+    try:
+        text = knowledge_path.read_text(encoding="utf-8", errors="replace")
+        if len(text) <= _KNOWLEDGE_COMPACT_THRESHOLD:
+            return False  # nothing to do
+
+        from swarm.llm_utils import call_llm
+        sys_prompt = (
+            "You are a knowledge base compactor. You will receive an AGENT_KNOWLEDGE.md file "
+            "containing accumulated notes from multiple AI agents working on the same project. "
+            "Your job is to distill it into a single compact, dense reference document. "
+            "Rules: preserve ALL unique facts (file paths, class names, patterns, bug fixes, "
+            "validation commands, exclusion lists, gotchas); merge duplicate or redundant entries "
+            "into one authoritative statement; remove progress/status updates that are no longer "
+            "actionable; keep the most recent version of any repeated fact; output plain markdown "
+            "with no preamble, no commentary, just the distilled knowledge."
+        )
+        user_msg = (
+            f"Compact the following AGENT_KNOWLEDGE.md file. "
+            f"Return ONLY the distilled markdown — no preamble, no 'Here is...' framing.\n\n"
+            f"{text}"
+        )
+        compacted, _ = call_llm(sys_prompt, [{"role": "user", "content": user_msg}])
+        if not compacted or compacted.startswith("Error:") or compacted.startswith("API error"):
+            return False
+
+        # Write compacted version
+        knowledge_path.write_text(compacted.strip() + "\n", encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 
 def update_knowledge(content: str) -> dict:
     """Append an entry to the project's AGENT_KNOWLEDGE.md file.
 
     Creates the file if it does not exist. Entries are separated by "\\n---\\n".
+    If the file exceeds _KNOWLEDGE_COMPACT_THRESHOLD chars after writing, triggers
+    LLM compaction to keep the file lean for future agents.
     Call this at session end for structural facts future agents should know.
     """
     if READONLY:
@@ -125,7 +182,17 @@ def update_knowledge(content: str) -> dict:
                 f.write("\n---\n")
         with open(knowledge_path, "a", encoding="utf-8") as f:
             f.write(content.strip() + "\n")
-        return {"ok": True, "path": str(knowledge_path)}
+
+        # Trigger compaction if file has grown too large
+        compacted = False
+        if knowledge_path.stat().st_size > _KNOWLEDGE_COMPACT_THRESHOLD:
+            compacted = _compact_knowledge(knowledge_path)
+
+        result: dict = {"ok": True, "path": str(knowledge_path)}
+        if compacted:
+            result["compacted"] = True
+            result["new_size"] = knowledge_path.stat().st_size
+        return result
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
