@@ -567,3 +567,20 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 
 
 **Key pattern:** Stale /tmp/all_tasks.json (fetched before PATCH repairs) causes false "blocked" count. Always do a FRESH fetch of all tasks for phantom-dep verification after repairs.
+
+---
+## Scheduler run (scheduler-1780126123, 2026-05-30 07:41 UTC)
+
+**State**: 12 active/25 (48%), quota 68.7% (10,299/15,000), 3 pending, 123 failed.
+**Actions**: 4 PATCH phantom dep repairs, all effective (triggered new agent spawning).
+**No decisions**: utilization and quota both healthy, no ceiling/throttle changes needed.
+**Quota acceleration**: ~21pp/hour (up from ~10pp/hour in prior runs) — monitor closely.
+**Archaeologist recommended**: echoes-of-the-unmade (24, _swarm_*.gd bitrot), negative-space (19, recovery loop), temporal-residue (18, _swarm_check.gd pattern).
+
+**SCHEDULER_LOG.md is in .gitignore** — write but skip git add/commit.
+
+**Key finding this run**: Quota jumped from 47.8% to 68.7% in ~1 hour = ~21pp/hour. Prior runs showed ~10pp/hour. Acceleration rate has doubled. If this rate continues, 90% threshold reached in ~1 hour. Next scheduler run should recommend run_after on qa/harness_qa if quota >82%.
+
+**Two-workspace gotcha**: Service at localhost:5001 = workspace workspace. This workspace is a different copy. All API calls go to localhost:5001.
+
+**Phantom dep repair pattern confirmed**: Clearing phantom deps on in-progress tasks immediately triggers new agent spawning (bug-recovery-f11afc85, bug-recovery-e4ec2747, bug-recovery-93636fe9 all now have new agents after deps cleared). This is the fastest way to unblock recovery pipelines.
