@@ -505,3 +505,25 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 **No action taken:** Quota healthy, utilization 48%, no ceiling change needed. archaeologist called for phantom-dep repair + echoes-of-the-unmade triage.
 
 **SCHEDULER_LOG.md** written to data/ (gitignored, 142 lines).
+
+---
+## Scheduler run (scheduler-1780118920, 2026-05-30 05:36 UTC)
+
+**Phantom deps GROWING — 13 tasks now blocked (up from 10 last run).** Previous scheduler's phantom-repair recommendation was NOT executed. Phantom deps are accumulating, not being cleared. Root cause: `chain_to_project_head()` returning non-existent IDs that never get repaired.
+
+**8 tasks completely blocked (phantom-only deps):** task-b1855a3bb794 (3 phantoms), task-9f8de346944e (2 phantoms), task-620ad72398eb, qa-echoes-of-exile-rerun-84fd96d59e39, qa-pacman-chase-rerun-f7b09e1d8d16, qa-pacman-chase-rerun-e4f49d1d6486, qa-deep-time-ecology-rerun-ab93e1fd9607, qa-fusion-foundry-3d-rerun-90d3b6f17cc0.
+
+**CRITICAL: echoes-of-the-unmade recovery agent stuck at loop 171.** Agent `recovery-c75a3aa6` (project=echoes-of-the-unmade) has tools timing out. ~55 min runtime. Will not complete naturally — needs cancellation + restart.
+
+**Quota:** 16.3% used (2,438/15,000) — healthy. Rate: ~9.2 pp/hour from 04:35 to 05:36 = ~9.2 pp/hr. At this rate, 90% threshold reached in ~8 hours.
+
+**Phantom dep PATCH targets (all pending):** task-b1855a3bb794, task-9f8de346944e, task-620ad72398eb, qa-echoes-of-exile-rerun-84fd96d59e39, qa-pacman-chase-rerun-f7b09e1d8d16, qa-pacman-chase-rerun-e4f49d1d6486, qa-deep-time-ecology-rerun-ab93e1fd9607, qa-fusion-foundry-3d-rerun-90d3b6f17cc0.
+
+**SCHEDULER_LOG.md is in .gitignore** — write but skip git add/commit.
+
+**Two-workspace gotcha:** Service at localhost:5001 = workspace workspace. This workspace is a different copy. All API calls go to localhost:5001.
+
+**API key findings this run:**
+- GET /api/tasks?limit=5000 returns all tasks in `d['tasks']` (not at root)
+- Agent IDs are UUIDs (e.g., `6938eb6f-a0b5-4cee-a611-6e5feb286e19`) — project names come from task.project not agent
+- `recovery-c75a3aa6` shows loop 171 via agent.output field in /api/agents (via token count heuristic, actual loop count not in API)
