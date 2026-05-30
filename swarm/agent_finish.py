@@ -499,7 +499,12 @@ def _phase_post_completion_pipeline(
                 print(f"[Swarm] Deleted stale plan snapshot(s): {all_deleted}")
             attempts = (task_for_san.get("attempts") or 0) + 1
             max_att = task_for_san.get("max_attempts", 3)
-            db.task_update_status(task_id, "pending" if attempts < max_att else "failed", attempts=attempts)
+            # Mirror _handle_task_failure: always record last_failure so the API
+            # shows a meaningful error message instead of empty last_failure.
+            meta = dict(task_for_san.get("metadata") or {})
+            meta["last_failure"] = "\n".join(plan_errors[:5])
+            meta["failure_attempt"] = attempts
+            db.task_update_status(task_id, "pending" if attempts < max_att else "failed", attempts=attempts, metadata=meta)
             success = False
 
     if not success:

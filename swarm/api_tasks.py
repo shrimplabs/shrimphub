@@ -569,6 +569,9 @@ def register_routes(app, task_source, db, workspace):
                         return jsonify({"error": dep_error}), 400
                     setattr(task, key, deps)
                     continue
+                if key == "priority":
+                    setattr(task, key, _normalize_priority(data[key]))
+                    continue
                 setattr(task, key, data[key])
         if data.get("status") == "in_progress" and not task.started:
             task.started = datetime.now().isoformat()
@@ -811,7 +814,7 @@ def register_routes(app, task_source, db, workspace):
             "project": project,
             "type": task_type,
             "description": description,
-            "priority": int(data.get("priority", 90)),
+            "priority": _normalize_priority(data.get("priority"), default=90),
             "status": "pending",
             "attempts": 0,
             "max_attempts": int(data.get("max_attempts", 3)),
@@ -879,7 +882,7 @@ def register_routes(app, task_source, db, workspace):
                 project=item.get("project", ""),
                 type=item.get("type", "feature"),
                 description=item.get("description", ""),
-                priority=item.get("priority", 50),
+                priority=_normalize_priority(item.get("priority"), default=50),
                 status="pending",
                 dependencies=deps,
                 metadata=item.get("metadata", {}),
