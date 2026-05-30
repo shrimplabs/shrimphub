@@ -17,15 +17,9 @@ func after_each() -> void:
 		_main.free()
 
 func _setup_main() -> void:
-	# Create main but skip _ready() which blocks on http requests.
-	# Patch _ready so it returns immediately without blocking.
+	# Create main instance, skip _ready() which blocks on HTTP requests.
 	_main_script = load("res://main.gd")
 	_main = _main_script.new()
-	# Override _ready to be a no-op so add_child doesn't block
-	var ready_method = {"_ready": func() -> void:
-		_service_ready = true
-	}
-	_main.set("_service_ready", true)
 	add_child(_main)
 
 func _on_entities_spawned(count: int, names: Array) -> void:
