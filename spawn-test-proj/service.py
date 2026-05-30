@@ -40,9 +40,18 @@ class SpawnHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
-    
-    def log_message(self, format, *args):
-        print(f"[SpawnService] {args[0]}")
+
+    def do_GET(self):
+        if self.path == '/health':
+            response = json.dumps({"status": "healthy", "port": PORT}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+        else:
+            self.send_response(404)
+            self.end_headers()
 
 def run_server(blocking=True):
     global PORT
