@@ -446,3 +446,31 @@ swarm-controller service runs on localhost:5001 (not 18792) when started via sta
 - GET /api/config — returns full config including max_active_agents
 
 **SCHEDULER_LOG.md is in .gitignore** — write the file but skip git add/commit.
+
+---
+## Cartographer meta-agent survey (cartographer-1780111710, commit a83f3f7)
+
+**Survey results (2026-05-30 03:35 UTC)**:
+- 84 managed projects, 82 healthy, 1 warning (test-project), 1 failing (ghost-circuit)
+- Only 1 project failing (ghost-circuit: verification_status=failed, score=20)
+- Health score formula: base=100 if verification=passed, 60 if no verification, 20 if failed; -20 per stall (max 40), -30 per regression (max 60)
+- closure_status='red' does NOT automatically mean failing — it's "active feature work mode", not a health indicator
+
+**Cartographer output files**:
+- data/PROJECT_MAP.md: 1001 lines, 84 project sections (narrative markdown)
+- data/SWARM_SUMMARY.json: 84 projects with health_score, status, git info, recent commits, patterns
+- Both added to git via commit a83f3f7 (explicit !data/PROJECT_MAP.md, !data/SWARM_SUMMARY.json in .gitignore)
+
+**API data sources used**:
+- GET /api/projects?managed=1&limit=200 → project name list (84 managed)
+- GET /api/projects/<name> → per-project health data (individual calls)
+- GET /api/agents → 13 active agents
+- Swarm API runs at localhost:5001
+
+**Known API field limitations**:
+- git_branch='?' for all projects — not populated by API
+- git_dirty=False for all — not populated by API
+- active_agents=0 for all — agent activity per project not exposed
+- known_patterns=[] for all — patterns not returned by API
+
+**data/swarm_knowledge.jsonl exists** but was not cross-referenced (per survey process, patterns would come from that file but it doesn't contain per-project pattern data in the format the cartographer prompt expected)
