@@ -1185,9 +1185,14 @@ def qa_press_button(text: str, port: int = None) -> dict:
 # QA game state polling
 # ---------------------------------------------------------------------------
 
-def get_game_state(port: int = None) -> dict:
-    """Read live game state from the running Godot instance via StateServer."""
-    return _state_server_send({"command": "state"}, port=port)
+def get_game_state(port: int = None, command: str = "state") -> dict:
+    """Read live game state from the running Godot instance via StateServer.
+
+    command="state"           → full game state + scene tree (default)
+    command="screenshot_b64"  → {"image_base64": "<png>"} from Godot renderer
+    command="a11y_tree"       → flat list of interactive UI elements
+    """
+    return _state_server_send({"command": command}, port=port)
 
 
 def qa_wait_for_idle(timeout: float = 10.0, interval: float = 0.5) -> dict:
