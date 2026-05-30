@@ -196,9 +196,9 @@
 
 <!-- ═══════════════════════════════════════
      POST-TASK VALIDATION  (below agent, left-center)
-     x=200 y=612 w=480 h=105
+     x=200 y=612 w=480 h=119
 ════════════════════════════════════════ -->
-<rect x="200" y="612" width="480" height="105" rx="10" fill="#FDEDEC" stroke="#C0392B" stroke-width="2" filter="url(#sh)"/>
+<rect x="200" y="612" width="480" height="119" rx="10" fill="#FDEDEC" stroke="#C0392B" stroke-width="2" filter="url(#sh)"/>
 <text x="440" y="635" text-anchor="middle" class="h2">Post-task Validation  ·  swarm/validation.py</text>
 <text x="440" y="653" text-anchor="middle" class="lbl">Pre-flight baseline: capture existing errors before agent runs</text>
 <text x="440" y="669" text-anchor="middle" class="lbl">Post-agent diff: only NEW errors count as failures</text>
@@ -212,9 +212,9 @@
 
 <!-- ═══════════════════════════════════════
      ESCALATION & TASK LIFECYCLE  (below agent, right-center)
-     x=700 y=612 w=700 h=105
+     x=700 y=612 w=700 h=119
 ════════════════════════════════════════ -->
-<rect x="700" y="612" width="700" height="105" rx="10" fill="#F8F9FA" stroke="#888" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="700" y="612" width="700" height="119" rx="10" fill="#F8F9FA" stroke="#888" stroke-width="1.5" filter="url(#sh)"/>
 <text x="1050" y="635" text-anchor="middle" class="h2">Task Lifecycle &amp; Escalation  ·  swarm/agent_recovery.py</text>
 <text x="1050" y="653" text-anchor="middle" class="lbl">pending → in_progress → completed | failed | cancelled</text>
 <text x="1050" y="669" text-anchor="middle" class="lbl">Retry: attempts++ · tiered context (attempt 1: clean · 2: +last_failure · 3+: +git_diff+directive)</text>
