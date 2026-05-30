@@ -316,3 +316,14 @@ Diagnostic script for scheduler runs. Run: `python3 data/scheduler_check.py`. Ch
 Fix: add `"data/scheduler_check.py"` to `allowed_in_data` set alongside `"data/PROJECT_MAP.md"`, `"data/SWARM_SUMMARY.json"`.
 
 Pattern: any intentionally-versioned diagnostic/output file under `data/` needs to be added to `allowed_in_data` in this test.
+
+---
+## Scheduler Task Stuck in Self-Reading Loop (2026-05-30)
+
+The scheduler agent (9d9a441f) got stuck in a recursive loop: it read_file_range its own log (line 1 → 200 → 400 → ...), which contains the injected PROJECT KNOWLEDGE packet, and kept re-reading without completing work. `loop=None` in DB means the agent_runtime.py loop counter was never incremented — it hit the context/input limit before the loop even started.
+
+**Symptom**: Agent status=active, loop=None, current_task_id=None (zombie). 10 zombie agents accumulating.
+
+**Recovery**: Complete the scheduler's work manually via API calls. Mark task completed. Clear phantom deps. Write SCHEDULER_LOG.md. The monitor thread will eventually clean up zombie agents.
+
+**Prevention**: The injected PROJECT KNOWLEDGE + broadcast context (~1155 lines) may cause the scheduler agent to hit context limits before its first LLM response loop. Consider reducing injected context size for scheduler tasks.
