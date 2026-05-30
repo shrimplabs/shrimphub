@@ -1,6 +1,6 @@
 # Shrimphub
 
-ShrimpHub is an open-source swarm orchestration system for agentic software development. It coordinates planning, implementation, QA, research, and meta-agents through task graphs, provider-backed LLM agents, runtime validation, and project memory.
+ShrimpHub is an open-source swarm orchestration system for agentic software development. It coordinates planning, implementation, QA, research, and meta-agents through task graphs, provider-backed LLM agents, runtime validation, and project memory. Learn more at [shrimphub.ai](https://shrimphub.ai).
 
 Point it at a workspace full of projects, give it API keys, and it autonomously plans, implements, tests, and fixes — in parallel, across as many projects as you want. Supports Godot, Python, and TypeScript out of the box; extensible to any language via the plugin system.
 
