@@ -82,7 +82,7 @@ func _http_post(req_path: String, body: String) -> Dictionary:
 		http.poll()
 		await get_tree().process_frame
 	var code := http.get_response_code()
-	var resp_body := http.read_response_body()
+	var resp_body: PackedByteArray = http.read_response_body()
 	http.close()
 	return {"code": code, "body": resp_body.get_string_from_utf8()}
 
