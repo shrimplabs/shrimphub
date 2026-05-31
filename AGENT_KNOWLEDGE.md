@@ -489,3 +489,18 @@ If you see `\-` (backslash-escaped dash) in YAML list items in prompts/*.yaml, i
 - Multi-pass phantom repair (6 passes to stable 0) — fresh agent spawns continuously regenerate phantoms
 - 6 failed tasks across 4 projects need archaeologist triage
 - Clear with: python3 /tmp/clear_all.py (loops until 0 phantoms, ~3s between passes)
+
+---
+## Cartographer: PROJECT_MAP.md and SWARM_SUMMARY.json are git-tracked (2026-05-30)
+
+Both files live in data/ (gitignored via `data/*`) with explicit `!data/PROJECT_MAP.md` and `!data/SWARM_SUMMARY.json` negation patterns in .gitignore. They are committed to git via `git add -f data/PROJECT_MAP.md data/SWARM_SUMMARY.json`. The test_release_hygiene.py `allowed_in_data` set includes both files.
+
+Survey data: 106 projects (9 healthy/green, 73 warning/yellow, 20 failing/red, 3 frozen, 1 stalled). Key findings: echoes cluster deeply stuck, 40+ research-phase projects, oldest red from 2026-04-15 need genesis reset. All written and committed by cartographer-1780191975.
+
+## Ruff excludes JSON files automatically (2026-05-30)
+
+`python3 -m ruff check .` (scanning a directory) auto-excludes .json files. But `python3 -m ruff check data/SWARM_SUMMARY.json` (passing JSON as CLI arg) treats it as Python and produces F821 "Undefined name `null`" errors. This is expected behavior — standard check passes clean. Do NOT add .ruffignore or ruff config just to silence this.
+
+## Cartographer task completion pattern (2026-05-30)
+
+The cartographer task (`cartographer-<timestamp>`) creates survey output files but does NOT auto-complete. Must explicitly PATCH `/api/tasks/<task_id>` with `{"status": "completed"}` after writing outputs. The scheduler will clean up the in-progress agent.
