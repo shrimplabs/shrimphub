@@ -1759,3 +1759,40 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
 - Archive 2 zombie failed tasks (temporal-residue, negative-space deep-chain artifacts)
 - Archaeologist recommended for negative-space (scene parse errors in crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn -- pre-existing validation baseline) and temporal-residue deep-chain backlog
 - System is healthy, no intervention needed
+
+## Scheduler Run 2026-05-31 20:35 UTC
+
+**State**: 12 active / 12 total, 39.8% quota / 60.2% remaining, 0 phantom-blocked (4 auto-cleared)
+
+**Actions**:
+- 4 phantom deps auto-cleared via scheduler_check.py:
+  - qa-auto-the-memory-palace-1780244374 (deps cleared)
+  - qa-ghost-circuit-rerun-542a455a6b92 (deps cleared)
+  - qa-solar-escape-rerun-84e97f2f3e05 (deps cleared)
+  - pol-auto-the-memory-palace-1780244374 (deps cleared)
+- 8 pending tasks now unblocked (echoes-of-the-unmade QA reruns + the-memory-palace pipeline)
+- 5 failed tasks (all deep-chain archived artifacts): bug-bug-bug-recovery-3950dd2e, bug-bug-bug-recovery-06d2fe35, bug-bug-bug-recovery-91bd271d, bug-bug-bug-recovery-234fe1cc — already archived
+
+**Agent Breakdown** (12 active):
+- bug (temporal-residue): loop 8
+- bug (negative-space): loop 10
+- qa (spawn-test-proj): loop 6
+- harness_qa (signal-cartel): loop 12
+- bug (ghost-circuit): loop 15
+- bug (echoes-of-the-unmade): loop 15
+- qa (solar-escape): loop 15
+- bug (signal-cartel): loop 22
+- meta_scheduler (swarm-controller): loop 25
+- art_pass (the-memory-palace): loop 30
+- bug (ghost-circuit): loop 67
+- qa (sushi-razzle): loop 76
+
+**Pending**: 15 tasks (8 unblocked, 7 blocked on in-progress deps)
+**Failed**: 5 (all archived deep-chain artifacts, no action needed)
+
+**Decision**: No ceiling/throttle/project-pause changes. 60.2% quota remaining — ample headroom.
+- `echoes-of-the-unmade`: 6 QA rerun tasks now unblocked (phantom deps cleared). All 4 validations passing per latest recovery.
+- `negative-space`: 2 identical failed polish-recovery tasks (scene parse errors on crosshair.tscn/pillar_puzzle.tscn) — persistent issue, archaeologist recommended for deeper triage.
+- `sushi-razzle`: qa agent at loop 76 still active, let it complete naturally.
+
+**Archaeologist recommended**: negative-space (2 failed, same scene parse error, multiple recovery attempts). All other failed tasks are deep-chain archived artifacts.
