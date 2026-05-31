@@ -563,3 +563,10 @@ placeholder
 All 9 zombie `librarian-*` tasks (attempts=0, loop=None, archived=true) spawned during idle triggers but died before their first LLM response loop -- same zombie-agent pattern as the scheduler documented in `gk-swarm-zombie-agents-loop-none-self-reading`. The large injected PROJECT KNOWLEDGE + broadcast context causes meta agents to hit context limits at spawn.
 
 To enable meta agents: set `META_MODE_ENABLED=True` in orchestrator config.
+
+---
+## scan_learnings.py (2026-05-31)
+
+The script at project root does exactly what audit_learnings tasks need. Run: `python3 scan_learnings.py` from `/Users/costas/workspace/swarm-controller`. It outputs to `data/AUDIT_LEARNINGS_REPORT.md` which is in `.gitignore`. Do NOT git commit the report.
+
+Results: 110 projects, 493 learning files → 291-line report with per-type clusters, cross-cutting observations, and recommendations. 14 task types covered. No task creation.
