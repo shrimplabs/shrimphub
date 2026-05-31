@@ -2234,3 +2234,34 @@ Log written. scheduler-1780270310 COMPLETE.
 
 ### Commit
 Log written. scheduler-1780270823 COMPLETE.
+
+---
+## Scheduler Run 2026-06-01 04:08 UTC (scheduler-1780271211)
+
+**State**: 9 active / 9 total, 71.7% quota remaining, 0 phantom-blocked, 0 failed
+
+**Actions**: None — system healthy
+
+**Agent breakdown**:
+- 1 meta_scheduler (swarm-controller)
+- 1 gardener (swarm-controller)
+- 5 bug tasks (star-sovereigns, solar-escape, echoes-of-the-unmade, signal-cartel)
+- 2 polish tasks (solar-escape, signal-cartel)
+
+**Pending**: 22 tasks (16 bug, 2 feature, 1 qa, 3 harness_qa)
+- 9 in-progress tasks all have active agents, no blocking
+- All pending tasks have no phantom deps
+- Priority range: 50–95, highest are 95-priority bugs in the-memory-palace, echoes-of-the-unmade
+
+**Decision reasoning**:
+- Quota at 71.7% remaining — far above 90% ceiling, no throttle needed
+- 9 agents active matching total (some may be completing soon), auto_scale handles fill
+- No project pauses needed — all managed projects progressing
+- No ceiling adjustments needed — system running at full capacity efficiently
+- All pending tasks are unblocked and will be picked up as agents free
+
+**Archaeologist recommendation**: None — no failed tasks, 0 phantom-blocked
+
+**Project health snapshot**: Managed list has 101 projects; echoes-of-the-unmade, temporal-residue, negative-space are stuck with multiple failed attempts (archaeologist triage already in flight). No new intervention needed.
+
+**Validation**: `python3 data/scheduler_check.py` → 0 phantom-blocked, 72.1% quota, clean.
