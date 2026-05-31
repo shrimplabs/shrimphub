@@ -570,3 +570,22 @@ To enable meta agents: set `META_MODE_ENABLED=True` in orchestrator config.
 The script at project root does exactly what audit_learnings tasks need. Run: `python3 scan_learnings.py` from `/Users/costas/workspace/swarm-controller`. It outputs to `data/AUDIT_LEARNINGS_REPORT.md` which is in `.gitignore`. Do NOT git commit the report.
 
 Results: 110 projects, 493 learning files → 291-line report with per-type clusters, cross-cutting observations, and recommendations. 14 task types covered. No task creation.
+
+---
+## 2-Pass Phantom Repair Always Required (2026-06-01)
+
+Running `data/scheduler_check.py` once is insufficient. Fresh agent spawns from the repair itself introduce NEW phantom deps. Run the diagnostic twice to confirm stable 0 state:
+- Pass 1: clears known phantoms → new agents spawn → new phantoms appear
+- Pass 2: clears the new phantoms → stable
+- Repeat Pass 2 until "No phantom deps found" before declaring done.
+
+This run: Pass 1 cleared 5, Pass 2 cleared 1 more. Total: 6 phantom deps across task-36eacfd63f80, task-503a9918ba68, feature-harness-integrate-signal-cartel-270839073, qa-bug-signal-cartel-c04e39f2e749, task-da38957371b6, bug-recovery-9a20056c.
+
+## Agent loop=None After Completion (2026-06-01)
+
+The 8 agents I observed all had loop=None even though they were actively running (new spawns picked up 27 unblocked tasks after I completed the scheduler). The loop counter updates at END of LLM response, so there's always a timing lag. Loop=None alone does not mean zombie — check agent output endpoint or wait for next cycle.
+
+## State After Scheduler Completion (2026-06-01)
+- 11 agents active / 11 total (after completing scheduler, 27 unblocked tasks triggered new spawns)
+- 21 pending, 11 in-progress, 0 failed, 0 phantom-blocked
+- 74.5% quota remaining — system healthy, no interventions needed
