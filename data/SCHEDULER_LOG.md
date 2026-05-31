@@ -1055,3 +1055,44 @@ All 12 pending tasks are unblocked:
 - Monitor 12 unblocked pending tasks (should be picked as agents complete)
 - Monitor negative-space (3 bug + 1 harness_qa + 1 art_pass + 1 polish in-progress)
 - System is healthy, no intervention needed
+
+### Scheduler Run 2026-05-31 12:51 UTC
+
+**State**: 15 active agents / 15 total (100% utilization) | 47.2% quota used, 52.8% remaining
+- 0 phantom-blocked (10+ phantom deps cleared across 5 repair passes)
+- 0 failed (4 zombie bug-bug-bug*/bug-recovery-* artifacts archived)
+- 24 pending unblocked
+
+### Agent Distribution (15 active)
+- swarm-controller: scheduler-1780227440 + gardener-1780227975
+- negative-space: 3 (bug-bug-bug-recovery-f8b44a4b, qa-negative-space-rerun-6a90d3b78902, qa-bug-negative-space-e7ac7e4f58cb)
+- ghost-circuit: 3 (recovery-84c946de, qa-bug-ghost-circuit-5ef437e2d238, qa-bug-ghost-circuit-f4387a12c1df)
+- echoes-of-the-unmade: 2 (qa-bug-echoes-of-the-unmade-e7cf20422563, qa-bug-echoes-of-the-unmade-68e8f3f6ee09)
+- rare-earth-empire: 1 (qa-rare-earth-empire-rerun-646c8f4eef8b)
+- signal-cartel: 1 (integration-signal-cartel-1780227970)
+- temporal-residue: 1 (bug-bug-bug-recovery-664a72a6)
+- the-memory-palace: 1 (qa-the-memory-palace-rerun-d3a0857c6959)
+
+### Phantom Dep Repair
+- Cleared 6 phantom deps manually (qa-echoes-of-the-unmade-rerun x2, qa-ghost-circuit-rerun x3, qa-solar-escape-rerun)
+- Auto-cleared 5 more in scheduler_check.py passes (qa-negative-space-rerun x4, bug-bug-bug-recovery x2)
+- Archived 4 zombie failed tasks (bug-bug-bug-pol-auto-negative-space-1780224775, bug-bug-bug-recovery-8b4ebf4a, bug-bug-bug-task-a5ec4664c089, bug-bug-bug-recovery-38d75a75) — all null error + null last_failure + 3 attempts = phantom artifacts
+
+### Decisions
+- **No ceiling change**: 15/15 active, 47.2% quota, 52.8% headroom — very healthy. No ceiling/throttle changes needed.
+- **No throttle change**: 52.8% remaining, no intervention needed.
+- **No project pauses**: All 8 active projects have in-progress agents.
+- **No run_after adjustments**: 24 pending unblocked tasks will be picked naturally as agents complete.
+
+### Health Assessment
+- :white_check_mark: **Quota healthy**: 47.2% used, 52.8% remaining
+- :white_check_mark: **No phantom-blocked**: 10+ phantoms cleared, 0 remaining
+- :white_check_mark: **No failed tasks**: 4 zombie artifacts archived
+- :white_check_mark: **All pending unblocked**: 24 tasks ready to be picked
+- :white_check_mark: **All in-progress tasks advancing**: scheduler, gardener, bug, qa, integration, recovery all running
+
+### Next Run Recommendations
+- Monitor echoes-of-the-unmade (2 QA bug agents, 7+ pending QA reruns queued behind them)
+- Monitor ghost-circuit (3 agents, high concurrency)
+- Monitor negative-space (3 agents with bug-bug-bug-recovery still in-progress)
+- System is healthy, no intervention needed
