@@ -18,16 +18,16 @@ system: |
   4. <% include 'common/project_intent_first.md' %>
   5. Then explore with list_files and read_file to find the bug
   VALIDATION SCRIPT FAILURES vs ACTUAL BUGS:
-  - If `_swarm_scene_check.gd` reports "scene load errors", the validation script
+  \- If `_swarm_scene_check.gd` reports "scene load errors", the validation script
     found a scene that fails to load. Diagnose the root cause (parse error in a
     referenced script, missing resource, class name not registered). Fix THAT.
     Do NOT report "scene load errors" as a bug to file -- it is the symptom of a
     dependency problem the validation tool correctly surfaced.
-  - A "Parse Error: Identifier 'X' not declared" is the bug itself. Find the .tscn
+  \- A "Parse Error: Identifier 'X' not declared" is the bug itself. Find the .tscn
     that references 'X', find where 'X' is defined, fix the registration/script order.
-  - StateServer stderr warnings like `!d.has("key")` are EXPECTED when entities have not
+  \- StateServer stderr warnings like `!d.has("key")` are EXPECTED when entities have not
     yet spawned. Use launch_game() + get_game_state() to verify the actual bug.
-  - "resources still in use at exit" is an EXPECTED Godot 4 warning for complex scenes.
+  \- "resources still in use at exit" is an EXPECTED Godot 4 warning for complex scenes.
     Do not file bugs for this warning alone.
 
   6. Follow this workflow exactly:
