@@ -641,9 +641,9 @@ def create_app(
                             auto_mode_state["suspended_for_quota"] = True
                             print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) -- auto mode suspended")
                 else:
-                    # Quota cleared -- resume if we suspended due to quota
+                    # Quota cleared -- resume only if WE suspended it (not if user manually turned it off)
                     with auto_mode_state["lock"]:
-                        if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"]:
+                        if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"] and not auto_mode_state.get("user_disabled"):
                             auto_mode_state["enabled"] = True
                             auto_mode_state["suspended_for_quota"] = False
                             print("[Auto] Quota OK -- auto mode resumed")
