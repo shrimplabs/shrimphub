@@ -8,6 +8,7 @@
 
     // Graph render state for loading-indicator retry UX
     let _graphRenderState = null; // { retries: 0, abortCtrl: null }
+    let _lastRenderedDot = '';   // debounce: skip re-render if DOT unchanged
 
     // Playback state
     let _pbEvents = null;       // array of event objects from /api/dependencies/playback-events
@@ -815,9 +816,17 @@
                 const liveProjectTasks = ctx.selectedProject
                     ? tasks.filter(task => task.project === ctx.selectedProject)
                     : tasks;
-                // Global graph: warn if very large but still render
+                // Global graph: cap at 500 tasks
                 if (!ctx.selectedProject && liveProjectTasks.length > 500) {
                     container.textContent = `Too many tasks to render globally (${liveProjectTasks.length}). Select a project.`;
+                    return;
+                }
+                // Per-project graph: cap at 300 live tasks to keep Graphviz fast
+                if (ctx.selectedProject && liveProjectTasks.length > 300) {
+                    container.innerHTML = `<div style="padding:24px;color:#8b949e;font-size:13px;text-align:center">
+                        ${liveProjectTasks.length} live tasks — too many to layout quickly.<br>
+                        <span style="color:#6e7681">Use history depth 0 or filter completed tasks to reduce the graph.</span>
+                    </div>`;
                     return;
                 }
                 if (ctx.selectedProject && !liveProjectTasks.length) {
@@ -843,6 +852,11 @@
                     dot = data.dot || '';
                     if (!dot.trim() || dot.trim() === 'digraph {}') {
                         container.textContent = ctx.selectedProject ? 'No tasks found for this project.' : 'No pending tasks with dependencies.';
+                        _lastRenderedDot = '';
+                        return;
+                    }
+                    // Skip re-render if graph hasn't changed since last render
+                    if (dot === _lastRenderedDot && container.querySelector('svg')) {
                         return;
                     }
                     try {
@@ -855,6 +869,7 @@
                         }
                         renderedWithHistory = historyLimit;
                         lastRenderError = null;
+                        _lastRenderedDot = dot;
                         break;
                     } catch (renderError) {
                         _hideGraphLoading(container);
@@ -1151,6 +1166,7 @@
     };
 
     // Show/hide the Playback button based on whether a project is selected
+    let _lastRenderProject = null;
     const _origRender = api.renderDepsGraph.bind(api);
     api.renderDepsGraph = async function () {
         const ctx = _ctx();
@@ -1159,6 +1175,11 @@
         // If playback is active for a different project, exit it
         if (_pbEvents && _pbProject && ctx.selectedProject !== _pbProject) {
             window.depPlaybackExit();
+        }
+        // Reset DOT cache when project changes so we always re-render on switch
+        if (ctx.selectedProject !== _lastRenderProject) {
+            _lastRenderedDot = '';
+            _lastRenderProject = ctx.selectedProject;
         }
         return _origRender();
     };

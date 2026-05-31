@@ -18,7 +18,7 @@ if (window.SwarmDepsIntegrityUI) {
 }
 
 function refreshAll() { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }
-loadData().then(() => { if (_depsVisible) renderDepsGraph(); });
+loadData();
 // Click outside modals to close
 document.getElementById('outputModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
 document.getElementById('editTaskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditTaskModal(); });
@@ -37,7 +37,9 @@ syncVisionProviders();
 loadPausedProjects();
 loadGardenerState();
 loadMetaModeState();
-setInterval(() => { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }, 5000);
+// Graph is NOT in the auto-refresh loop — re-renders only on tab open, project switch,
+// or manual refresh. DOT debounce handles the case where nothing changed.
+setInterval(() => { loadData(); }, 5000);
 setInterval(syncAutoMode, 5000);
 setInterval(syncProviders, 30000);
 setInterval(loadMetrics, 30000);
