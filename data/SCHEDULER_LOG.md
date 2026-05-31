@@ -943,3 +943,59 @@ All archived -- NOT real failures. Real root-cause bugs need archaeologist triag
 - Monitor 15 unblocked pending tasks (should be picked as agents complete)
 - Monitor sushi-razzle qa agents (2 active, 4 pending tasks waiting)
 - System is healthy, no intervention needed
+
+---
+## Scheduler Run 2026-05-31 12:40 UTC
+
+**Scheduler**: scheduler-1780225288 (meta_scheduler) | depends on scheduler-1780224388
+
+### Agent Distribution (11 active)
+- swarm-controller: scheduler-1780225288 (meta_scheduler)
+- temporal-residue: 2 bug agents + 1 recovery agent
+- ghost-circuit: 1 bug + 1 qa agent
+- solar-escape: 1 bug + 1 qa agent
+- negative-space: 1 harness_qa + 1 art_pass + 1 polish agent
+
+### Task Breakdown
+- **In-progress**: 11
+- **Pending**: 17 (all unblocked, 0 phantom-blocked)
+- **Failed (zombie)**: 0 (4 bug-bug-bug-* artifacts archived)
+- **Phantom-blocked**: 0 (8 phantom deps auto-cleared by scheduler_check.py)
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 8 phantom-blocked tasks:
+  - task-a5ec4664c089, qa-auto-signal-cartel-1780225323, qa-sushi-razzle-rerun-8a304042722a,
+    qa-echoes-of-the-unmade-rerun-2edb36f301, art-auto-signal-cartel-1780225323,
+    pol-auto-signal-cartel-1780225323, qa-solar-escape-rerun-462ba052e20d,
+    qa-negative-space-rerun-ebd9794e338d
+- 4 zombie failed tasks (bug-bug-bug-*) archived: null error + null last_failure = phantom/recovery artifacts
+- No remaining phantom-blocked tasks.
+
+### Pending Task Analysis
+All 17 pending tasks are unblocked and ready to be picked naturally:
+- echoes-of-the-unmade: 1 bug + 1 harness_qa
+- negative-space: 1 bug + 1 harness_qa
+- rare-earth-empire: 1 qa
+- signal-cartel: 1 harness_qa + 1 art_pass + 1 polish
+- solar-escape: 1 qa + 1 feature
+- sushi-razzle: 1 qa + 4 feature
+- temporal-residue: 1 bug
+- the-memory-palace: 1 qa
+
+### Decisions
+- **No ceiling change**: 11 active, 30.7% quota, 69.3% headroom — very healthy. max_active_agents=8 but agents will be reaped naturally as they complete.
+- **No throttle change**: 69.3% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: 17 unblocked pending tasks will be picked naturally as agents complete.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 30.7% used, 69.3% remaining
+- :heavy_check_mark: **No phantom-blocked**: 8 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 4 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **All pending unblocked**: 17 tasks ready to be picked
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, art_pass, polish, recovery all running
+
+### Next Run Recommendations
+- Monitor 17 unblocked pending tasks (should be picked as agents complete)
+- Monitor temporal-residue (3 in-progress, 1 pending bug)
+- System is healthy, no intervention needed
