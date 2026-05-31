@@ -708,6 +708,24 @@ func _initialize():
                 # All patterns failed with "no such file" -- no .py files found, skip cleanly
                 print(f"[PostValidation] No Python files found for {project} -- skipping py_compile")
 
+    # Prompt YAML validation -- runs for any project that has a prompts/ directory
+    # (primarily swarm-controller itself). A broken prompt YAML takes down spawn for
+    # the entire swarm, so this must catch errors before the agent marks itself complete.
+    prompts_dir = project_path / "prompts"
+    if prompts_dir.exists() and not validation_failed:
+        import yaml as _yaml
+        broken = []
+        for prompt_file in sorted(prompts_dir.rglob("*.yaml")):
+            try:
+                _yaml.safe_load(prompt_file.read_text(encoding="utf-8"))
+            except _yaml.YAMLError as e:
+                rel = str(prompt_file.relative_to(project_path))
+                broken.append(f"{rel}: {e}")
+        if broken:
+            validation_failed = True
+            error_output = "Prompt YAML validation failed:\n" + "\n\n".join(broken)
+            print(f"[PostValidation] Broken prompt YAML in {project}: {broken}")
+
     elif project_type == "custom":
         # .swarm_validate: one line, shell command, exit code = result
         try:
