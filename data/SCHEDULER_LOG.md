@@ -847,3 +847,31 @@ All archived -- NOT real failures. Real root-cause bugs need archaeologist triag
 - Monitor 5 unblocked pending tasks (recovery x2, qa-auto x3) -- should be picked immediately
 - Monitor spawn-test-proj polish chain (art-in_progress → pol-pending → qa-pending)
 - System is healthy, no intervention needed
+
+## Scheduler Run 2026-05-31 11:27 UTC
+
+**State**: 14 active agents / 14 total (100% utilization) | 16.2% quota used, 83.8% remaining
+**Tasks**: 14 in-progress, 17 pending, 0 failed (6 phantom failed tasks archived), 0 phantom-blocked
+
+**Actions Taken**:
+- Archived 6 zombie failed tasks (bug-bug-bug-* / recovery-* chains with null error + null last_failure = phantom chain artifacts)
+  - bug-bug-bug-pol-auto-temporal-residue-1780212865 (temporal-residue)
+  - bug-bug-bug-recovery-eb4d6e36 (negative-space)
+  - recovery-32a75d2b (negative-space)
+  - bug-bug-bug-recovery-908f12c0 (echoes-of-the-unmade)
+  - bug-bug-bug-recovery-6a56f5cf (temporal-residue)
+  - recovery-5b04e52c (echoes-of-the-unmade)
+- Cleared 5 phantom deps (3 initial + 4 in pass 2 + 1 in pass 3 = stable 0)
+
+**No ceiling or throttle changes needed** (83.8% quota headroom, AUTO_SCALE is OFF)
+
+**Pending Backlog**: 17 pending tasks across 10 projects. Key clusters:
+- sushi-razzle: 1 feature, 2 qa, 2 qa pending
+- temporal-residue: 2 bug pending
+- rare-earth-empire: 2 qa, 1 bug pending
+- solar-escape: 1 feature, 2 qa pending
+
+**Archaeologist recommended for**:
+- echoes-of-the-unmade (4 failed/archived, deep chain artifacts, needs triage)
+- negative-space (2 failed/archived, deep chain artifacts)
+- temporal-residue (2 failed/archived, Dictionary key "events" errors persisting)
