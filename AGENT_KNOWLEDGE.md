@@ -396,3 +396,35 @@ Note: `POST /api/tasks` (line 316), `POST /api/tasks/batch` (line 433), and `PUT
 - `scenes/zones/origin_chamber_zone.tscn` - exists
 
 **Prevention**: Never let a "Refactor" commit delete essential validation files. Always check `git show HEAD:file` before committing changes that modify validation infrastructure.
+
+---
+## Bug: _session_written_files UnboundLocalError (ALREADY FIXED in f2f69bc)
+
+**Status**: FIXED. Commit `f2f69bc` (2026-05-29) moved `_session_written_files` and `_session_read_files` initialization from INSIDE the `for tool_calls` loop to BEFORE the `while` tool loop (lines 596-597 in agent_runtime.py). This prevents UnboundLocalError when the loop exits via `continue`/`break` before the variables are assigned.
+
+**Pattern**: Python local variable scope is determined at compile time. Any assignment to a name in a function makes it local throughout. The old code had:
+```python
+while tool_loop_count < MAX_TOOL_LOOPS:
+    for tc in tool_calls:
+        # BUG: these were INSIDE the for loop
+        _session_written_files: set = set()
+        _session_written_files.add(path_val)  # UnboundLocalError on continue/break
+```
+
+**Fix** (already applied):
+```python
+conversation = [{"role": "user", "content": user_prompt}]
+tool_loop_count = 0
+# H1-H8 metrics: per-task counters (initialized before loop so they always exist)
+_tool_call_counts: dict = {}
+_session_written_files: set = set()   # H7: files written in this session
+_session_read_files: set = set()       # H7: files read in this session
+
+while tool_loop_count < MAX_TOOL_LOOPS:
+    for tc in tool_calls:
+        _session_written_files.add(path_val)  # Always defined now
+```
+
+**Related**: commit `f595e36` (2026-05-30) also fixed `global LIBRARIAN_COMPLETION_COUNTER` ordering in `_fire_idle_librarian()` — Python 3.14 enforces that `global` statements must precede all references to the name.
+
+**Stale pyc cache**: When tests failed with SyntaxError despite `py_compile` passing, it was a stale `orchestrator.cpython-312.pyc` from before the fix. Always `rm -f swarm/__pycache__/*.pyc` when debugging import issues.
