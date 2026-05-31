@@ -39,6 +39,13 @@ def ensure_repair_task_for_regression(regression_id: str) -> dict[str, Any] | No
         existing = db.task_get(linked_task_id)
         if existing and existing.get("status") in {"pending", "in_progress"}:
             return existing
+        # If a triage task was already spawned (even if failed/deleted), don't
+        # re-enter the repair cycle — the regression is stalled and needs human
+        # attention or a manual reset.
+        if existing and existing.get("metadata", {}).get("is_closure_triage_task"):
+            return None
+        if regression.get("status") == "stalled":
+            return None
 
     run = db.verification_run_get(regression.get("source_run_id") or "")
     if not run:
@@ -443,7 +450,9 @@ def _next_repair_round(project: str, regression_id: str) -> int:
         metadata = task.get("metadata") or {}
         if metadata.get("source_regression_id") != regression_id:
             continue
-        if not metadata.get("is_closure_repair_task"):
+        # Count both repair tasks AND triage tasks — triage means budget was
+        # already exhausted at least once, so the round counter should reflect that.
+        if not (metadata.get("is_closure_repair_task") or metadata.get("is_closure_triage_task")):
             continue
         current = max(current, int(metadata.get("closure_repair_round") or 0))
     return current + 1
