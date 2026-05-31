@@ -135,7 +135,7 @@ def create_subtask(description: str, task_type: str = 'feature',
                 return {
                     "ok": False,
                     "error": (
-                        f"max sub-task depth ({max_depth}) reached — "
+                        f"max sub-task depth ({max_depth}) reached -- "
                         f"this task is at depth {parent_depth}"
                     ),
                 }
@@ -234,7 +234,7 @@ def create_task(description: str, task_type: str = "feature", priority: int = 50
     _priority_aliases = {"low": 30, "normal": 50, "medium": 50, "high": 80, "critical": 100}
     if isinstance(priority, str) and priority.lower() in _priority_aliases:
         priority = _priority_aliases[priority.lower()]
-    priority = min(int(priority), 100)
+    priority = min(int(priority), 90)
     proj = project or _proj
 
     task_metadata = dict(metadata) if metadata else {}
