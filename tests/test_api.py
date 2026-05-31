@@ -1274,7 +1274,7 @@ depends-on: US-001
                          json={"priority": 99},
                          content_type="application/json")
         assert r2.status_code == 200
-        assert r2.json["task"]["priority"] == 99
+        assert r2.json["task"]["priority"] == 90  # capped at 90 per _normalize_priority cap
 
     def test_update_task_status_reset(self, client):
         r = client.post("/api/tasks", json={
