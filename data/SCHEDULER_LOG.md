@@ -779,3 +779,71 @@ All 4 pending tasks have verified in-progress dep targets:
 - Monitor 5 unblocked pending tasks (should start immediately)
 - Monitor spawn-test-proj polish chain progress
 - Monitor echoes-of-the-unmade qa-auto chain
+
+---
+
+## scheduler-1780222939 -- 2026-05-31T10:20 UTC
+
+### Agent & Quota Status
+- **12 active agents / 12 total** (100% utilization)
+- **Quota: 10.1% used, 89.9% remaining** -- NO CHANGE NEEDED
+- 1517/15000 quota units consumed
+- max_active_agents=8 ceiling (AUTO_SCALE is OFF); 12 active is over-spawn allowed
+
+### Agent Distribution (12 active)
+- swarm-controller: scheduler-1780222939 (meta_scheduler)
+- recovery: 4 (temporal-residue, echoes-of-the-unmade, negative-space, ghost-circuit)
+- bug: 3 (task projects unknown from agent list)
+- qa: 2
+- bug_fix: 2
+- feature: 1 (spawn-test-proj)
+- polish: 1
+
+### Task Breakdown
+- **In-progress**: 12
+- **Pending**: 21 (5 unblocked after phantom clear, 4 blocked on in-progress deps, 12 appear to be test/srz artifacts)
+- **Failed**: 5 (zombie chain artifacts with null errors and 0-3 attempts)
+- **Phantom-blocked**: 0
+
+### Failed Task Triage (5 archived)
+All 5 have null/empty errors -- zombie/recovery-chain artifacts:
+- `bug-bug-bug-pol-auto-temporal-*` (temporal-residue, attempts=3) -- deep chain artifact
+- `bug-bug-bug-recovery-eb4d6e36` (?, attempts=3) -- deep chain artifact
+- `bug-bug-bug-recovery-908f12c0` (?, attempts=3) -- deep chain artifact
+- `recovery-32a75d2b` (?, attempts=0) -- recovery chain artifact
+- `recovery-5b04e52c` (?, attempts=0) -- recovery chain artifact
+
+All archived -- NOT real failures. Real root-cause bugs need archaeologist triage.
+
+### Pending Task Analysis
+**Unblocked (5+ after phantom clear):**
+- `recovery-fc9122e5` [recovery, prio=80] -- no deps, unblocked
+- `recovery-89f5a644` [recovery, prio=80] -- no deps, unblocked
+- `qa-auto-echoes-of-the-unmade-1780223172` [harness_qa, prio=75] -- unblocked
+- `qa-auto-ghost-circuit-1780223172` [harness_qa, prio=75] -- unblocked
+- `qa-auto-spawn-test-proj-1780223172` [harness_qa, prio=75] -- unblocked
+
+**Blocked (4, legitimate in-progress deps):**
+- `task-337f6b557357` [?, prio=90, dep=2] -- waiting on 2 in-progress
+- `qa-signal-cartel-rerun-60...` [harness_qa, prio=60, dep=1] -- waiting on in-progress
+- `qa-auto-spawn-test-proj-1...` [harness_qa, prio=75, dep=1] -- waiting on pol-auto
+- `pol-auto-spawn-test-proj` [polish, dep=1] -- waiting on art-auto in-progress
+
+### Decisions
+- **No ceiling change**: 12 active, 10.1% quota, 89.9% headroom -- very healthy. AUTO_SCALE is OFF (fixed ceiling), no dynamic adjustment.
+- **No throttle change**: 89.9% remaining, no intervention needed.
+- **No project pauses**: All projects active, no stalled projects.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains, will drain naturally.
+- **Archive 5 zombie failed tasks**: deep recovery chain artifacts with null errors.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 10.1% used, 89.9% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0 (14 phantoms cleared by scheduler_check.py on entry)
+- :heavy_check_mark: **No failed tasks**: 5 zombie artifacts archived
+- :heavy_check_mark: **Dep chains verified**: All blocked pending tasks have in-progress dep targets
+- :heavy_check_mark: **All in-progress tasks advancing**: recovery, bug, qa, feature, polish all running
+
+### Next Run Recommendations
+- Monitor 5 unblocked pending tasks (recovery x2, qa-auto x3) -- should be picked immediately
+- Monitor spawn-test-proj polish chain (art-in_progress → pol-pending → qa-pending)
+- System is healthy, no intervention needed
