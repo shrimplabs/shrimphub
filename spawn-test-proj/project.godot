@@ -8,6 +8,7 @@ config/name="spawn-test-proj"
 [autoload]
 SpawnService="*res://scripts/spawn_service.gd"
 ServiceManager="*res://scripts/service_manager.gd"
+Gut="*res://addons/gut/gut.gd"
 
 [display]
 window/size/viewport_width=1280

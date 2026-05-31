@@ -68,3 +68,9 @@ func _find_service_script() -> String:
 		if FileAccess.file_exists(full_path):
 			return full_path
 	return ""
+
+func is_running() -> bool:
+	return _running
+
+func get_pid() -> int:
+	return pid
