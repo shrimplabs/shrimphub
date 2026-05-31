@@ -108,3 +108,71 @@ Let the current cycle run. The 11 active agents will complete their tasks. The 5
 3. **No project pauses**: All active work healthy.
 4. **No run_after needed**: Natural flow is fine.
 5. **Archaeologist recommended**: 54-failed zombie backlog (0 attempts each) across 23+ projects. These failed without ever executing -- likely phantom dep orphans from prior cycle.
+
+## Run: scheduler-1780187476
+
+### Snapshot
+| Metric | Value |
+|--------|-------|
+| Total tasks | 20 |
+| In-Progress | 15 |
+| Pending | 4 |
+| Failed | 0 |
+| Phantom-blocked | 0 (cleared 17 across 2 passes) |
+| Active agents | 15/15 |
+| Quota used | 19.7% / 80.3% remaining |
+| Over limit | No |
+| Max active agents ceiling | 25 |
+| Auto-scale | True |
+
+### Actions Taken
+**Pass 1**: 10 phantom deps cleared:
+- `bug-recovery-bede5a7e` dep on `recovery-bede5a7e` (self-phantom)
+- `bug-bug-recovery-1e6418c2` dep on `bug-recovery-1e6418c2` (self-phantom)
+- `bug-bug-bug-recovery-b91fa077` dep on `bug-bug-recovery-b91fa077` (self-phantom)
+- `qa-auto-negative-space-1780187671` dep on `recovery-bfdb7357` (phantom)
+- `feature-187438050-agent` dep on `qa-the-memory-palace-rerun-24515f23cc08` (phantom)
+- `scheduler-1780187476` dep on `bug-184648939-agent` (phantom)
+- `qa-signal-cartel-rerun-22f2b4fd7ef1` dep on `art-auto-signal-cartel-1780147506` (phantom)
+- `qa-signal-cartel-rerun-de55f6d05cb6` dep on `qa-bug-signal-cartel-140c147b7020` (completed) + art (phantom)
+- `qa-signal-cartel-rerun-d1f9aeb2d0c2` dep on `qa-bug-signal-cartel-140c147b7020` (completed) + art (phantom)
+- `librarian-187612272-954` dep on `archaeologist-the-memory-palace-1780186394` (phantom)
+- `art-auto-negative-space-1780187671` dep on `recovery-bfdb7357` (phantom)
+- `task-7b82009b4c4f` dep on `task-63b79aee1387` + `qa-bug-gem-blaster-7d48d3d5b566` (phantom)
+- `task-aee21a2f7169` dep on `qa-auto-signal-cartel-1780147506` (phantom) + qa-bug (completed)
+
+**Pass 2**: 7 new phantom deps from freshly spawned agents:
+- `qa-signal-cartel-rerun-224906c` dep on `art-auto-signal-cartel-1780147506` (phantom) -- cleared
+- `qa-signal-cartel-rerun-de8a9a2` dep on `qa-bug-signal-cartel-140c147b7020` (completed) + art (phantom) -- cleared
+- `qa-signal-cartel-rerun-d130511` dep on `qa-bug-signal-cartel-140c147b7020` (completed) + art (phantom) -- cleared
+- `archaeologist-stone-garden-1780186394` dep on `scheduler-1780185675` (phantom) -- cleared
+
+**Pass 3**: 6 remaining phantoms (new spawns from pass 1 fixes):
+- `qa-signal-cartel-rerun-224906ca389c` dep on art (phantom) -- cleared
+- `qa-signal-cartel-rerun-de8a9a20f6bb` dep on qa-bug (completed) + art (phantom) -- cleared
+- `qa-signal-cartel-rerun-d130511d4efe` dep on qa-bug (completed) + art (phantom) -- cleared
+- `archaeologist-stone-garden-1780186394` dep on `scheduler-1780185675` (phantom) -- cleared
+
+### State Assessment
+- **Quota**: 19.7% used -- very healthy, 80.3% remaining.
+- **Agents**: 15 active (ceiling=25, auto-scale on) -- utilization at 60%.
+- **Pending**: 4 tasks, 0 phantom-blocked. System fully unblocked.
+- **Signal-cartel**: `qa-bug-signal-cartel-140c147b7020` completed (wall collision_layer fix). Three QA reruns now unblocked. `task-aee21a2f7169` (FloorCollision position fix) unblocked.
+- **Negative-space**: `art-auto-negative-space-1780187671` and `pol-auto-negative-space-1780187671` unblocked.
+
+### Decisions
+1. **No ceiling change**: 19.7% quota, ceiling at 25, auto-scale on. No ceiling hit.
+2. **No throttling**: 15/25 agents (60%), quota 80.3% remaining. No throttle.
+3. **No project pauses**: All in-progress work appears healthy.
+4. **No run_after needed**: System unblocked, natural flow.
+
+### In-Progress Breakdown (15 tasks)
+- signal-cartel: 1 bug (FloorCollision), 2 harness_qa (reruns)
+- negative-space: 1 art_pass, 1 harness_qa, 1 polish
+- echoes-of-exile: 1 bug-recovery
+- echoes-of-the-unmade: 1 bug
+- temporal-residue: 1 bug-bug-bug-recovery
+- gem-blaster: 1 bug, 1 harness_qa
+- the-memory-palace: 1 feature
+- ghost-circuit: 1 feature
+- swarm-controller: 1 meta_scheduler, 1 librarian, 1 archaeologist, 1 gardener

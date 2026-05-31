@@ -455,3 +455,20 @@ The scheduler agent (f84276d8) got stuck with `loop=None`, `input_tokens=0`, `ou
 Recovery: PATCH `/api/agents/<id>` with `{"status": "failed"}` to clear the zombie agent, then PATCH `/api/tasks/<id>` with `{"status": "completed", "dependencies": []}` to complete the zombie task and clear its phantom self-dep.
 
 Prevention: The injected PROJECT KNOWLEDGE + broadcast context (~1155 lines) may cause scheduler agents to hit context limits at spawn. Consider reducing injected context for scheduler tasks.
+
+---
+## Scheduler Runs on Port 5001 (not 8080)
+
+The swarm API server runs on `localhost:5001` (configured as `API_PORT` in swarm_runner.py). Port 8080 had an unrelated Python process. Always use port 5001 for API calls: `curl http://localhost:5001/api/...`
+
+## Phantom Dep Fix: 3-Pass Repair Pattern (confirmed)
+
+Self-referential and cross-phantom deps regenerate each time a fresh agent spawns. Must run diagnostic→repair→diagnostic→repair until 0 phantom deps remain. Example patterns this run:
+- `bug-recovery-*` dep on `recovery-*` (completed)
+- `archaeologist-*-1780186394` dep on `scheduler-1780185675` (completed)
+- `qa-signal-cartel-rerun-*` dep on `art-auto-signal-cartel-1780147506` (completed)
+- `qa-auto-negative-space-*` dep on `recovery-bfdb7357` (phantom)
+
+## Signal-Cartel Wall Collision Fix (completed)
+
+`qa-bug-signal-cartel-140c147b7020` (wall StaticBody2D collision_layer=1→4) completed. This unblocked 3 QA reruns and task-aee21a2f7169 (FloorCollision position fix). The art-auto dep `art-auto-signal-cartel-1780147506` was phantom and has been cleared from all downstream tasks.
