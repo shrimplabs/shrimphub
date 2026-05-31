@@ -1303,3 +1303,75 @@ All archived -- NOT real failures. Pre-existing validation baseline issues requi
 - Monitor echoes-of-the-unmade lock conflict (task-7f7d0b4c81b8 vs bug-bug-bug-recovery-e68116fe over test_async_syntax.gd) -- human review needed
 - Archaeologist recommended for echoes-of-the-unmade, ghost-circuit, temporal-residue, negative-space deep-chain backlog (7 failed archived this run)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780232919 -- 2026-05-31T15:22 UTC
+
+**Scheduler**: scheduler-1780232919 (meta_scheduler) | depends on scheduler-1780231591
+
+### Agent Distribution (13 active)
+- swarm-controller: scheduler-1780232919 (meta_scheduler)
+- bug: 7 (echoes-of-the-unmade x2, temporal-residue x1, signal-cartel x1, solar-escape x2, the-memory-palace x1)
+- feature: 2 (signal-cartel x2)
+- qa: 2 (ghost-circuit x2)
+- harness_qa: 1 (the-memory-palace x1)
+- qa: 1 (ghost-circuit x1)
+
+### Projects
+- ghost-circuit: 3 | solar-escape: 2 | signal-cartel: 2 | the-memory-palace: 2 | echoes-of-the-unmade: 2 | temporal-residue: 1 | swarm-controller: 1
+
+### Task Breakdown
+- **In-progress**: 13 (all agents active)
+- **Pending**: 23 (22 unblocked, 1 blocked on in-progress deps)
+- **Failed (zombie)**: 2 (already archived from previous run: bug-bug-bug-recovery-94aafb48, bug-bug-bug-recovery-84c946de)
+- **Phantom-blocked**: 0 (4 auto-cleared by scheduler_check.py)
+
+### Quota
+- **82.9% used, 17.1% remaining** -- NO CHANGE NEEDED
+- 12428/15000 quota units consumed, 90% limit threshold
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 4 phantom-blocked tasks:
+  - `feature-harness-integrate-signal-cartel-231345379` -- deps cleared → unblocked
+  - `task-43aef7a23a2f` -- deps cleared → unblocked
+  - `task-cd153811ecd1` -- deps cleared → unblocked
+  - `qa-echoes-of-the-unmade-rerun-497aafac20d7` -- deps cleared → unblocked
+- Stable at 0 phantom-blocked after pass 1.
+
+### Pending Task Analysis
+**Unblocked (22) -- ready to be picked:**
+- `feature-harness-integrate-signal-cartel-231345379` [feature, signal-cartel] -- just cleared
+- `task-43aef7a23a2f` [?, signal-cartel] -- just cleared
+- `task-cd153811ecd1` [?, ghost-circuit] -- just cleared
+- `qa-solar-escape-rerun-862ceaaa69dd` [qa, solar-escape] -- no deps
+- `qa-echoes-of-the-unmade-rerun-497aafac20d7` [qa, echoes-of-the-unmade] -- just cleared
+- `qa-echoes-of-the-unmade-rerun-*` x5 [qa, echoes-of-the-unmade] -- no deps (all waiting on in-progress recovery chain)
+- `qa-sushi-razzle-rerun-41c1fbea8815` [qa, sushi-razzle] -- no deps
+- `qa-rare-earth-empire-rerun-*` x3 [qa, rare-earth-empire] -- no deps
+- `qa-ghost-circuit-rerun-22a4a5293008` [qa, ghost-circuit] -- no deps
+- `qa-solar-escape-rerun-d251a720b433` [qa, solar-escape] -- no deps
+- `qa-signal-cartel-rerun-*` x3 [qa, signal-cartel] -- deps on harness integration tasks (in-progress)
+- `task-cdadb8cc0271` [?, sushi-razzle] -- no deps
+- `feature-227404714-487` [feature, spawn-test-proj] -- no deps
+
+**Blocked (1) -- legitimate in-progress dep:**
+- `qa-echoes-of-the-unmade-rerun-xxx` -- dep on `recovery-41000850` (in-progress)
+
+### Decisions
+- **No ceiling change**: 13 active, 82.9% quota, 17.1% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF); 13 active via /api/spawn over-spawn is allowed. No ceiling increase needed.
+- **No throttle change**: 17.1% remaining, no intervention needed.
+- **No project pauses**: All 7 active projects have in-progress agents.
+- **No run_after adjustments**: 22 unblocked pending tasks will be picked naturally as agents complete.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 82.9% used, 17.1% remaining
+- :heavy_check_mark: **No phantom-blocked**: 4 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 2 zombies already archived from previous run
+- :heavy_check_mark: **22 pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, feature, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 22 unblocked pending tasks (qa reruns for rare-earth-empire, sushi-razzle, echoes-of-the-unmade, ghost-circuit, solar-escape, signal-cartel)
+- Monitor echoes-of-the-unmade recovery chain (recovery-41000850 in progress)
+- Monitor signal-cartel harness integration (feature-harness-integrate-signal-cartel-231345379 just unblocked)
+- System is healthy, no intervention needed
