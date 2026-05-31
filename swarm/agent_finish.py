@@ -304,14 +304,22 @@ def _phase_complete_task(task_id: str, project: Optional[str], diff_stat: str) -
     db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
     db.task_record_completed(task_id, project or "")
 
-    # Cancel stale recovery tasks for this task (it succeeded so they're redundant).
+    # Cancel stale recovery/feeder tasks for this task (it succeeded so they're redundant).
     for rt in db.task_get_all():
         meta = rt.get("metadata") or {}
-        if (meta.get("is_recovery_task") and
-                meta.get("failed_task_id") == task_id and
-                rt.get("status") == "pending"):
-            db.task_update_status(rt["id"], "failed")
-            print(f"[Swarm] Cancelled stale recovery task {rt['id'][:8]} "
+        is_stale_recovery = (
+            meta.get("is_recovery_task") and
+            meta.get("failed_task_id") == task_id and
+            rt.get("status") == "pending"
+        )
+        is_stale_feeder = (
+            meta.get("is_research_feeder") and
+            meta.get("feeds_into_task_id") == task_id and
+            rt.get("status") in ("pending", "in_progress")
+        )
+        if is_stale_recovery or is_stale_feeder:
+            db.task_update_status(rt["id"], "cancelled")
+            print(f"[Swarm] Cancelled stale {'feeder' if is_stale_feeder else 'recovery'} task {rt['id'][:8]} "
                   f"(original {task_id[:8]} completed successfully)")
 
     task = db.task_get(task_id)

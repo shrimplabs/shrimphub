@@ -69,7 +69,7 @@ def auto_spawn_integration_task(
     existing_tasks = db.task_get_by_project(project)
     has_integration = any(
         t.get("metadata", {}).get("is_integration_task")
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
         for t in existing_tasks
     )
     if has_integration:
@@ -210,11 +210,11 @@ def auto_spawn_qa_task(
     # If no art_pass is already queued, insert one before the polish + QA tasks.
     # Art pass must always precede polish and QA so visual gaps are fixed first.
     has_art_pass = any(
-        t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress")
+        t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress", "failed")
         for t in existing
     )
     has_polish = any(
-        t.get("type") == "polish" and t.get("status") in ("pending", "in_progress")
+        t.get("type") == "polish" and t.get("status") in ("pending", "in_progress", "failed")
         for t in existing
     )
     upstream_id = task_id  # chain builds: triggering task → art_pass → polish → qa
@@ -240,7 +240,7 @@ def auto_spawn_qa_task(
     else:
         # Art pass already queued — find its ID so polish chains to it, not to the triggering task
         art_task = next(
-            (t for t in existing if t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress")),
+            (t for t in existing if t.get("type") == "art_pass" and t.get("status") in ("pending", "in_progress", "failed")),
             None,
         )
         if art_task:
@@ -268,7 +268,7 @@ def auto_spawn_qa_task(
     else:
         # Polish already queued — find its ID so QA chains to it, not to the triggering task
         pol_task = next(
-            (t for t in existing if t.get("type") == "polish" and t.get("status") in ("pending", "in_progress")),
+            (t for t in existing if t.get("type") == "polish" and t.get("status") in ("pending", "in_progress", "failed")),
             None,
         )
         if pol_task:
