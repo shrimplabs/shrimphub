@@ -516,3 +516,19 @@ The orchestrator module's `get_active_count()` reads from both `_active_handles`
 ## Agent loop=None display lag (2026-05-31)
 
 The `loop` field in `GET /api/agents` response shows `None` even for actively-running agents. The agent_runtime writes `loop_count` to the DB at the END of each LLM call, but there's a timing lag. Check the agent log output (`/api/agents/<id>/output`) for actual `(loop N/200)` markers to confirm real activity.
+
+---
+## Gardener Run 2026-05-31 (gardener-1780206375)
+
+### Findings
+- 8 failed tasks → all phantom/recovery-chain artifacts (error=null, last_failure=null). Archived all.
+- `temporal-residue` + `echoes-of-the-unmade`: validation scripts deleted by refactor agent — restored and committed.
+- `spawn-test-proj`: 47 untracked qa_screenshots/*.png — added to .gitignore (commit 3014d54).
+- New pattern `gk-qa-screenshots-untracked` added to swarm_knowledge.jsonl.
+
+### State at close
+- 13 active agents, 0 failed, 0 phantom-blocked, 36.9% quota.
+- GARDENER_REPORT.md written to data/.
+
+### Pattern: Phantom Failed Tasks (empty error/last_failure)
+When failed tasks have null error and null last_failure with 3 attempts, they are zombie/recovery-chain artifacts — NOT real failures. Archive them via PATCH status=archived. Do NOT create bug tasks for them.
