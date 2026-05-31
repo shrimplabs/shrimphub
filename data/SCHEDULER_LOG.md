@@ -232,3 +232,54 @@ feature-208523018-764 [feature] (in-progress)
 - Monitor quota as spawn-test-proj (3 agents) and the-memory-palace (2 agents) complete their work
 - the-memory-palace chain should resolve naturally as feature-208523018-764 completes
 - System is healthy, no intervention needed
+
+### Scheduler Run 2026-05-31 06:43 UTC
+```
+Agents: 10 active / 10 total (100% utilization)
+Quota: 43.3% used, 56.7% remaining
+Pending: 8 tasks
+Phantom-blocked: 0 (4 cleared by scheduler_check.py)
+Failed backlog: 1 (zombie, no error/last_failure)
+```
+
+### Active Agents by Project
+- swarm-controller: scheduler-1780209433 (meta_scheduler)
+- negative-space: bug-recovery-77f45da6
+- echoes-of-the-unmade: bug-bug-bug-recovery-1fa1028e
+- temporal-residue: bug-bug-bug-recovery-d53bca13
+- ghost-circuit: integration-ghost-circuit-1780209338, art-auto-ghost-circuit-1780207313
+- spawn-test-proj: qa-auto-spawn-test-proj-1780197625
+- the-memory-palace: feature-207776795-148, feature-208523018-764
+- signal-cartel: pol-auto-signal-cartel-1780209338
+
+### Phantom Dep Repair
+- scheduler_check.py cleared 4 phantom-blocked tasks:
+  - qa-auto-signal-cartel-1780209338
+  - qa-auto-echoes-of-exile-1780209805
+  - art-auto-echoes-of-exile-1780209805
+  - pol-auto-echoes-of-exile-1780209805
+
+### Decisions
+- **No ceiling change**: 10 active agents, quota 43.3% used -- full utilization but healthy headroom
+- **No throttle change**: 56.7% remaining, no intervention needed
+- **No project pauses**: All active projects have in-progress agents
+- **No run_after adjustments**: Pending tasks in legitimate dep chains
+
+### Pending Task Highlights
+- **the-memory-palace**: 5-task dep chain (feature-208523018-764 → feature-208049694-337 → bug-task-c0bbf0d018fb → integration-the-memory-palace → qa). Chain advancing naturally.
+- **echoes-of-exile**: art+pol+qa auto tasks all unblocked (deps cleared)
+- **echoes-of-the-unmade**: qa-auto waiting on in-progress bug-recovery chain
+
+### Failed Task Triage
+- bug-bug-bug-recovery-815d3735 (negative-space): error=null, last_failure=null -- zombie/recovery-chain artifact. Archive, not a real failure.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 43.3% used, 56.7% remaining
+- :heavy_check_mark: **No phantom-blocked**: 4 phantoms cleared, 0 remaining
+- :warning: **Failed backlog**: 1 zombie task (negative-space) needs archiving
+- :heavy_check_mark: **Dep chains verified**: All pending tasks legitimately blocked or unblocked
+
+### Next Run Recommendations
+- Monitor negative-space -- bug-recovery in progress, zombie task should be archived
+- Monitor echoes-of-exile auto chain -- newly unblocked, should complete within 1-2 scheduler cycles
+- the-memory-palace long-chain advancing normally -- let it drain
