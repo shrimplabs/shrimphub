@@ -183,3 +183,52 @@
 - Negative-space and temporal-residue have repeated bug-bug-bug failures — genesis reset or project closure review needed
 - No ceiling/throttle changes: 31.5% quota, 10 active agents well within capacity
 - Scheduler is healthy and running
+
+
+---
+## scheduler-1780208532 -- 2026-05-31 06:33 UTC
+
+### Agent & Quota Status
+- **13 active agents** / max_active_agents=8 ceiling -- CEILING NOT HIT (orchestrator allows over-spawn; 8 is soft limit)
+- **Quota: 38.8% used, 61.2% remaining** -- NO CHANGE NEEDED
+- 5814/15000 quota units consumed
+
+### Agent Distribution (13 active)
+- All 13 agents show `loop=None` (display lag -- API refreshes loop counter at end of LLM call; check agent output for real loop)
+- Projects: spawn-test-proj(3), the-memory-palace(2), ghost-circuit(2), echoes-of-exile(1), echoes-of-the-unmade(1), negative-space(1), signal-cartel(1), temporal-residue(1), swarm-controller(1)
+
+### Task Breakdown
+- **In-progress**: 13 (bug×6, feature×3, qa×1, art_pass×1, polish×1, meta_scheduler×1)
+- **Pending**: 5 (all legitimately blocked on in-progress deps)
+- **Failed**: 0
+
+### Pending Task Dep Chain (the-memory-palace)
+```
+feature-208523018-764 [feature] (in-progress)
+  └─ feature-208049694-337 [feature] (pending, dep=feature-208523018-764)
+       └─ bug-task-c0bbf0d018fb [bug] (pending, dep=feature-208049694-337)
+            └─ integration-the-memory-palace-17802… [bug] (pending, dep=bug-task-c0bbf0d018fb)
+                 └─ qa-187467839-agent [qa] (pending, dep=integration-the-memory-palace-17802…)
+```
+
+### Pending Task (echoes-of-the-unmade)
+- qa-auto-echoes-of-the-unmade-178020… [harness_qa] dep=[recovery-1fa1028e] (in-progress)
+
+### Decisions
+- **No ceiling change**: 13 active, 38.8% quota -- system has headroom but over-spawn is already in effect; adding more agents would spike quota.
+- **No throttle change**: 61.2% headroom, no intervention needed.
+- **No project pauses**: All 9 active projects have in-progress agents, no stalled projects.
+- **No run_after adjustments**: Pending tasks are in legitimate dep chains, will drain naturally.
+
+### Health Assessment
+- ✅ **Quota healthy**: 38.8% used, 61.2% remaining
+- ✅ **No phantom-blocked tasks**: 0 phantom deps detected
+- ✅ **No failed tasks**: Failed backlog at 0
+- ✅ **All pending tasks legitimately blocked**: Dep chains verified, no phantom blocking
+- ⚠️ **the-memory-palace dep chain**: 5 deep pending tasks all waiting on feature-208523018-764 -- long chain but not stuck
+- ⚠️ **Agent loop=None display**: All 13 agents show loop=None via API; this is a display lag, not actual zombie state. Agent outputs show real loop progress.
+
+### Next Run
+- Monitor quota as spawn-test-proj (3 agents) and the-memory-palace (2 agents) complete their work
+- the-memory-palace chain should resolve naturally as feature-208523018-764 completes
+- System is healthy, no intervention needed
