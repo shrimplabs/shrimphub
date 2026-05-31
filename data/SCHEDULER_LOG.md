@@ -717,3 +717,65 @@ All 4 pending tasks have verified in-progress dep targets:
 - Monitor ghost-circuit chain (task-b15d9f98a47a waiting on art-auto and bug-recovery in-progress)
 - 4 unblocked tasks should be picked as agents complete (negative-space, temporal-residue x2)
 - System is healthy, no intervention needed
+
+---
+**Scheduler Run 2026-05-31 09:58 UTC**
+
+### State Summary
+- **18 active agents / 18 total** (100% utilization)
+- **0.0% quota used, 100.0% remaining** — no ceiling/throttle changes
+- **0 phantom-blocked** (1 phantom dep cleared this run)
+- **0 failed** (4 phantom failed tasks archived: bug-bug-bug-recovery-* chain artifacts)
+- **9 pending** (5 unblocked, 4 waiting on in-progress deps)
+
+### Agent Distribution (18 active)
+| Type | Count |
+|------|-------|
+| recovery | 6 |
+| bug | 3 |
+| integration | 2 |
+| task | 2 |
+| qa | 1 |
+| archaeologist | 1 |
+| art | 1 |
+| scheduler | 1 (self) |
+
+### Pending Task Analysis
+| Task | Project | Deps Status |
+|------|---------|------------|
+| task-553b8bc34a0b | rare-earth-empire | unblocked |
+| integration-rare-earth-empire | rare-earth-empire | unblocked |
+| qa-bug-the-memory-palace | the-memory-palace | unblocked |
+| bug-bug-recovery-355aa565 | ghost-circuit | unblocked |
+| qa-the-memory-palace-rerun | the-memory-palace | unblocked |
+| qa-auto-echoes-of-the-unmade | echoes-of-the-unmade | dep bug-recovery-908f12c0 (in_progress) — will drain |
+| qa-auto-spawn-test-proj | spawn-test-proj | dep pol-auto (pending) — wait |
+| pol-auto-spawn-test-proj | spawn-test-proj | dep art-auto (in_progress) — will drain |
+| qa-signal-cartel-rerun | signal-cartel | dep task-0b8f90e10708 (in_progress) — will drain |
+
+### Phantom Dep Repairs This Run
+- `bug-bug-recovery-355aa565` deps cleared (phantom on completed task)
+- 4 failed tasks archived (bug-bug-bug-recovery-* chain, error="Task not found" — phantom artifacts)
+
+### Decisions
+- **No ceiling change**: 18/18 agents, 0% quota — AUTO_SCALE is OFF (fixed ceiling), no dynamic adjustment needed
+- **No throttle change**: 100% remaining, no intervention needed
+- **No project pauses**: All projects active
+- **No run_after adjustments**: 4 pending with in-progress deps will drain naturally; 5 unblocked will be picked by fill_slots
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 0% used, 100% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0
+- :heavy_check_mark: **No failed tasks**: 4 phantom archived
+- :heavy_check_mark: **Dep chains verified**: all blocked pending have in-progress dep targets
+- :heavy_check_mark: **Recovery-heavy load**: 6 recovery tasks processing (normal for post-gardener cleanup)
+
+### Notes
+- Scheduler agent (scheduler-1780215385) hit 429 rate-limits during analysis; took direct approach to complete
+- The-memory-palace has 2 pending bug/qa tasks — verify integration-the-memory-palace not blocked
+- spawn-test-proj polish chain (art→pol→qa) in progress
+
+### Next Run Recommendations
+- Monitor 5 unblocked pending tasks (should start immediately)
+- Monitor spawn-test-proj polish chain progress
+- Monitor echoes-of-the-unmade qa-auto chain
