@@ -446,3 +446,12 @@ while tool_loop_count < MAX_TOOL_LOOPS:
 - All 10 user stories implemented, all systems wired, boot passes, 70/71 tests pass
 - Recovery DAG: feature-187438050-agent (stabilization + closure docs) → qa-187467839-agent (final QA)
 - ARCHAEOLOGY_REPORT.md written to project root
+
+---
+## Scheduler Self-Reading Loop Fix (2026-05-30)
+
+The scheduler agent (f84276d8) got stuck with `loop=None`, `input_tokens=0`, `output_tokens=0` -- stuck at spawn before the first LLM call. Previous scheduler (scheduler-1780185675) had already completed and written SCHEDULER_LOG.md. The zombie task `scheduler-1780186576` was DEPENDED ON by 4 pending tasks.
+
+Recovery: PATCH `/api/agents/<id>` with `{"status": "failed"}` to clear the zombie agent, then PATCH `/api/tasks/<id>` with `{"status": "completed", "dependencies": []}` to complete the zombie task and clear its phantom self-dep.
+
+Prevention: The injected PROJECT KNOWLEDGE + broadcast context (~1155 lines) may cause scheduler agents to hit context limits at spawn. Consider reducing injected context for scheduler tasks.
