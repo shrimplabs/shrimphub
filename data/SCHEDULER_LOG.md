@@ -431,3 +431,69 @@ Failed backlog: 0 (2 zombies archived this run)
 
 ### Recommended
 Archaeologist triage for `bug-bug-bug-recovery-9d30` (temporal-residue, 3 attempts, null error — likely phantom chain). Stalled projects: temporal-residue (1 failed), echoes-of-the-unmade (4 in-chain), negative-space (1 recovery), signal-cartel (1 bug + 1 QA pending).
+
+---
+## scheduler-1780212135 -- 2026-05-31T07:28:48Z
+
+### Agent & Quota Status
+- **11 active agents** / 11 total (100% utilization)
+- **Quota: 62.4% used, 37.6% remaining** -- NO CHANGE NEEDED
+- 9261/15000 quota units consumed
+
+### Agent Distribution (11 active)
+- swarm-controller: scheduler-1780212135 (meta_scheduler)
+- echoes-of-exile: qa-bug-echoes-of-exile-107c174, 056ad0ca (bug x1, harness_qa x1)
+- echoes-of-the-unmade: bug-bug-recovery-b1469405 (bug)
+- temporal-residue: bug-bug-bug-recovery-5c464761 (bug, pending dep)
+- signal-cartel: task-9624c599d2f4 (bug), qa-signal-cartel-rerun-cacef6c (harness_qa)
+- the-memory-palace: feature-211931830-295 (feature), qa-187467839-agent (qa), 580f90ad (agent), b05fa6c0 (agent)
+- negative-space: recovery-464c3591 (bug)
+- ghost-circuit: art_pass-210085050-112 (art_pass)
+
+### Task Breakdown
+- **In-progress**: 11
+- **Pending**: 6 (all legitimately blocked or newly unblocked via phantom clear)
+- **Failed**: 0 (5 zombie tasks archived this run)
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 3 phantom-blocked tasks:
+  - `qa-bug-the-memory-palace-abe3ed15a3b4` -- deps cleared
+  - `qa-bug-the-memory-palace-470460099c07` -- deps cleared  
+  - `recovery-5508cba8` -- deps cleared
+- All 3 now unblocked, will drain naturally
+
+### Failed Task Triage (5 archived)
+All 5 had null error + null last_failure + 3 attempts -- zombie/recovery-chain artifacts:
+- `bug-bug-bug-recovery-9d30124f` (temporal-residue) -- deep chain stopped at depth 4. Root cause: `Dictionary::operator[] used when no value for key 'events'` in Godot startup.
+- `bug-bug-bug-recovery-ab939c89` (echoes-of-the-unmade) -- deep chain stopped at depth 4. Root cause: `!d.has('speed')` script parse error.
+- `bug-bug-bug-recovery-90f9556b` (negative-space) -- deep chain stopped at depth 4. Root cause: scene parse errors in crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn.
+- `bug-bug-bug-recovery-5c464761` (temporal-residue) -- same root cause as first entry.
+- `recovery-9b3c3ee9` (temporal-residue) -- recovery task for deep chain, same root cause.
+
+All archived -- NOT real failures. Root cause bugs need archaeologist triage at their respective projects.
+
+### Pending Task Status
+- `bug-task-c0bbf0d018fb` (the-memory-palace) -- dep on feature-208049694-337
+- `integration-the-memory-palace-17802...` -- dep on bug-task-c0bbf0d018fb (chain advancing)
+- `feature-208049694-337` (the-memory-palace) -- dep on feature-211931830-295 (in-progress)
+- `qa-auto-echoes-of-the-unmade-178020...` -- dep on bug-bug-recovery-b1469405 (in-progress)
+- `qa-the-memory-palace-rerun-baafe5cf` -- no deps, newly unblocked, should be picked
+- `recovery-464c3591` (negative-space) -- no deps, in-progress
+
+### Decisions
+- **No ceiling change**: 11 active, 62.4% quota, 37.6% headroom -- healthy
+- **No throttle change**: 37.6% remaining, no intervention needed
+- **No project pauses**: All 8 active projects have in-progress agents
+- **No run_after adjustments**: Pending tasks in legitimate dep chains
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 62.4% used, 37.6% remaining
+- :heavy_check_mark: **No phantom-blocked**: 3 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **Failed backlog cleared**: 5 zombie tasks archived
+- :heavy_check_mark: **Dep chains verified**: All pending tasks legitimately blocked or unblocked
+- :heavy_check_mark: **All in-progress tasks advancing**
+
+### Next Run Recommendations
+- Monitor the-memory-palace dep chain (3 deep, feature-211931830-295 in progress)
+- Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress)
+- System is healthy, no intervention needed
