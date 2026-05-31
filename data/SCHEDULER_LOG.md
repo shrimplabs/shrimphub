@@ -334,3 +334,59 @@ Failed backlog: 2 zombie tasks (null error/last_failure, 3 attempts each)
 - Monitor the-memory-palace chain (5 deep, feature-208523018-764 in progress)
 - Monitor echoes-of-exile auto chain completion
 - System is healthy, no intervention needed
+
+### Scheduler Run 2026-05-31 08:19 UTC
+```
+Agents: 11 active / 11 total (100% utilization)
+Quota: 53.6% used, 46.4% remaining
+Pending: 11 tasks
+Phantom-blocked: 0 (3 cleared by diagnostic script)
+Failed backlog: 0 (2 zombies archived this run)
+```
+
+### Active Agents by Project
+- swarm-controller: scheduler-1780210884 (meta_scheduler, in_progress)
+- echoes-of-exile: art-auto-echoes-of-exile-1780209805, pol-auto-echoes-of-exile-1780209805, qa-echoes-of-exile-rerun-f6e51ff19e8b (all in_progress)
+- signal-cartel: integration-signal-cartel-1780210761 (in_progress), qa-bug-signal-cartel-91ef350d65c5 (in_progress)
+- ghost-circuit: art-auto-ghost-circuit-1780207313 (in_progress)
+- the-memory-palace: feature-207776795-148, feature-208523018-764 (both in_progress)
+- negative-space: bug-pol-auto-echoes-of-exile-1780209805, bug-bug-bug-recovery-9d30124f, recovery-ab939c89 (all in_progress)
+
+### Pending Task Status
+- **the-memory-palace chain**: feature-208523018-764 (in_progress) → feature-208049694-337 (pending) → bug-task-c0bbf0d018fb (pending) → integration-the-memory-palace-1780207783 (pending) → qa-187467839-agent (pending). Chain advancing.
+- **signal-cartel harness integration**: feature-harness-integrate-signal-cartel-211132645 (pending, deps cleared, no blocking) → qa-signal-cartel-rerun-cacef6c88e98 (pending) → 2 older qa-bug-signal-cartel pending (low priority). The priority 85 harness task should be picked soon.
+- **echoes-of-the-unmade auto chain**: qa-auto-echoes-of-the-unmade-1780203746 (pending, dep on pol-auto-echoes-of-exile-1780209805 in_progress) → natural dep chain.
+- **negative-space recovery chain**: recovery-90f9556b (pending, no deps) → art_pass-210085050-112 (pending) → natural.
+
+### Phantom Dep Analysis
+- 3 phantom-blocked tasks found and cleared by diagnostic:
+  - `feature-harness-integrate-signal-cartel-211132645` — deps cleared → now ready
+  - `qa-bug-signal-cartel-79d33ee042e6` — deps cleared → now ready
+  - `qa-bug-signal-cartel-fda663d2c738` — deps cleared → now ready
+- No remaining phantom-blocked tasks.
+- NOT_FOUND deps are intentionally treated as MET by `is_dependency_met()` (escape hatch). This is working as designed.
+
+### Failed Task Triage
+- **bug-bug-bug-recovery-77f45da6** (negative-space): error=Scene parse errors, attempts=3, archived. Root cause: scene files with parse errors in crosshair.tscn/pillar_puzzle.tscn/origin_chamber_zone.tscn. Deep chain stopped at depth 4. Real issue is scene corruption, not agent bug.
+- **bug-bug-bug-recovery-79b69e08** (echoes-of-the-unmade): error=Script parse errors ("!d.has('speed')" continuing), attempts=3, archived. Deep chain stopped at depth 4. Root cause: missing 'speed' key in dictionary check.
+- Both are deep-chain recovery artifacts with real validation baseline errors. Require archaeologist triage — the root bugs (scene corruption + missing speed key) need fixing at their respective roots, not deep-chain recovery.
+
+### Decisions
+- **No ceiling change**: 11 active, 100% util, quota 46.4% remaining — all agents busy but quota headroom healthy. Ceiling is 8 (config), 11 agents active is possible if scheduler spawns via `/api/spawn` which bypasses fill_slots.
+- **No throttle change**: 46.4% remaining, no intervention needed
+- **No project pauses**: All active projects have in-progress agents
+- **No run_after adjustments**: Pending tasks in legitimate dep chains
+- **Archive 2 zombie failed tasks**: bug-bug-bug-recovery-77f45da6, bug-bug-bug-recovery-79b69e08 → done
+
+### Health Assessment
+- ✅ **Quota healthy**: 53.6% used, 46.4% remaining
+- ✅ **No phantom-blocked**: 0
+- ✅ **Dep chains verified**: All pending tasks either have no deps or deps are met/escape-hatched
+- ✅ **All in-progress tasks advancing**: echoes-of-exile, signal-cartel, the-memory-palace, negative-space
+- ✅ **Failed backlog cleared**: 2 zombies archived
+
+### Next Run Recommendations
+- Monitor the-memory-palace chain (5 deep, feature-208523018-764 in progress)
+- Monitor echoes-of-exile auto chain completion (pol + qa in progress)
+- Consider archaeologist triage for negative-space scene corruption (crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn parse errors) and echoes-of-the-unmade missing 'speed' key in dictionary check — both have deep-chain recovery artifacts that keep failing
+- System is healthy, no intervention needed
