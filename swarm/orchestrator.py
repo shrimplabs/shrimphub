@@ -588,8 +588,6 @@ def _fire_idle_librarian() -> None:
         return
     if not META_MODE_ENABLED:
         return
-    if get_active_count() > 0:
-        return
     if LIBRARIAN_COMPLETION_COUNTER < LIBRARIAN_TRIGGER_INTERVAL:
         return
 
@@ -601,6 +599,8 @@ def _fire_idle_librarian() -> None:
         for t in all_tasks
     )
     if not already_running:
+        global LIBRARIAN_COMPLETION_COUNTER
+        LIBRARIAN_COMPLETION_COUNTER = 0
         task_id = f"librarian-{int(time.time())}"
         deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
         db.task_upsert({
