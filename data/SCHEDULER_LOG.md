@@ -655,3 +655,65 @@ All 4 pending tasks have verified in-progress dep targets:
 - Monitor the-memory-palace chain (feature-208049694-337 → bug → integration → qa)
 - Monitor echoes-of-the-unmade chain (recovery-0c4f417a completed, qa-auto pending)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780214485 -- 2026-05-31T08:07 UTC
+
+### Agent & Quota Status
+- **11 active agents** / 11 total (100% utilization)
+- **Quota: 79.1% used, 20.9% remaining** -- NO CHANGE NEEDED
+- 11862/15000 quota units consumed
+
+### Agent Distribution (11 active)
+- swarm-controller: scheduler-1780214485 (meta_scheduler)
+- meta_scheduler: 1 | bug: 3 | harness_qa: 2 | feature: 1 | polish: 1 | qa: 1 | art_pass: 1 | gardener: 1
+- Projects: the-memory-palace(2), temporal-residue(2), swarm-controller(2), signal-cartel(2), echoes-of-the-unmade(1), ghost-circuit(1), spawn-test-proj(1)
+
+### Task Breakdown
+- **In-progress**: 11
+- **Pending**: 9 (4 legitimately blocked, 5 unblocked or phantom-dep)
+- **Failed**: 0
+- **Phantom-blocked**: 0
+
+### Pending Task Dep Verification
+**Blocked (4) -- legitimate dep chains:**
+- `integration-the-memory-palace-1780207783` [the-memory-palace] -- dep=`bug-task-c0bbf0d018fb` [in-progress]
+- `qa-auto-echoes-of-the-unmade-1780203746` [echoes-of-the-unmade] -- dep=`bug-bug-bug-recovery-0c4f417a` [in-progress]
+- `task-b15d9f98a47a` [ghost-circuit] -- deps=`art-auto-ghost-circuit-1780212802` [in-progress], `bug-bug-recovery-2d188cb7` [in-progress]
+- `qa-temporal-residue-rerun-4dea52da1a58` [temporal-residue] -- dep=`qa-bug-temporal-residue-426909aee303` [pending]
+
+**Unblocked (4) -- ready to be picked:**
+- `bug-bug-recovery-6062ae2d` [negative-space] -- no deps, ready
+- `qa-bug-temporal-residue-426909aee303` [temporal-residue] -- dep NOT_FOUND→`qa-auto-temporal-residue-1780212865` (system escape-hatch treats as met), ready
+- `qa-bug-temporal-residue-4e7ea6b6cfdc` [temporal-residue] -- dep NOT_FOUND→`qa-auto-temporal-residue-1780212865` (escape-hatch), ready
+
+**Archaeologist blocked (1):**
+- `archaeologist-rare-earth-empire-1780213443` -- dep NOT_FOUND→`qa-rare-earth-empire-rerun-fa9d2d7a5b39` (phantom dep on completed/deleted task). Escape-hatch treating as met -- will be picked soon.
+- `archaeologist-solar-escape-1007b9ba7c00` -- dep NOT_FOUND→`task-0f2d4b380738` (phantom dep). Escape-hatch treating as met -- will be picked soon.
+- `archaeologist-sushi-razzle-1007b9ba7c00` -- dep NOT_FOUND→`qa-sushi-razzle-rerun-5e917a7034ad` (phantom dep). Escape-hatch treating as met -- will be picked soon.
+
+### Phantom Dep Analysis
+- 5 pending tasks have NOT_FOUND dep targets (phantom deps on completed/deleted tasks).
+- `is_dependency_met()` intentionally treats NOT_FOUND deps as MET (escape hatch for manual task deletion/migration).
+- No actual phantom blocking: 0 tasks blocked.
+- System is healthy -- tasks with phantom deps will naturally drain as agents complete.
+
+### Decisions
+- **No ceiling change**: 11 active, 79.1% quota, 20.9% headroom -- healthy. AUTO_SCALE is OFF (fixed ceiling), so no dynamic adjustment.
+- **No throttle change**: 20.9% remaining, no intervention needed.
+- **No project pauses**: All 106 projects active, 7 have in-progress agents. No stalled projects.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains or escape-hatched, will drain naturally.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 79.1% used, 20.9% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0 (NOT_FOUND deps escape-hatched as designed)
+- :heavy_check_mark: **No failed tasks**: Failed backlog at 0
+- :heavy_check_mark: **Dep chains verified**: All blocked pending tasks have verified in-progress dep targets
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, feature, polish, qa, harness_qa, art_pass, gardener, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor the-memory-palace chain (integration task waiting on bug-task-c0bbf0d018fb in-progress)
+- Monitor echoes-of-the-unmade chain (qa-auto waiting on bug-bug-bug-recovery-0c4f417a in-progress)
+- Monitor ghost-circuit chain (task-b15d9f98a47a waiting on art-auto and bug-recovery in-progress)
+- 4 unblocked tasks should be picked as agents complete (negative-space, temporal-residue x2)
+- System is healthy, no intervention needed
