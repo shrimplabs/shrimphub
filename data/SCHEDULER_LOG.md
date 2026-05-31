@@ -875,3 +875,71 @@ All archived -- NOT real failures. Real root-cause bugs need archaeologist triag
 - echoes-of-the-unmade (4 failed/archived, deep chain artifacts, needs triage)
 - negative-space (2 failed/archived, deep chain artifacts)
 - temporal-residue (2 failed/archived, Dictionary key "events" errors persisting)
+
+## scheduler-1780224388 -- 2026-05-31T12:13 UTC
+
+### Agent & Quota Status
+- **10 active agents / 10 total** (100% utilization)
+- **Quota: 21.3% used, 78.7% remaining** -- NO CHANGE NEEDED
+- max_active_agents=8 ceiling (AUTO_SCALE is OFF); 10 active is over-spawn allowed
+
+### Agent Distribution (10 active)
+- swarm-controller: scheduler-1780224388 (meta_scheduler, loop 8)
+- sushi-razzle: 2 qa agents (loops 14, 17)
+- temporal-residue: 2 bug agents (loops 6, 145)
+- echoes-of-the-unmade: 1 harness_qa (loop 15)
+- ghost-circuit: 1 bug (loop 22)
+- signal-cartel: 1 bug (loop 20)
+- rare-earth-empire: 1 bug_fix (loop 97)
+- the-memory-palace: 1 bug (loop ?)
+
+### Task Breakdown
+- **In-progress**: 10
+- **Pending**: 16 (15 unblocked, 1 blocked on in-progress bug)
+- **Failed**: 0
+- **Phantom-blocked**: 0 (4 auto-cleared by scheduler_check.py)
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 4 phantom-blocked tasks:
+  - `bug-bug-bug-recovery-0393fb30` -- deps cleared → now unblocked
+  - `qa-auto-negative-space-1780224775` -- deps cleared → now unblocked
+  - `art-auto-negative-space-1780224775` -- deps cleared → now unblocked
+  - `pol-auto-negative-space-1780224775` -- deps cleared → now unblocked
+- No remaining phantom-blocked tasks.
+
+### Pending Task Analysis
+**Unblocked (15) -- ready to be picked:**
+- `bug-bug-bug-recovery-0393fb30` [bug, temporal-residue] -- just cleared, no deps
+- `qa-auto-ghost-circuit-1780223172` [harness_qa, ghost-circuit] -- no deps
+- `qa-auto-negative-space-1780224775` [harness_qa, negative-space] -- just cleared
+- `qa-the-memory-palace-rerun-d3a0857c6959` [qa, the-memory-palace] -- no deps
+- `qa-rare-earth-empire-rerun-646c8f4eef8b` [qa, rare-earth-empire] -- no deps
+- `art-auto-negative-space-1780224775` [art_pass, negative-space] -- just cleared
+- `pol-auto-negative-space-1780224775` [polish, negative-space] -- just cleared
+- `srz-002/003/004/005` [qa, sushi-razzle] -- no deps
+- `qa-bug-temporal-residue-5591a084c678` [qa, temporal-residue] -- no deps
+- `validate-launch` [qa, solar-escape] -- no deps
+- `qa-regression` [qa, solar-escape] -- no deps
+- `update-knowledge` [?, solar-escape] -- no deps
+
+**Blocked (1) -- legitimate in-progress dep:**
+- `bug-224813679-agent` [bug, echoes-of-the-unmade] -- dep on bug-recovery chain (in-progress)
+
+### Decisions
+- **No ceiling change**: 10 active, 21.3% quota, 78.7% headroom -- very healthy. AUTO_SCALE is OFF (fixed ceiling), no dynamic adjustment.
+- **No throttle change**: 78.7% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: 15 unblocked pending tasks will be picked naturally as agents complete.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 21.3% used, 78.7% remaining
+- :heavy_check_mark: **No phantom-blocked**: 4 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: Failed backlog at 0
+- :heavy_check_mark: **Dep chains verified**: 15 pending tasks unblocked, 1 blocked on in-progress
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, bug_fix all running
+
+
+### Next Run Recommendations
+- Monitor 15 unblocked pending tasks (should be picked as agents complete)
+- Monitor sushi-razzle qa agents (2 active, 4 pending tasks waiting)
+- System is healthy, no intervention needed
