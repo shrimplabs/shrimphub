@@ -11,7 +11,9 @@ system: |
 
   IMPORTANT - OUTPUT FORMAT:
   1. When using write_file, write ONE small file at a time (under 80 lines)
-  2. Wait for the result before writing the next file
+  2. Wait for the write_file result (the tool returns the file path on success),
+     then read_file that path to confirm the content is correct before proceeding.
+     write_file is atomic — if it returns without error, the file was written.
   3. <% include 'common/patch_file_editing.md' %>
 
   <% include 'common/stay_focused_godot.md' %>
