@@ -30,19 +30,23 @@ def register_routes(app, task_source, db, workspace):
     _PRIORITY_WORDS = {"low": 25, "normal": 50, "medium": 50, "high": 80, "critical": 100, "urgent": 100}
 
     def _normalize_priority(raw, default=50) -> int:
-        """Coerce priority to int. Accepts int, numeric string, or word like 'high'."""
+        """Coerce priority to int. Accepts int, numeric string, or word like 'high'.
+        
+        All values are capped at 90 to prevent agents from bypassing task-creation
+        limits. Agents cannot self-elevate priority beyond what a human could assign.
+        """
         if raw is None:
             return default
         if isinstance(raw, int):
-            return raw
+            return min(raw, 90)
         if isinstance(raw, float):
-            return int(raw)
+            return min(int(raw), 90)
         if isinstance(raw, str):
             s = raw.strip().lower()
             if s in _PRIORITY_WORDS:
-                return _PRIORITY_WORDS[s]
+                return min(_PRIORITY_WORDS[s], 90)
             try:
-                return int(s)
+                return min(int(s), 90)
             except ValueError:
                 return default
         return default
