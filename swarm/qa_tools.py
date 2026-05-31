@@ -1445,6 +1445,37 @@ def harness_launch_game(project_path: str, extra_args: list = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+_HARNESS_FALLBACK_PORTS = [11011, 11012, 11013, 11014, 11015]
+
+def _harness_connect(port: int, deadline: float):
+    """Connect to a TestHarness port, retrying with fallback ports on TIME_WAIT.
+
+    On macOS the kernel holds ports in TIME_WAIT for up to 60s after a
+    previous process exits.  The TestHarness server retries its primary port
+    up to 25 times (12.5s) then binds to a fallback port.  The Python client
+    must also try all fallback ports so it finds the server regardless of
+    which port it ended up binding to.
+    """
+    import socket as _socket
+    import time as _time
+
+    ports_to_try = [port] + [p for p in _HARNESS_FALLBACK_PORTS if p != port]
+    for attempt_port in ports_to_try:
+        for attempt in range(5):  # 5 short retries per port
+            if _time.time() >= deadline:
+                return None
+            try:
+                s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+                s.settimeout(min(2.0, max(0.5, deadline - _time.time())))
+                s.connect(("localhost", attempt_port))
+                return s
+            except (ConnectionRefusedError, OSError):
+                if s:
+                    s.close()
+                _time.sleep(0.2)
+    return None
+
+
 def harness_step(action: dict, timeout: int = 30) -> dict:
     """Send an action to the paused game and receive the next state."""
     import socket
@@ -1452,20 +1483,10 @@ def harness_step(action: dict, timeout: int = 30) -> dict:
     import time as _time
 
     deadline = _time.time() + timeout
-    s = None
-    while _time.time() < deadline:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(min(5.0, deadline - _time.time()))
-            s.connect(("localhost", _harness_port))
-            break
-        except (ConnectionRefusedError, OSError):
-            s.close()
-            s = None
-            _time.sleep(0.2)
+    s = _harness_connect(_harness_port, deadline)
 
     if s is None:
-        return {"error": f"harness_step: could not connect to game on port {_harness_port} within {timeout}s"}
+        return {"error": f"harness_step: could not connect to TestHarness (primary={_harness_port}, fallbacks={_HARNESS_FALLBACK_PORTS}) within {timeout}s"
 
     try:
         # Send action first -- works for both phases:
@@ -1502,12 +1523,14 @@ def harness_take_screenshot(filename: str) -> dict:
     import json as _json
     import base64 as _b64
     import os
+    import time as _time
 
     s = None
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(10.0)
-        s.connect(("localhost", _harness_port))
+        deadline = _time.time() + 10.0
+        s = _harness_connect(_harness_port, deadline)
+        if s is None:
+            return {"ok": False, "error": f"harness_take_screenshot: could not connect to TestHarness (primary={_harness_port}, fallbacks={_HARNESS_FALLBACK_PORTS}) within 10s"}
         # Nav-phase protocol: we send first, harness reads then responds
         s.sendall((_json.dumps({"type": "screenshot"}) + "\n").encode())
         data = b""
@@ -1676,12 +1699,12 @@ def key_hold(key: str, duration: float = 1.0) -> dict:
         return {"ok": True, "source": "state_server"}
     # Fallback: rapid-fire key_press for the duration (simulates a held key)
     log(f"StateServer hold failed ({resp.get('error')}), falling back to repeated key_press for {duration}s")
-    # Do a single probe first — if the key name is invalid (e.g. a Godot action name like
+    # Do a single probe first -- if the key name is invalid (e.g. a Godot action name like
     # "hard_drop" that cliclick doesn't know), bail immediately rather than silently looping.
     probe = qa_key_press(key)
     if not probe.get("ok"):
-        log(f"key_hold fallback: key_press probe failed for '{key}': {probe.get('error')} — key name may be a Godot action, not a physical key")
-        return {"ok": False, "error": f"key_hold fallback failed: {probe.get('error', 'key_press returned ok=False')} — use a physical key name (e.g. 'space', 'arrow-up') instead of a Godot action name"}
+        log(f"key_hold fallback: key_press probe failed for '{key}': {probe.get('error')} -- key name may be a Godot action, not a physical key")
+        return {"ok": False, "error": f"key_hold fallback failed: {probe.get('error', 'key_press returned ok=False')} -- use a physical key name (e.g. 'space', 'arrow-up') instead of a Godot action name"}
     interval = 0.05
     end = _time.time() + duration
     count = 1  # probe already fired one press
