@@ -611,3 +611,47 @@ All 4 pending tasks have verified in-progress dep targets:
 - Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress)
 - Newly unblocked auto tasks (ghost-circuit, temporal-residue) should be picked as agents complete
 - System is healthy, no intervention needed
+
+## Scheduler Run 2026-05-31 09:35 UTC
+
+**System State**
+- 10 active agents / 10 total (100% utilization)
+- 72.9% quota used, 27.1% remaining
+- 0 phantom-blocked (2 auto-cleared: qa-the-memory-palace-rerun-360e295b1684, gardener-1780213920)
+- 2 failed tasks (zombie artifacts: bug-bug-bug-recovery-464c3591, bug-bug-bug-recovery-b1469405 -- null errors, no action)
+- 8 pending tasks (all legitimately blocked or auto-chain waiting)
+
+**In-Progress Agents**
+- meta_scheduler: scheduler-1780213585 (swarm-controller)
+- polish: pol-auto-temporal-residue-1780 (temporal-residue)
+- bug: bug-recovery-7863ee1a (negative-space), qa-bug-the-memory-palace-0883a (the-memory-palace)
+- polish: pol-auto-ghost-circuit-1780212 (ghost-circuit)
+- feature: feature-harness-integrate-sign (signal-cartel), feature-208049694-337 (the-memory-palace)
+- harness_qa: qa-auto-temporal-residue-17802 (temporal-residue)
+- art_pass: art-auto-ghost-circuit-1780212 (ghost-circuit)
+- bug: recovery-0c4f417a (echoes-of-the-unmade)
+
+**Pending Highlights**
+- the-memory-palace: feature-208049694-337 (pending, dep in-progress) → bug-task-c0bbf0d018fb (pending, dep pending) → integration (pending). Chain advancing.
+- signal-cartel: qa-signal-cartel-rerun-6b042bc (pending, dep in-progress harness) → ready when harness completes.
+- echoes-of-the-unmade: qa-auto-echoes-of-the-unmade-1 (pending, dep on completed recovery-0c4f417a) → ready.
+- ghost-circuit: task-b15d9f98a47a (pending, dep in-progress art-auto) → ready.
+- spawn-test-proj: feature-213794977-941 (pending, no deps) → ready.
+
+**Decisions**
+- **No ceiling change**: 10 active, 72.9% quota, 27.1% headroom -- healthy. AUTO_SCALE is off.
+- **No throttle change**: 27.1% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains, will drain naturally.
+
+**Health Assessment**
+- :heavy_check_mark: **Quota healthy**: 72.9% used, 27.1% remaining
+- :heavy_check_mark: **No phantom-blocked**: 2 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **Dep chains verified**: All blocked pending tasks have verified in-progress or completed dep targets
+- :heavy_check_mark: **5 newly unblocked**: qa-signal-cartel-rerun, qa-the-memory-palace-rerun, task-b15d9f98a47a, feature-213794977-941, gardener ready to be picked
+- :heavy_check_mark: **All in-progress tasks advancing**: feature, bug, polish, qa, art_pass agents all running
+
+**Next Run Recommendations**
+- Monitor the-memory-palace chain (feature-208049694-337 → bug → integration → qa)
+- Monitor echoes-of-the-unmade chain (recovery-0c4f417a completed, qa-auto pending)
+- System is healthy, no intervention needed
