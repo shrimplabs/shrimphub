@@ -34,6 +34,8 @@ VALIDATION_STATE.md
 # Runtime data (all excluded; only .gitkeep is tracked)
 data/*
 !data/.gitkeep
+!data/scheduler_check.py
+!data/SCHEDULER_LOG.md
 
 # Beads / Dolt files (added by bd init)
 .dolt/

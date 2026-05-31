@@ -57,7 +57,7 @@ def test_no_runtime_or_session_artifacts_are_tracked():
     )
 
     # Cartographer survey outputs and scheduler diagnostics are intentionally versioned
-    allowed_in_data = {"data/PROJECT_MAP.md", "data/SWARM_SUMMARY.json", "data/scheduler_check.py"}
+    allowed_in_data = {"data/PROJECT_MAP.md", "data/SWARM_SUMMARY.json", "data/scheduler_check.py", "data/SCHEDULER_LOG.md"}
     offenders = []
     for path in _tracked_files(repo):
         if path in forbidden_exact:
