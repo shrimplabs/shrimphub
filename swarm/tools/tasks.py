@@ -106,7 +106,10 @@ def create_subtask(description: str, task_type: str = 'feature',
                 f"Must be one of: {', '.join(VALID_TYPES)}"
             ),
         }
-    priority = min(int(priority), 90)
+    _priority_aliases = {"low": 30, "normal": 50, "medium": 50, "high": 80, "critical": 100}
+    if isinstance(priority, str) and priority.lower() in _priority_aliases:
+        priority = _priority_aliases[priority.lower()]
+    priority = min(int(priority), 100)
     proj = project or _proj
 
     if not _tid or _tid == "unknown":
@@ -228,7 +231,10 @@ def create_task(description: str, task_type: str = "feature", priority: int = 50
     if task_type not in VALID_TYPES:
         return {"ok": False, "error": f"Invalid task type: '{task_type}'. Must be one of: {', '.join(VALID_TYPES)}"}
 
-    priority = min(int(priority), 90)
+    _priority_aliases = {"low": 30, "normal": 50, "medium": 50, "high": 80, "critical": 100}
+    if isinstance(priority, str) and priority.lower() in _priority_aliases:
+        priority = _priority_aliases[priority.lower()]
+    priority = min(int(priority), 100)
     proj = project or _proj
 
     task_metadata = dict(metadata) if metadata else {}

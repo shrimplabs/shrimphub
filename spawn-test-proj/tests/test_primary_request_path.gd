@@ -64,7 +64,7 @@ func test_process_request_emits_signal() -> void:
 	_main.request_processed.connect(_on_request_processed)
 	_main.process_request("signal/test")
 	assert_true(_request_ids.size() > 0, "request_processed signal should fire")
-	assert_eq(_request_results[0], "[signal][test]", "result should match path")
+	assert_eq(_request_results[0], "[signal][test]", "result should be bracketed segments")
 
 # ── spawn_entity ─────────────────────────────────────────────────────────────
 

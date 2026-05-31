@@ -20,14 +20,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/ping":
             self._send_json({"ok": True})
         elif self.path == "/health":
-            self._send_json({"running": True})
+            self._send_json({"status": "healthy"})
         else:
             self._send_json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
         if self.path == "/spawn":
             Handler.counter += 1
-            self._send_json({"spawned": True, "id": Handler.counter})
+            self._send_json({"status": "ok", "spawned": True, "spawn_id": Handler.counter})
         else:
             self._send_json({"error": "not found"}, 404)
 
