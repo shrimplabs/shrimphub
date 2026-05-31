@@ -283,3 +283,54 @@ Failed backlog: 1 (zombie, no error/last_failure)
 - Monitor negative-space -- bug-recovery in progress, zombie task should be archived
 - Monitor echoes-of-exile auto chain -- newly unblocked, should complete within 1-2 scheduler cycles
 - the-memory-palace long-chain advancing normally -- let it drain
+
+### Scheduler Run 2026-05-31 07:44 UTC
+```
+Agents: 10 active / 12 total (83% utilization)
+Quota: 44.8% used, 55.2% remaining
+Pending: 7 tasks
+Phantom-blocked: 0 (all NOT_FOUND deps are escape-hatch treated as met by is_dependency_met)
+Failed backlog: 2 zombie tasks (null error/last_failure, 3 attempts each)
+```
+
+### Active Agents by Project
+- swarm-controller: scheduler-1780209983 (meta_scheduler, in_progress)
+- echoes-of-exile: art-auto-echoes-of-exile-1780209805, pol-auto-echoes-of-exile-1780209805, qa-auto-echoes-of-exile-1780209805 (all in_progress, dep targets completed)
+- signal-cartel: pol-auto-signal-cartel-1780209338 (in_progress, dep targets completed), qa-auto-signal-cartel-1780209338 (in_progress)
+- ghost-circuit: art-auto-ghost-circuit-1780207313 (in_progress)
+- the-memory-palace: feature-207776795-148, feature-208523018-764 (both in_progress)
+- temporal-residue: recovery-9d30124f (in_progress)
+
+### Pending Task Status
+- **the-memory-palace chain**: feature-208523018-764 (in_progress) → feature-208049694-337 (pending) → bug-task-c0bbf0d018fb (pending) → integration-the-memory-palace-1780207783 (pending) → qa-187467839-agent (pending). Chain advancing naturally.
+- **echoes-of-exile auto chain**: art+pol+qa all in_progress (deps met via escape hatch for completed dep targets). System healthy.
+- **bug-bug-bug-recovery-77f45da6**: pending, dep NOT_FOUND→bug-recovery-77f45da6. Dep target does not exist in DB. Escape-hatch treating as met → will be picked by scheduler soon.
+- **bug-recovery-79b69e08**: pending, dep NOT_FOUND→recovery-79b69e08. Same pattern.
+
+### Phantom Dep Analysis
+- NOT_FOUND deps are intentionally treated as MET by `is_dependency_met()` (escape hatch for manual deletion/migration). This is working as designed.
+- No actual phantom blocking: 0 phantom-blocked tasks.
+- 7 in-progress tasks have NOT_FOUND dep targets but continue running (not blocked).
+
+### Failed Task Triage
+- bug-bug-bug-recovery-1fa1028e (echoes-of-the-unmade): error=null, last_failure=null, attempts=3 → zombie/recovery-chain artifact. Archive.
+- bug-bug-bug-recovery-d53bca13 (temporal-residue): error=null, last_failure=null, attempts=3 → zombie/recovery-chain artifact. Archive.
+
+### Decisions
+- **No ceiling change**: 10 active, 83% util, quota 55.2% remaining -- healthy headroom
+- **No throttle change**: 55.2% remaining, no intervention needed
+- **No project pauses**: All active projects have in-progress agents
+- **No run_after adjustments**: Pending tasks in legitimate dep chains
+- **Archive 2 zombie failed tasks**: bug-bug-bug-recovery-1fa1028e, bug-bug-bug-recovery-d53bca13
+
+### Health Assessment
+- ✅ **Quota healthy**: 44.8% used, 55.2% remaining
+- ✅ **No phantom-blocked**: 0
+- ✅ **Dep chains verified**: All pending tasks have met deps (legitimate or escape-hatch)
+- ✅ **All in-progress tasks advancing**: echoes-of-exile, signal-cartel, the-memory-palace, temporal-residue
+- ⚠️ **2 zombie failed tasks**: Need archiving
+
+### Next Run Recommendations
+- Monitor the-memory-palace chain (5 deep, feature-208523018-764 in progress)
+- Monitor echoes-of-exile auto chain completion
+- System is healthy, no intervention needed
