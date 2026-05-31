@@ -1903,3 +1903,90 @@ All 11 agents showed `loop=None` and had no active subprocess handles. Root caus
 - Monitor negative-space bug recovery agent (freshly spawned)
 - If agents show loop=None after 2-3 minutes, orchestrator zombie detection should clean them up
 - System is healthy, no intervention needed
+
+## Scheduler Run 2026-05-31T22:15 UTC
+
+**Scheduler**: scheduler-1780267206 (meta_scheduler) | depends on librarian-1780266279
+
+### Agent Distribution (8 active, 1 zombie)
+- swarm-controller: scheduler-1780267206 (meta_scheduler, **ZOMBIE** -- loop=None, input_tokens=149033, stuck before first LLM response)
+- signal-cartel: qa-auto-signal-cartel-1780248226 (harness_qa, loop=9)
+- solar-escape: qa-auto-solar-escape-1780248997 (harness_qa, loop=12)
+- star-sovereigns: closure-triage-bd28408d7f-16 (bug, loop=17)
+- star-sovereigns: closure-triage-bd28408d7f-15 (bug, loop=87)
+- echoes-of-the-unmade: qa-echoes-of-the-unmade-rerun-59547d951c3a (harness_qa, loop=73, output_tokens=18090 -- TASK_COMPLETE issued)
+- echoes-of-the-unmade: bug-qa-bug-echoes-of-the-unmade-8c0b0ef37e0b (bug, loop=6)
+- echoes-of-the-unmade: qa-bug-echoes-of-the-unmade-77d6e03c4fa8 (bug, loop=10)
+- echoes-of-the-unmade: qa-bug-echoes-of-the-unmade-77d6e03c4fa7 (bug, loop=11)
+
+### Quota
+- **3.0% used, 97.0% remaining** -- NO CHANGE NEEDED
+- 457/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Root Cause: Scheduler Self-Reading Loop
+The scheduler agent (pid=39579) is stuck at loop=None with 149033 input_tokens. This is the same self-reading loop pattern documented in PROJECT_KNOWLEDGE: the injected PROJECT KNOWLEDGE + broadcast context (~1155 lines) causes the scheduler agent to hit context/input limits before its first LLM response loop. The agent reads its own log (SCHEDULER_LOG.md), which contains the injected context packet, and keeps re-reading without completing work.
+
+Symptom: `loop=None`, `input_tokens=149033`, `output_tokens=0`, `current_loop` not set in DB.
+
+Note: echoes-of-the-unmade QA agent (d8fb...) has already issued `TASK_COMPLETE` but is still shown as active -- same zombie-display-lag pattern.
+
+### Phantom Dep Repair
+- 7 phantom-blocked tasks cleared this run:
+  - `closure-repair-7` [bug, harmonic-architect, prio=80]: dep on NOT_FOUND `qa-resonance-architect-rerun-*` → cleared
+  - `closure-repair-c` [bug, harmonic-architect, prio=80]: dep on NOT_FOUND `qa-bug-harmonic-architect-*` → cleared
+  - `qa-echoes-of-the-unmade-rerun-59547d951c3a` [harness_qa]: self-dep on `qa-echoes-of-the-unmade-rerun-59547d951c3a` → cleared
+  - `pol-auto-signal-cartel-1780249338` [polish]: dep on `qa-bug-signal-cartel-4a1664b2e157` (archived) → cleared
+  - `pol-auto-solar-escape-1780248997` [polish]: dep on `qa-bug-solar-escape-5e480e01b90b` (archived) → cleared
+  - `feature-250792940-101` [feature, sushi-razzle, prio=80]: dep on `research-feeder-*` (NOT_FOUND) → cleared
+  - `qa-bug-spawn-test-proj-80786c870f4d` [bug]: dep on archived task → cleared
+- Stable at 0 phantom-blocked after pass 1.
+
+### Failed Task Triage
+**22 failed tasks breakdown:**
+- `librarian-*` (9): zombie artifacts -- META_MODE_ENABLED=False in orchestrator.py. All spawned during idle triggers, died before first LLM response. Same injected-context pattern as scheduler. `loop=None`, `attempts=0`.
+- `meta_scheduler` (2): scheduler-1780266709, meta-scheduler-17802 -- zombie artifacts, loop=None, attempts=0.
+- `archaeologist-*` (4): loop=None zombie artifacts, attempts=0.
+- `harness_qa` (2): harness_qa-249290596 (attempts=4), qa-echoes-of-the-unmade-rerun-7b893d08f481 (attempts=1)
+- `bug` (2): bug-bug-bug-recovery-* chain artifacts with null error/last_failure, attempts=3.
+- `art_pass` (2): art-auto-signal-cartel-1780147506, art-auto-solar-escape-1780248997 -- attempts=1, both blocked on phantom deps (cleared).
+- `polish` (1): polish-248034986-916 -- attempts=4, null error.
+
+**Action**: Archive 17 zombie tasks (librarian x9, meta_scheduler x2, archaeologist x4, bug-bug-bug-recovery x2). The 5 non-zombie failed tasks (harness_qa x2, art_pass x2, polish x1) need individual review.
+
+### Task Breakdown
+- **In-progress**: 9 (8 real agents running loops 6-87, 1 zombie scheduler)
+- **Pending**: 58 (0 phantom-blocked, all unblocked)
+- **Failed**: 22 (17 zombie artifacts, 5 need review)
+- **Phantom-blocked**: 0
+
+### Pending Task Analysis
+All 58 pending tasks are unblocked. Key clusters:
+- `bug` (52): deep bug-bug-bug chains + closure-repair tasks across many projects
+- `harness_qa` (2): echo chains + signal-cartel
+- `qa` (1): echo chains
+- `polish` (2): signal-cartel + solar-escape
+- `feature` (1): sushi-razzle
+
+### Decisions
+- **No ceiling change**: 8 active, 97.0% quota, very healthy. max_active_agents=8 (AUTO_SCALE is OFF). No ceiling increase needed.
+- **No throttle change**: 97.0% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: All 58 pending tasks are unblocked.
+- **Archive 17 zombie failed tasks**: librarian (9), meta_scheduler (2), archaeologist (4), bug-bug-bug-recovery (2) -- all loop=None, attempts=0 or 3 with null error.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 3.0% used, 97.0% remaining
+- :heavy_check_mark: **No phantom-blocked**: 7 phantoms cleared, 0 remaining
+- :warning: **17 zombie failed tasks**: pending archive (librarian, scheduler, archaeologist deep-chain artifacts)
+- :warning: **Scheduler zombie**: scheduler-1780267206 stuck at loop=None -- will be cleaned by monitor or manual PATCH.
+- :heavy_check_mark: **58 pending unblocked**: all ready to be picked naturally.
+- :heavy_check_mark: **8 agents running**: bug, qa, harness_qa agents all advancing (loops 6-87).
+
+### Recommended
+1. **Archive 17 zombie failed tasks** (librarian x9, meta_scheduler x2, archaeologist x4, bug-bug-bug-recovery x2).
+2. **Monitor scheduler zombie**: scheduler-1780267206 (pid=39579) stuck at loop=None. May need manual PATCH to complete if monitor doesn't catch it.
+3. **Address META_MODE_ENABLED=False**: All 9 librarian tasks are zombies because META_MODE_ENABLED=False in orchestrator.py (line 111). If meta agents are needed, set META_MODE_ENABLED=True.
+4. **Reduce injected context for scheduler/librarian**: The large PROJECT KNOWLEDGE + broadcast (~1155 lines) causes meta agents to hit context limits at spawn. Consider truncating injected context for meta-type tasks.
+5. **Archaeologist recommended**: For 5 non-zombie failed tasks (harness_qa x2, art_pass x2, polish x1) -- real errors need root-cause investigation.
+
