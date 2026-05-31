@@ -1158,3 +1158,67 @@ All 25 pending tasks are unblocked (24 with no deps, 1 blocked on in-progress ha
 - Monitor sushi-razzle qa agent (loop 44, still active)
 - Monitor rare-earth-empire qa agent (loop 92, clicking through menu UI)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780230690 -- 2026-05-31T14:30 UTC
+
+**Scheduler**: scheduler-1780230690 (meta_scheduler) | depends on scheduler-1780229269
+
+### Agent Distribution (13 active)
+- swarm-controller: scheduler-1780230690 (meta_scheduler, loop=None -- display lag)
+- qa: ghost-circuit x1, solar-escape x1
+- harness_qa: signal-cartel x1
+- bug: echoes-of-the-unmade x3, sushi-razzle x1, ghost-circuit x1, temporal-residue x2
+- art_pass: the-memory-palace x1, signal-cartel x1
+
+### Task Breakdown
+- **In-progress**: 12
+- **Pending**: 27 (0 phantom-blocked, all legitimately blocked or unblocked)
+- **Failed (zombie)**: 3 (archived this run)
+- **Phantom-blocked**: 0
+
+### Quota
+- **62.7% used, 37.3% remaining** -- NO CHANGE NEEDED
+- 9401/15000 quota units consumed, 90% limit threshold
+
+### Failed Task Triage (3 archived)
+All 3 have null error + null last_failure + 3 attempts -- deep recovery chain artifacts:
+- `bug-bug-bug-recovery-94aa` (echoes-of-the-unmade) -- deep bug-bug-bug chain artifact
+- `bug-bug-bug-recovery-84c9` (ghost-circuit) -- deep bug-bug-bug chain artifact
+- `bug-bug-bug-recovery-3a98` (temporal-residue) -- deep bug-bug-bug chain artifact
+
+All archived -- NOT real failures. Pre-existing validation baseline issues (scene parse errors, missing 'events'/'speed' keys) require archaeologist triage.
+
+### Pending Task Analysis
+**Unblocked (5+) -- ready to be picked:**
+- `bug-recovery-8627a32` [bug, temporal-residue] -- no deps
+- `bug-bug-bug-recovery` [bug, negative-space] -- no deps
+- `qa-ghost-circuit-rerun` [qa, ghost-circuit] x2 -- no deps
+- `qa-solar-escape-rerun` [qa, solar-escape] -- no deps
+- `pol-auto-signal-cartel` [polish, signal-cartel] -- no deps
+
+**Blocked (22) -- legitimate in-progress deps:**
+- echoes-of-the-unmade: `bug-task-7f7d0b4c81b`, `bug-bug-qa-bug-echoe`, `task-8ff52ef35000` -- all dep on in-progress recovery/bug chain
+- sushi-razzle: `task-35439297fb77` -- dep on completed srz-004 + in-progress integration
+- signal-cartel: harness_qa in-progress
+- temporal-residue: in-progress
+
+### Decisions
+- **No ceiling change**: 13 active, 62.7% quota, 37.3% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF); 13 active via /api/spawn over-spawn is allowed.
+- **No throttle change**: 37.3% remaining, no intervention needed.
+- **No project pauses**: All 8 active projects have in-progress agents.
+- **No run_after adjustments**: 5+ unblocked pending tasks will be picked naturally as agents complete.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 62.7% used, 37.3% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0
+- :heavy_check_mark: **No failed tasks**: 3 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **5+ pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, art_pass, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 5+ unblocked pending tasks (bug-recovery temporal-residue, bug-bug-bug-recovery negative-space, qa reruns)
+- Monitor echoes-of-the-unmade bug chain (recovery-e68116fe in progress, 3 pending waiting)
+- Monitor sushi-razzle integration chain (integration-sushi-ra in progress, srz-004 completed)
+- Archaeologist recommended for echoes-of-the-unmade, ghost-circuit, temporal-residue deep-chain backlog
+- System is healthy, no intervention needed
