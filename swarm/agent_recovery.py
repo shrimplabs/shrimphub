@@ -773,16 +773,17 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         print(f"[Swarm] Skipping research feeder — {project} is paused")
         return None
 
-    # Dedupe: only one live research feeder per original task
+    # Dedupe: only one research feeder per original task — include "failed" so
+    # quota-killed feeders don't spawn duplicates on the next retry cycle.
     all_tasks = db.task_get_all()
     live_feeders = [
         t for t in all_tasks
         if (t.get("metadata") or {}).get("feeds_into_task_id") == failed_id
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
     ]
     if live_feeders:
         existing_id = live_feeders[0]["id"]
-        print(f"[Swarm] Research feeder {existing_id} already live for {failed_id[:8]} — skipping duplicate")
+        print(f"[Swarm] Research feeder {existing_id} already exists for {failed_id[:8]} (status={live_feeders[0].get('status')}) — skipping duplicate")
         return existing_id
 
     # Accumulate attempt history in metadata (survives the attempts=0 reset)
