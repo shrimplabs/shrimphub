@@ -53,16 +53,16 @@ func _http_get(req_path: String) -> Dictionary:
 		await get_tree().process_frame
 	if http.get_status() != HTTPClient.STATUS_CONNECTED:
 		return {"error": "status: " + str(http.get_status())}
-	err = http.request(HTTPClient.METHOD_GET, req_path)
+	err = http.request(HTTPClient.METHOD_GET, req_path, [])  # [] = no custom headers
 	if err != OK:
 		return {"error": "request failed: " + str(err)}
 	while http.get_status() == HTTPClient.STATUS_REQUESTING:
 		http.poll()
 		await get_tree().process_frame
 	var code := http.get_response_code()
-	var body := http.read_response_body()
+	var body_bytes: PackedByteArray = http.read_response_body()
 	http.close()
-	return {"code": code, "body": body.get_string_from_utf8()}
+	return {"code": code, "body": body_bytes.get_string_from_utf8()}
 
 func _http_post(req_path: String, body: String) -> Dictionary:
 	var http := HTTPClient.new()
@@ -74,7 +74,7 @@ func _http_post(req_path: String, body: String) -> Dictionary:
 		await get_tree().process_frame
 	if http.get_status() != HTTPClient.STATUS_CONNECTED:
 		return {"error": "status: " + str(http.get_status())}
-	var raw_body := body.to_utf8_buffer()
+	var raw_body: PackedByteArray = body.to_utf8_buffer()
 	err = http.request(HTTPClient.METHOD_POST, req_path, [], raw_body)
 	if err != OK:
 		return {"error": "request failed: " + str(err)}
