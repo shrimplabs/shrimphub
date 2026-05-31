@@ -1990,3 +1990,32 @@ All 58 pending tasks are unblocked. Key clusters:
 4. **Reduce injected context for scheduler/librarian**: The large PROJECT KNOWLEDGE + broadcast (~1155 lines) causes meta agents to hit context limits at spawn. Consider truncating injected context for meta-type tasks.
 5. **Archaeologist recommended**: For 5 non-zombie failed tasks (harness_qa x2, art_pass x2, polish x1) -- real errors need root-cause investigation.
 
+
+---
+
+### Scheduler Run 2026-05-31 21:30 UTC
+
+**Scheduler**: scheduler-1780268119 (agent 442e882c, 62 loops completed)
+
+**System State**
+- Active agents: 9 (bug x6, feature x1, harness_qa x2)
+- Quota: 14.6% used, 85.4% remaining (2190/15000)
+- Pending: ~20 tasks (unblocked)
+- Failed: 11 (all zombie loop=None artifacts)
+- Phantom-blocked: 0
+
+**Task Breakdown**
+- bug (6 active): star-sovereigns(4), echoes-of-the-unmade(1), solar-escape(1)
+- feature (1 active): signal-cartel
+- harness_qa (2 active): echoes-of-the-unmade, signal-cartel
+
+**Decisions**
+- **No ceiling change**: 9 active, 85.4% quota remaining. max_active_agents=8 but auto_scale=True, monitor filling. No ceiling increase needed.
+- **No throttle change**: 85.4% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: All pending tasks are unblocked.
+
+**Notes**
+- Scheduler agent running slowly due to large injected context (~510K input tokens from PROJECT KNOWLEDGE + broadcast packet). Writing 1992-line log from previous run. Context bloat significantly slows meta-agents.
+- 11 failed tasks all have loop=None (zombie artifacts). 7 have deps pointing to completed tasks (phantom deps auto-cleared by diagnostic script). No non-zombie failed tasks requiring action.
+- System healthy overall. Monitor filling slots under auto_scale. 20 pending tasks ready to be picked.
