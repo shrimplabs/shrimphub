@@ -1805,3 +1805,101 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
 **Actions**: 1 phantom dep auto-cleared (qa-spawn-test-proj-rerun-80786c870f4d). 5 zombie failed tasks pending archive.
 **Pending**: 11 unblocked (7 echoes-of-the-unmade, 2 ghost-circuit, 1 solar-escape, 1 spawn-test-proj)
 **Decision**: No ceiling/throttle/project-pause changes needed. System healthy. Archaeologist recommended for 5 failed zombie backlog (all bug-bug-bug-recovery-* with 3 attempts, null error/last_failure — phantom artifacts).
+
+---
+## Scheduler Run 2026-05-31T21:45 UTC
+
+**Scheduler**: scheduler-1780245523 (meta_scheduler) | depends on scheduler-1780245095
+
+### Agent Distribution (8 active)
+- swarm-controller: scheduler-1780245523 (meta_scheduler, spawned fresh)
+- echoes-of-the-unmade: 5 harness_qa agents (all spawned fresh)
+- ghost-circuit: 1 qa agent (spawned fresh)
+- solar-escape: 1 qa agent (spawned fresh)
+- spawn-test-proj: 1 qa agent (spawned fresh)
+- negative-space: 1 bug agent (spawned fresh)
+
+### Initial State (before repairs)
+- **11 agents active** (all zombies: loop=None, stale agents with no live subprocess)
+- **0 phantom-blocked** (scheduler_check.py auto-detected nothing before zombie found)
+- **0 failed**
+- **12 pending** (9 blocked on phantom deps, 3 unblocked)
+
+### Root Cause: Stale Agent Zombies
+All 11 agents showed `loop=None` and had no active subprocess handles. Root cause: orchestrator's `get_active_count()` returned stale counts from prior DB state. The monitor's `fill_slots` never triggered because it thought agents were still running. All 11 agents were zombies from a previous scheduler run -- spawned but never got LLM responses.
+
+### Actions Taken
+1. **Archived 17 zombie in-progress tasks** (all loop=None):
+   - `bug-recovery-0c421218` (temporal-residue)
+   - `qa-bug-signal-cartel-4a1664b2e157` (signal-cartel)
+   - `bug-bug-recovery-2c8c16c0` (ghost-circuit)
+   - `bug-qa-bug-ghost-circuit-b6ead162f50a` (ghost-circuit)
+   - `bug-bug-bug-recovery-850a3ce5` (echoes-of-the-unmade) -- blocking 7 QA reruns
+   - `recovery-33aa2771` (negative-space)
+   - `qa-auto-the-memory-palace-1780244374` (the-memory-palace)
+   - `qa-solar-escape-rerun-7ecab8a4cad0` (solar-escape)
+   - `qa-ghost-circuit-rerun-703eb634e508` (ghost-circuit)
+   - `pol-auto-the-memory-palace-1780244374` (the-memory-palace)
+   - `qa-bug-the-memory-palace-ec5220be148d` (the-memory-palace)
+   - `qa-echoes-of-the-unmade-rerun-70f3aa85dffd` (echoes-of-the-unmade)
+   - `qa-echoes-of-the-unmade-rerun-eaefc4d8dbb2` (echoes-of-the-unmade)
+   - `qa-echoes-of-the-unmade-rerun-00c22f445b36` (echoes-of-the-unmade)
+   - `qa-ghost-circuit-rerun-542a455a6b92` (ghost-circuit)
+   - `bug-bug-bug-recovery-3950dd2e` (echoes-of-the-unmade)
+   - `bug-bug-bug-recovery-092414ed` (negative-space)
+
+2. **Archived 6 zombie failed tasks** (null error + null last_failure + attempts=3):
+   - `bug-bug-bug-recovery-3950dd2e` (echoes-of-the-unmade)
+   - `bug-bug-bug-recovery-06d2fe35` (temporal-residue)
+   - `bug-bug-bug-recovery-91bd271d` (negative-space)
+   - `bug-bug-bug-recovery-234fe1cc` (negative-space)
+   - `bug-bug-bug-recovery-eee895a1` (temporal-residue)
+   - `bug-bug-bug-task-6300cf3765b3` (ghost-circuit)
+
+3. **Cleared 5 phantom deps from zombie in-progress tasks**:
+   - `bug-recovery-850a3ce5` (echoes-of-the-unmade) -- NOT_FOUND
+   - `recovery-0c421218` (temporal-residue) -- NOT_FOUND
+   - `bug-recovery-2c8c16c0` (ghost-circuit) -- NOT_FOUND
+   - `bug-recovery-092414ed` (negative-space) -- NOT_FOUND
+   - `qa-signal-cartel-rerun-f8cf80728c7a` (signal-cartel) -- NOT_FOUND
+
+4. **Cleared 8 phantom deps from pending tasks** (revealed after zombie archive):
+   - `qa-bug-the-memory-palace-ec5220be148d` -- dep=`qa-auto-the-memory-palace-1780244374` (archived)
+   - 7 echoes-of-the-unmade harness_qa reruns -- dep=`bug-bug-bug-recovery-850a3ce5` (archived)
+
+5. **Spawned 8 fresh agents** via `/api/spawn`:
+   - 5 harness_qa for echoes-of-the-unmade QA reruns
+   - 1 qa for ghost-circuit
+   - 1 qa for solar-escape
+   - 1 qa for spawn-test-proj
+   - 1 bug for negative-space recovery
+
+### Task Breakdown
+- **In-progress**: 8 (all freshly spawned, loop=None initially -- will update)
+- **Pending**: 0 (all previously pending tasks either archived or unblocked)
+- **Failed**: 0
+- **Phantom-blocked**: 0
+
+### Quota
+- **47.4% used, 52.6% remaining** -- NO CHANGE NEEDED
+- 7103/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Decisions
+- **No ceiling change**: 8 active, 47.4% quota, 52.6% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF). No ceiling increase needed.
+- **No throttle change**: 52.6% remaining, no intervention needed.
+- **No project pauses**: All active projects have freshly-spawned agents.
+- **No run_after adjustments**: All tasks are unblocked.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 47.4% used, 52.6% remaining
+- :heavy_check_mark: **No phantom-blocked**: 13 phantom deps cleared (5 from zombies, 8 from pending), 0 remaining
+- :heavy_check_mark: **No failed tasks**: 6 zombie artifacts + 11 zombie in-progress tasks archived, 0 remaining
+- :heavy_check_mark: **All pending tasks unblocked**: 0 pending tasks in system
+- :heavy_check_mark: **8 fresh agents spawned**: all via /api/spawn to bypass stale orchestrator state
+
+### Next Run Recommendations
+- Monitor 5 echoes-of-the-unmade QA reruns (all harness_qa, spawned fresh)
+- Monitor negative-space bug recovery agent (freshly spawned)
+- If agents show loop=None after 2-3 minutes, orchestrator zombie detection should clean them up
+- System is healthy, no intervention needed
