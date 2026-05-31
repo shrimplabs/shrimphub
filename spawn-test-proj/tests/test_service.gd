@@ -113,7 +113,7 @@ func test_get_health_returns_200() -> void:
     assert_eq(resp.get("code"), 200, "GET /health returns 200")
     var data = JSON.parse_string(resp.get("body", ""))
     assert_true(data != null, "body parses as JSON")
-    assert_eq(data.get("running"), true, "body contains running:true")
+    assert_eq(data.get("status"), "healthy", "body contains status:healthy")
 
 func test_post_spawn_returns_spawned_id() -> void:
     assert_true(await _start_service(), "service must start first")
@@ -123,7 +123,8 @@ func test_post_spawn_returns_spawned_id() -> void:
     var data = JSON.parse_string(resp.get("body", ""))
     assert_true(data != null, "body parses as JSON")
     assert_eq(data.get("spawned"), true, "body contains spawned:true")
-    assert_gt(data.get("id", 0), 0, "entity id is positive")
+    assert_eq(data.get("status"), "ok", "body contains status:ok")
+    assert_gt(data.get("spawn_id", 0), 0, "spawn_id is positive")
 
 func test_spawn_increments_id() -> void:
     assert_true(await _start_service(), "service must start first")
@@ -132,4 +133,4 @@ func test_spawn_increments_id() -> void:
     assert_true(r1.has("code") and r2.has("code"), "both requests succeeded")
     var d1 = JSON.parse_string(r1.get("body", ""))
     var d2 = JSON.parse_string(r2.get("body", ""))
-    assert_gt(d2.get("id", 0), d1.get("id", 0), "second spawn id > first spawn id")
+    assert_gt(d2.get("spawn_id", 0), d1.get("spawn_id", 0), "second spawn_id > first spawn_id")
