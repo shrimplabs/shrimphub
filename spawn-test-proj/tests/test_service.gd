@@ -55,8 +55,8 @@ func _http_get(req_path: String) -> Dictionary:
     while http.get_status() == HTTPClient.STATUS_REQUESTING:
         http.poll()
         await get_tree().process_frame
-    var code := http.get_response_code()
-    var body_bytes := http.read_response_body()
+    var code: int = http.get_response_code()
+    var body_bytes: PackedByteArray = http.read_response_body()
     http.close()
     return {"code": code, "body": body_bytes.get_string_from_utf8()}
 
@@ -76,8 +76,8 @@ func _http_post(req_path: String, body: String) -> Dictionary:
     while http.get_status() == HTTPClient.STATUS_REQUESTING:
         http.poll()
         await get_tree().process_frame
-    var code := http.get_response_code()
-    var resp_body := http.read_response_body()
+    var code: int = http.get_response_code()
+    var resp_body: PackedByteArray = http.read_response_body()
     http.close()
     return {"code": code, "body": resp_body.get_string_from_utf8()}
 
