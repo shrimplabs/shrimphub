@@ -559,7 +559,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         # Include escalated_to_research so we don't duplicate research tasks either.
         live_branch_recoveries = [
             t for t in all_branch_recovery_tasks
-            if t.get("status") in ("pending", "in_progress")
+            if t.get("status") in ("pending", "in_progress", "failed")
         ]
         canonical_recovery = None
         if live_branch_recoveries:
