@@ -373,3 +373,26 @@ Locations fixed (all 3 now use `_normalize_priority()`):
 `_normalize_priority` handles: int, float, numeric string, word aliases (low=25, normal=50, medium=50, high=80, critical=100, urgent=100), and falls back to default on unrecognized strings.
 
 Note: `POST /api/tasks` (line 316), `POST /api/tasks/batch` (line 433), and `PUT /api/tasks/<id>/reparent` (line 754) already used `_normalize_priority` correctly.
+
+---
+## echoes-of-exile Validation Files Fix (2026-05-30)
+
+### Bug: echoes-of-exile scene load failures
+**Root Cause**: Commit 5a1d529 ("Refactor: update swarm_check.gd, _swarm_scene_check.gd") DELETED the validation files from git history. Without `_swarm_check.gd` and `_swarm_scene_check.gd`, the QA validation couldn't properly check the Godot project.
+
+**Fix Applied**: 
+1. Restored `_swarm_check.gd` and `_swarm_scene_check.gd` from commit b42de8e where they still existed
+2. Also restored `_swarm_main_check.gd`
+3. Committed as cf1b426
+
+**Validation Results**: All 3 checks now pass:
+- Script parse: PASS (33 OK, 41 skipped)
+- Scene load: PASS (24 OK, 3 skipped)
+- Main scene: PASS
+
+**Scene Files Status**: All scene files exist and are loadable:
+- `scenes/ui/crosshair.tscn` - exists
+- `scenes/puzzle/pillar_puzzle.tscn` - exists
+- `scenes/zones/origin_chamber_zone.tscn` - exists
+
+**Prevention**: Never let a "Refactor" commit delete essential validation files. Always check `git show HEAD:file` before committing changes that modify validation infrastructure.
