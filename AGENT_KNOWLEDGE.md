@@ -428,3 +428,21 @@ while tool_loop_count < MAX_TOOL_LOOPS:
 **Related**: commit `f595e36` (2026-05-30) also fixed `global LIBRARIAN_COMPLETION_COUNTER` ordering in `_fire_idle_librarian()` — Python 3.14 enforces that `global` statements must precede all references to the name.
 
 **Stale pyc cache**: When tests failed with SyntaxError despite `py_compile` passing, it was a stale `orchestrator.cpython-312.pyc` from before the fix. Always `rm -f swarm/__pycache__/*.pyc` when debugging import issues.
+
+---
+## Archaeologist: the-memory-palace (2026-05-30, commit fa1720d)
+
+### Stalls are often phantom — always verify before filing recovery tasks
+- This project had NO active failures. Working tree clean, Godot boots, 68/71 tests passing.
+- Stalled because `PROJECT_CLOSURE.md` was never updated after completion (values still false/0)
+- The 2 failing tests were test regressions from an art pass, not game regressions
+
+### ShaderMaterial test pattern (Godot 4)
+- When an art pass replaces `StandardMaterial3D` with `ShaderMaterial`, unit tests checking BaseMaterial3D properties (`.transparency`, `.emission_enabled`, `.albedo_color`, etc.) FAIL with "Invalid access to property or key"
+- Fix: check `mat is ShaderMaterial` and use `mat.get_shader_parameter("uniform_name")` instead
+- ghost_material.gdshader implements transparency via ALPHA in the shader, not BaseMaterial3D.TRANSPARENCY_*
+
+### the-memory-palace is 95% complete
+- All 10 user stories implemented, all systems wired, boot passes, 70/71 tests pass
+- Recovery DAG: feature-187438050-agent (stabilization + closure docs) → qa-187467839-agent (final QA)
+- ARCHAEOLOGY_REPORT.md written to project root
