@@ -176,3 +176,53 @@ Let the current cycle run. The 11 active agents will complete their tasks. The 5
 - the-memory-palace: 1 feature
 - ghost-circuit: 1 feature
 - swarm-controller: 1 meta_scheduler, 1 librarian, 1 archaeologist, 1 gardener
+
+## scheduler-1780188183 — 2026-05-30 21:50 UTC
+
+### Diagnostic Results
+- **Agents**: 18 active / 19 total (72% of ceiling)
+- **Quota**: 46.2% used, 53.8% remaining
+- **Tasks**: Pending=6, In-Progress=18, Failed=6
+- **Phantom-blocked**: Cleared via 4-pass repair (12 → 3 → 1 → 1 → 0)
+
+### Actions Taken
+4-pass phantom dep repair loop (pattern: fresh agents spawn after each PATCH, creating new phantoms):
+
+**Pass 1** (12 phantoms):
+- bug-refactor-188292588-agent → scheduler-1780187476 (phantom)
+- bug-bug-recovery-9bde3a3d → self (phantom)
+- refactor-188292623-agent → scheduler-1780187476 (phantom)
+- refactor-188292661-agent → scheduler-1780187476 (phantom)
+- qa-bug-signal-cartel-60a74567a179 → qa-signal-cartel-rerun-224906ca389c (phantom)
+- qa-bug-negative-space-12d2e2d9182e → qa-auto-negative-space-1780187671 (phantom)
+- pol-auto-negative-space-1780187671 → art-auto-negative-space-1780187671 (phantom)
+- scheduler-1780188183 → scheduler-1780187476 (phantom)
+- art-auto-echoes-of-exile-1780190969 → bug-bug-bug-recovery-1e6418c2 + recovery-545582be (phantoms)
+- gardener-191093884-598 → task-9336356df7c5 (phantom)
+- art-auto-ghost-circuit-1780191167 → integration-ghost-circuit-1780188404 + feature-0e89ccd8f437-agent (phantoms)
+- qa-bug-signal-cartel-c4bf429197d4 → qa-signal-cartel-rerun-224906ca389c (phantom)
+
+**Pass 2** (3 phantoms):
+- integration-the-memory-palace-1780191901 → feature-187438050-agent (phantom)
+- feature-191897137-796 → qa-the-memory-palace-rerun-24515f23cc08 (phantom)
+- cartographer-1780191975 → refactor-188292623-agent (phantom)
+
+**Pass 3** (1 phantom): integration-spawn-test-proj-1780192172 → feature-191285062-820
+
+**Pass 4** (2 phantoms):
+- qa-echoes-of-exile-rerun-2981e6fa66fa → bug-bug-bug-recovery-1e6418c2
+- qa-bug-echoes-of-exile-a1e845f57ce9 → qa-auto-echoes-of-exile-1780190969
+
+### Failed Backlog (6 tasks, 4 projects)
+- echoes-of-the-unmade: 3 (recovery-3a43f166, recovery-31ac69af, qa-signal-cartel-rerun-d130511d4efe)
+- temporal-residue: 1 (bug-bug-bug-recovery-b91fa077)
+- signal-cartel: 1 (qa-signal-cartel-rerun-d130511d4efe)
+- swarm-controller: 1 (archaeologist-stone-garden-1780186394)
+
+### No Ceiling/Throttle Changes
+- 18/19 agents active (72%), quota 46% used — no adjustment needed
+- System healthy, 0 phantom-blocked tasks
+
+### Archaeologist Recommended
+- 6 failed tasks (4 projects) need archaeologist triage
+- echo-chains: bug-bug-bug-recovery-bede5a7e (self-dep), echoes-of-the-unmade (3 failed recoveries)
