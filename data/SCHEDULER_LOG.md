@@ -81,3 +81,37 @@
 - Phantom-blocked: 12 remaining (scheduler self-dep cleared, 12 cross-phantom remain)
 - Agents: 14/14 active, 78.3% quota
 - Archaeologist RECOMMENDED for 11 failed backlog across 5 projects
+
+---
+## scheduler-1780197379 -- 2026-05-31 00:00 UTC
+
+### Agent Distribution
+- 13/13 agents active (100% capacity)
+- meta_scheduler: 1 | bug: 6 | feature: 3 | art_pass: 1 | harness_qa: 1
+- Projects: negative-space(3), echoes-of-exile(2), spawn-test-proj(2), signal-cartel(1), temporal-residue(1), the-memory-palace(1), ghost-circuit(1), swarm-controller(1)
+
+### Quota
+- **83.6% used, 16.4% remaining** -- NO ceiling/throttle change needed
+- 10878 tasks completed, 1626 failed (13% historical fail rate)
+
+### Task Breakdown
+- In-Progress: 12 | Pending: 4 (unblocked) | Failed: 11
+- **Phantom deps: 0** -- clean
+
+### Decision
+- **No ceiling change** — 13 active is at capacity, but quota at 83.6% has headroom. Adding more agents would spike quota past threshold.
+- **No throttle** — 16.4% headroom, pending tasks will naturally drain.
+- **No project pauses** — all projects have active in-progress agents.
+- **4 pending unblocked** — scheduler will spawn naturally as agents complete.
+- **Archaeologist RECOMMENDED** for 11 failed backlog across 5 projects (temporal-residue 3, echoes-of-the-unmade 3, negative-space 3, signal-cartel 1, swarm-controller 1). Deep recovery chains need root-cause triage, not simple retry.
+
+### Failed Backlog
+- temporal-residue: 3 (deep bug-bug-... chains)
+- echoes-of-the-unmade: 3
+- negative-space: 3 (scene parse errors)
+- signal-cartel: 1
+- swarm-controller: 1
+
+### Next Run
+- System healthy: 0 phantom-blocked, 4 pending ready to fill
+- Monitor quota threshold as agents complete and new ones spawn
