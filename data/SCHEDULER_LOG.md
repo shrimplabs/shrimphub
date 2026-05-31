@@ -2019,3 +2019,74 @@ All 58 pending tasks are unblocked. Key clusters:
 - Scheduler agent running slowly due to large injected context (~510K input tokens from PROJECT KNOWLEDGE + broadcast packet). Writing 1992-line log from previous run. Context bloat significantly slows meta-agents.
 - 11 failed tasks all have loop=None (zombie artifacts). 7 have deps pointing to completed tasks (phantom deps auto-cleared by diagnostic script). No non-zombie failed tasks requiring action.
 - System healthy overall. Monitor filling slots under auto_scale. 20 pending tasks ready to be picked.
+
+---
+
+## scheduler-1780269923 -- 2026-05-31T22:20 UTC
+
+**Scheduler**: scheduler-1780269923 (meta_scheduler) | depends on scheduler-1780268119
+
+### Agent Distribution (8 active)
+- swarm-controller: scheduler-1780269923 (meta_scheduler, loop=1, fresh spawn)
+- signal-cartel: qa-signal-cartel-rerun-dba54315a878 (harness_qa, loop=1)
+- solar-escape: qa-auto-solar-escape-1780248997 (harness_qa, loop=12)
+- star-sovereigns: closure-triage-bd28408d7f-16 (bug, loop=17)
+- star-sovereigns: closure-triage-bd28408d7f-15 (bug, loop=87)
+- echoes-of-the-unmade: qa-echoes-of-the-unmade-rerun-59547d951c3a (harness_qa, loop=73, TASK_COMPLETE issued)
+- echoes-of-the-unmade: bug-qa-bug-echoes-of-the-unmade-8c0b0ef37e0b (bug, loop=6)
+- echoes-of-the-unmade: qa-bug-echoes-of-the-unmade-77d6e03c4fa8 (bug, loop=10)
+- echoes-of-the-unmade: qa-bug-echoes-of-the-unmade-77d6e03c4fa7 (bug, loop=11)
+
+### Task Breakdown
+- **In-progress**: 8
+- **Pending**: 26 (0 phantom-blocked, all unblocked)
+- **Failed**: 13 (zombie artifacts from prior run -- archived)
+- **Phantom-blocked**: 0 (4 auto-cleared by scheduler_check.py)
+
+### Quota
+- **18.2% used, 81.8% remaining** -- NO CHANGE NEEDED
+- 2728/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 4 phantom-blocked tasks:
+  - task-72797eec6461 -- deps cleared
+  - task-b6430f4497f8 -- deps cleared
+  - task-5d052b64bd36 -- deps cleared
+  - task-43918982e3fd -- deps cleared
+- Stable at 0 phantom-blocked after pass 1.
+
+### Failed Task Triage (13 archived)
+All 13 have null error + null last_failure + loop=None -- zombie/recovery-chain artifacts from prior scheduler run:
+- `librarian-*` (9): META_MODE_ENABLED=False caused all librarian agents to die before first LLM response
+- `meta_scheduler-*` (2): scheduler agents stuck in self-reading loop due to injected context bloat
+- `archaeologist-*` (2): zombie artifacts from prior triage attempts
+
+All archived -- NOT real failures. Meta agent failures are systemic (META_MODE_ENABLED=False + context bloat).
+
+### Pending Task Analysis
+All 26 pending tasks are unblocked. Key clusters:
+- echoes-of-the-unmade: 7 QA reruns + bug tasks
+- star-sovereigns: 4 bug agents (closure triage)
+- signal-cartel: harness_qa + feature tasks
+- solar-escape: QA reruns
+- Various projects: bug-bug-bug chains + recovery tasks
+
+### Decisions
+- **No ceiling change**: 8 active, 18.2% quota, 81.8% headroom -- very healthy. max_active_agents=8 (AUTO_SCALE is OFF). No ceiling increase needed.
+- **No throttle change**: 81.8% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: All 26 pending tasks are unblocked and will be picked naturally.
+- **Archive 13 zombie failed tasks**: librarian (9), meta_scheduler (2), archaeologist (2) -- all loop=None, zombie artifacts.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 18.2% used, 81.8% remaining
+- :heavy_check_mark: **No phantom-blocked**: 4 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **13 zombie failed tasks archived**: librarian/meta/archaeologist zombies
+- :heavy_check_mark: **26 pending unblocked**: all ready to be picked naturally
+- :heavy_check_mark: **8 agents running**: bug, qa, harness_qa all advancing (loops 1-87)
+
+### Recommended
+1. **Archive 13 zombie failed tasks** -- done
+2. **META_MODE_ENABLED=False**: All 9 librarian tasks are zombies because meta mode is disabled. All 2 meta_scheduler tasks are zombies due to context bloat. If meta agents are needed, enable META_MODE_ENABLED=True and reduce injected context size.
+3. **System healthy**: No ceiling/throttle/project-pause changes needed. 26 pending tasks ready to drain.
