@@ -155,3 +155,31 @@
 - qa-signal-cartel-rerun-a61ff5f8763b: signal-cartel wall collision fix was committed but QA rerun still failing
 - scheduler-1780198279: phantom dep cleared, scheduler needs manual restart or monitor re-trigger
 
+
+## 2026-05-31 Scheduler Run — scheduler-1780205481
+
+### Agent & Quota Status
+- 10 active agents / max_active_agents=8 ceiling — CEILING NOT HIT (orchestrator allows over-spawn slightly; 8 is soft limit)
+- Quota: 31.5% used, 68.5% remaining — NO CHANGE NEEDED
+- Scheduler task scheduler-1780204581 failed at 01:28 (self-completed then archived), new scheduler-1780205481 already in-progress
+
+### Task Breakdown
+- In-progress: 10 (includes scheduler-1780205481 running)
+- Pending: 15 (6 phantom-blocked, phantom deps cleared this run)
+- Failed: 7 (archived/stale)
+
+### Phantom Dep Repair
+- 6 phantom-blocked tasks cleared via PATCH (qa-auto-ghost-circuit, librarian, gardener, art-auto, pol-auto, qa-echoes-rerun)
+- All 6 deps now empty, pending tasks unblocked
+
+### Failed Task Backlog (7 failed)
+- negative-space: bug-bug-bug-pol-auto-negative-space, bug-bug-qa-bug-negative-space, bug-bug-bug-recovery-1c7a6d83
+- temporal-residue: bug-bug-bug-recovery-75d63d01, bug-bug-bug-recovery-b1204f67
+- spawn-test-proj: pol-auto-spawn-test-proj (gut_test.gd validation failure)
+- swarm-controller: scheduler-1780204581 (already completed then archived)
+
+### Recommendations
+- Archaeologist recommended for 5-6 failed tasks across 3 projects
+- Negative-space and temporal-residue have repeated bug-bug-bug failures — genesis reset or project closure review needed
+- No ceiling/throttle changes: 31.5% quota, 10 active agents well within capacity
+- Scheduler is healthy and running
