@@ -554,3 +554,12 @@ All 1315 tests pass in the full suite run.
 
 ---
 placeholder
+
+---
+## META_MODE_ENABLED = False (2026-05-31)
+
+`META_MODE_ENABLED` is set to `False` in `swarm/orchestrator.py` (line 111). This is the master toggle for all meta-agents. When False, no meta-agent scheduling fires regardless of individual agent enabled flags. The librarian prompt explicitly checks this in STEP 1 and exits immediately if false.
+
+All 9 zombie `librarian-*` tasks (attempts=0, loop=None, archived=true) spawned during idle triggers but died before their first LLM response loop -- same zombie-agent pattern as the scheduler documented in `gk-swarm-zombie-agents-loop-none-self-reading`. The large injected PROJECT KNOWLEDGE + broadcast context causes meta agents to hit context limits at spawn.
+
+To enable meta agents: set `META_MODE_ENABLED=True` in orchestrator config.
