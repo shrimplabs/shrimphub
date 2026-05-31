@@ -504,3 +504,15 @@ Survey data: 106 projects (9 healthy/green, 73 warning/yellow, 20 failing/red, 3
 ## Cartographer task completion pattern (2026-05-30)
 
 The cartographer task (`cartographer-<timestamp>`) creates survey output files but does NOT auto-complete. Must explicitly PATCH `/api/tasks/<task_id>` with `{"status": "completed"}` after writing outputs. The scheduler will clean up the in-progress agent.
+
+---
+## Stale orchestrator active_count vs real agents (2026-05-31)
+
+The orchestrator module's `get_active_count()` reads from both `_active_handles` (live process handles) and DB active agents. When all agents die (e.g., context-injection causes failure), `_active_handles` becomes empty but `get_active_count()` still returns a stale cached count from the DB because `_is_pid_running(pid)` returns True for stale PIDs that haven't been reaped. This causes the monitor to think agents are still running and skip `fill_slots`.
+
+**Symptom**: orchestrator.get_active_count() shows 4-12, _active_handles has 0, DB agents has 0, but monitor won't spawn.
+**Recovery**: Use `POST /api/spawn` with `task_id` to bypass monitor's `fill_slots` entirely. Or wait for the monitor's reconciliation cycle to catch up (it checks `_is_pid_running` and eventually clears stale agents).
+
+## Agent loop=None display lag (2026-05-31)
+
+The `loop` field in `GET /api/agents` response shows `None` even for actively-running agents. The agent_runtime writes `loop_count` to the DB at the END of each LLM call, but there's a timing lag. Check the agent log output (`/api/agents/<id>/output`) for actual `(loop N/200)` markers to confirm real activity.

@@ -62,16 +62,16 @@
 - swarm-controller: 1 (scheduler self-dep phantom)
 
 ### Key Findings
-1. **Agent capacity FULL** — 14/14 slots occupied. No ceiling increase possible (would worsen quota pressure at 78%).
-2. **Deep bug chains** — 4 projects stuck in `bug-bug-...-recovery-...` chains 2-4 deep. These need archaeologist triage, not simple retry.
+1. **Agent capacity FULL** -- 14/14 slots occupied. No ceiling increase possible (would worsen quota pressure at 78%).
+2. **Deep bug chains** -- 4 projects stuck in `bug-bug-...-recovery-...` chains 2-4 deep. These need archaeologist triage, not simple retry.
 3. **Phantom deps**: 13 found. Scheduler task scheduler-1780196478 has phantom dep on completed scheduler-1780195021 (self-referential dep pattern from scheduler chain).
-4. **Recovery tasks blocking** — `recovery-34cf5144` and `qa-bug-negative-space-9cf4258fa799` both blocked on scene parse errors from deep chain. Clear the chain or mark complete.
-5. **QA reruns cycling** — 4 harness_qa tasks cycling (signal-cartel 2x, negative-space 2x, echoes-of-exile 1x). Harness connectivity issues (connection refused on 11050/11118).
+4. **Recovery tasks blocking** -- `recovery-34cf5144` and `qa-bug-negative-space-9cf4258fa799` both blocked on scene parse errors from deep chain. Clear the chain or mark complete.
+5. **QA reruns cycling** -- 4 harness_qa tasks cycling (signal-cartel 2x, negative-space 2x, echoes-of-exile 1x). Harness connectivity issues (connection refused on 11050/11118).
 
 ### Decisions
 - **No ceiling adjustment**: 100% utilization but quota 78% means ceiling is not the bottleneck. Adding more agents would spike quota past 100%.
 - **No project pauses**: All projects have active work in progress. Pausing would waste in-progress agent cycles.
-- **Recommend**: Archaeologist triage for 4 deep-chain projects (temporal-residue, echoes-of-the-unmade, negative-space, signal-cartel). Recovery chain too long — need root-cause fix, not more retries.
+- **Recommend**: Archaeologist triage for 4 deep-chain projects (temporal-residue, echoes-of-the-unmade, negative-space, signal-cartel). Recovery chain too long -- need root-cause fix, not more retries.
 - **Clear scheduler phantom dep**: PATCH scheduler-1780196478 deps to remove completed parent reference.
 
 ### Phantom Dep Repair (pass 1)
@@ -99,10 +99,10 @@
 - **Phantom deps: 0** -- clean
 
 ### Decision
-- **No ceiling change** — 13 active is at capacity, but quota at 83.6% has headroom. Adding more agents would spike quota past threshold.
-- **No throttle** — 16.4% headroom, pending tasks will naturally drain.
-- **No project pauses** — all projects have active in-progress agents.
-- **4 pending unblocked** — scheduler will spawn naturally as agents complete.
+- **No ceiling change** -- 13 active is at capacity, but quota at 83.6% has headroom. Adding more agents would spike quota past threshold.
+- **No throttle** -- 16.4% headroom, pending tasks will naturally drain.
+- **No project pauses** -- all projects have active in-progress agents.
+- **4 pending unblocked** -- scheduler will spawn naturally as agents complete.
 - **Archaeologist RECOMMENDED** for 11 failed backlog across 5 projects (temporal-residue 3, echoes-of-the-unmade 3, negative-space 3, signal-cartel 1, swarm-controller 1). Deep recovery chains need root-cause triage, not simple retry.
 
 ### Failed Backlog
@@ -117,29 +117,29 @@
 - Monitor quota threshold as agents complete and new ones spawn
 ### Scheduler Run $(date)
 - 11/11 agents active, all progressing (loops 3-151)
-- Quota: 86.4% used, 13.6% remaining — NO ceiling/throttle change needed
+- Quota: 86.4% used, 13.6% remaining -- NO ceiling/throttle change needed
 - Phantom deps: 0, 0 phantom-blocked
 - In-Progress: 11 | Pending: 5 (legitimately blocked on in-progress deps) | Failed: 1 (archived)
 - No agent kills, no project pauses needed
 - Pending task deps verified: all dep targets are in-progress (not completed/stuck)
 - Archaeologist RECOMMENDED for 1 archived failed (bug-bug-bug-pol-auto-negative-space-1780187671, negative-space)
 
-### Scheduler Run $(date)
-- **Time**: $(date)
+### Scheduler Run 2026-05-31 01:11 UTC
+- **Time**: 2026-05-31 01:11 UTC
 - **Agents**: 3/3 active (loop=None display lag, all running based on log output)
-- **Quota**: 11.3% used, 88.7% remaining — NO ceiling/throttle change needed
+- **Quota**: 11.3% used, 88.7% remaining -- NO ceiling/throttle change needed
 - **Phantom deps**: 4 repaired (auto by scheduler_check.py), 0 remaining, 0 phantom-blocked
 - **In-Progress**: 3 | **Pending**: 10 | **Failed**: 3
 
 ### Actions Taken
-1. **Zombie agent recovery**: 12 zombie agents (loop=None) detected — all had spawned subprocesses but orchestrator's `_active_handles` was empty. Monitor auto-cleaned. Restarted 4 agents via `/api/spawn`: task-c0bbf0d018fb (the-memory-palace), bug-qa-bug-negative-space-53cee9473b7b (negative-space), qa-bug-negative-space-9cf4258fa799 (negative-space), task-ae8616647f06 (ghost-circuit).
+1. **Zombie agent recovery**: 12 zombie agents (loop=None) detected -- all had spawned subprocesses but orchestrator's `_active_handles` was empty. Monitor auto-cleaned. Restarted 4 agents via `/api/spawn`: task-c0bbf0d018fb (the-memory-palace), bug-qa-bug-negative-space-53cee9473b7b (negative-space), qa-bug-negative-space-9cf4258fa799 (negative-space), task-ae8616647f06 (ghost-circuit).
 2. **Phantom dep repair**: 4 phantom deps auto-cleared by scheduler_check.py:
    - bug-bug-bug-recovery-75d63d01 (phantom dep)
    - bug-bug-qa-bug-negative-space-53cee9473b7b (phantom dep)
    - pol-auto-echoes-of-the-unmade-1780203746 (phantom dep)
    - scheduler-1780204581 (phantom dep on completed scheduler)
 3. **Stale orchestrator state**: orchestrator.get_active_count() showed 4-12 stale count but _active_handles was empty. Used `/api/spawn` direct spawn to bypass monitor's fill_slots (which was blocked by stale count). Monitor now correctly shows 3.
-4. **Agent loop=None display**: The `loop` field in API responses shows None even for actively-running agents. This is a display/refresh lag — agent logs show loops 1-6+ across all 3 active agents. NOT zombies.
+4. **Agent loop=None display**: The `loop` field in API responses shows None even for actively-running agents. This is a display/refresh lag -- agent logs show loops 1-6+ across all 3 active agents. NOT zombies.
 
 ### Failed Backlog
 - **bug-bug-bug-pol-auto-negative-space-1780187671**: archived, scene parse errors (phantom dep, cleared)
@@ -147,8 +147,8 @@
 - **scheduler-1780198279**: blocked on phantom dep (cleared), needs re-run
 
 ### No Changes Made
-- **max_active_agents ceiling**: 8 (current max 8, only 3 active) — NO change needed
-- **Project pauses**: NONE — projects are healthy
+- **max_active_agents ceiling**: 8 (current max 8, only 3 active) -- NO change needed
+- **Project pauses**: NONE -- projects are healthy
 - **run_after**: NONE needed
 
 ### Archaeologist RECOMMENDED for 2 failed tasks
