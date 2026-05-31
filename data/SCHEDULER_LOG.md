@@ -1524,3 +1524,71 @@ All archived -- NOT real failures. Root cause bugs need archaeologist triage at 
 - Monitor ghost-circuit qa-bug chain (qa-bug-ghost-circuit-9b418037a64d in progress, 1 qa task queued)
 - Archaeologist recommended for negative-space (scene parse errors in crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn) and temporal-residue deep-chain backlog
 - System is healthy, no intervention needed
+
+---
+
+## scheduler-1780240122 -- 2026-05-31T16:30 UTC
+
+**Scheduler**: scheduler-1780240122 (meta_scheduler) | depends on scheduler-1780234292
+
+### Agent Distribution (16 active)
+- swarm-controller: scheduler-1780240122 (meta_scheduler, loop=None -- display lag)
+- bug: 9 (ghost-circuit x1, negative-space x1, echoes-of-the-unmade x1, signal-cartel x2, the-memory-palace x1, temporal-residue x1, solar-escape x1, sushi-razzle x1)
+- harness_qa: 3 (the-memory-palace x1, signal-cartel x1, echoes-of-the-unmade x1)
+- qa: 2 (ghost-circuit x1, solar-escape x1)
+- feature: 1 (spawn-test-proj x1)
+
+### Projects
+- ghost-circuit: 3 | signal-cartel: 2 | the-memory-palace: 2 | solar-escape: 2 | echoes-of-the-unmade: 2 | swarm-controller: 1 | spawn-test-proj: 1 | sushi-razzle: 1 | negative-space: 1 | temporal-residue: 1
+
+### Task Breakdown
+- **In-progress**: 16 (all agents active)
+- **Pending**: 19 (8 unblocked, 11 blocked on in-progress deps)
+- **Failed (zombie)**: 0
+- **Phantom-blocked**: 0 (1 auto-cleared by scheduler_check.py: qa-solar-escape-rerun-3644efdfa204)
+
+### Quota
+- **4.8% used, 95.2% remaining** -- NO CHANGE NEEDED
+- 720/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- scheduler_check.py cleared 1 phantom-blocked task:
+  - `qa-solar-escape-rerun-3644efdfa204` -- deps cleared → unblocked
+- Stable at 0 phantom-blocked after pass 1.
+
+### Pending Task Analysis
+**Unblocked (8) -- ready to be picked:**
+- `qa-solar-escape-rerun-3644efdfa204` [qa, solar-escape] -- no deps (just cleared)
+- `qa-solar-escape-rerun-862ceaaa69dd` [qa, solar-escape] -- no deps
+- `qa-sushi-razzle-rerun-41c1fbea8815` [qa, sushi-razzle] -- no deps
+- `qa-rare-earth-empire-rerun-*` x3 [qa, rare-earth-empire] -- no deps
+- `qa-ghost-circuit-rerun-22a4a5293008` [qa, ghost-circuit] -- no deps
+- `qa-ghost-circuit-rerun-691bbe322619` [qa, ghost-circuit] -- no deps
+
+**Blocked (11) -- legitimate in-progress deps:**
+- echoes-of-the-unmade: 6 harness_qa tasks dep on `recovery-*` (in-progress)
+- signal-cartel: 2 harness_qa tasks dep on `task-*` (in-progress)
+- ghost-circuit: 1 qa task dep on in-progress qa chain
+- the-memory-palace: 1 harness_qa dep on in-progress feature chain
+- negative-space: 1 qa task dep on in-progress bug chain
+
+### Decisions
+- **No ceiling change**: 16 active, 4.8% quota, 95.2% headroom -- very healthy. max_active_agents=8 (AUTO_SCALE is OFF); 16 active via /api/spawn over-spawn is allowed. No ceiling increase needed.
+- **No throttle change**: 95.2% remaining, no intervention needed.
+- **No project pauses**: All 10 active projects have in-progress agents.
+- **No run_after adjustments**: 8 unblocked pending tasks will be picked naturally as agents complete. 11 blocked on in-progress deps will drain naturally.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 4.8% used, 95.2% remaining
+- :heavy_check_mark: **No phantom-blocked**: 1 phantom auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: Failed backlog at 0
+- :heavy_check_mark: **8 pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **11 pending blocked**: all have verified in-progress dep targets
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, feature, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 8 unblocked pending tasks (qa reruns for rare-earth-empire, sushi-razzle, ghost-circuit, solar-escape)
+- Monitor echoes-of-the-unmade recovery chain (recovery in progress, 6 QA reruns queued behind)
+- Monitor signal-cartel feature chain (task in progress, 2 QA reruns queued behind)
+- System is healthy, no intervention needed
