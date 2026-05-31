@@ -390,3 +390,44 @@ Failed backlog: 0 (2 zombies archived this run)
 - Monitor echoes-of-exile auto chain completion (pol + qa in progress)
 - Consider archaeologist triage for negative-space scene corruption (crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn parse errors) and echoes-of-the-unmade missing 'speed' key in dictionary check — both have deep-chain recovery artifacts that keep failing
 - System is healthy, no intervention needed
+
+---
+## Scheduler Run 2026-05-31 07:59 UTC
+
+**Agents**: 9 active / 9 total (100% utilization)
+**Quota**: 57.7% used, 42.3% remaining — healthy headroom
+**Ceiling**: No change (current ceiling sufficient)
+**Throttle**: None active
+
+### In-Progress (8)
+- `bug-recovery-5c464761` (bug, temporal-residue)
+- `qa-bug-echoes-of-exile-10` (bug, echoes-of-exile)
+- `bug-bug-recovery-90f9556b` (bug, negative-space)
+- `bug-bug-bug-recovery-ab93` (bug, echoes-of-the-unmade)
+- `feature-208523018-764` (feature, the-memory-palace)
+- `qa-187467839-agent` (qa, the-memory-palace)
+- `art_pass-210085050-112` (art_pass, ghost-circuit)
+- `scheduler-1780211784` (meta_scheduler, swarm-controller)
+- `qa-bug-signal-cartel-fda6` (bug, signal-cartel)
+
+### Pending (8)
+- `bug-task-c0bbf0d018fb` (bug, the-memory-palace, dep=1) — blocked by integration task
+- `bug-bug-bug-recovery-ab939c89` (bug, echoes-of-the-unmade) — cleared, awaiting scheduling
+- `integration-the-memory-palace` (bug, the-memory-palace, dep=1)
+- `task-9624c599d2f4` (bug, signal-cartel) — cleared, awaiting scheduling
+- `qa-auto-echoes-of-the-unmade-...` (harness_qa, echoes-of-the-unmade, dep=1)
+- `feature-208049694-337` (feature, the-memory-palace, dep=1)
+- `qa-signal-cartel-rerun-...` (harness_qa, signal-cartel, dep=1)
+- `qa-echoes-of-exile-rerun-...` (harness_qa, echoes-of-exile) — cleared, awaiting scheduling
+
+### Failed Backlog
+- `bug-bug-bug-recovery-9d30` (temporal-residue) — 3 attempts, null error. Phantom chain artifact. Archaeologist recommended.
+
+### Decisions
+1. **No ceiling change** — 9 agents, 57.7% quota, 42.3% headroom. System healthy.
+2. **No throttle** — quota well within limits.
+3. **No project pause** — no single project consuming excessive resources.
+4. **Phantom deps cleared** — 3 phantom-blocked tasks (ab939c89, 9624c599d2f4, qa-echoes-of-exile-rerun) cleared by data/scheduler_check.py.
+
+### Recommended
+Archaeologist triage for `bug-bug-bug-recovery-9d30` (temporal-residue, 3 attempts, null error — likely phantom chain). Stalled projects: temporal-residue (1 failed), echoes-of-the-unmade (4 in-chain), negative-space (1 recovery), signal-cartel (1 bug + 1 QA pending).
