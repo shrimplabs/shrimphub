@@ -1486,7 +1486,7 @@ def harness_step(action: dict, timeout: int = 30) -> dict:
     s = _harness_connect(_harness_port, deadline)
 
     if s is None:
-        return {"error": f"harness_step: could not connect to TestHarness (primary={_harness_port}, fallbacks={_HARNESS_FALLBACK_PORTS}) within {timeout}s"
+        return {"error": f"harness_step: could not connect to TestHarness (primary={_harness_port}, fallbacks={_HARNESS_FALLBACK_PORTS}) within {timeout}s"}
 
     try:
         # Send action first -- works for both phases:
