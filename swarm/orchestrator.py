@@ -550,7 +550,7 @@ def _fire_idle_gardener() -> None:
         )
         if not already_running:
             task_id = f"gardener-{int(time.time())}"
-            deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+            deps = chain_to_project_head(db, "swarm-controller", task_id=task_id, ensure_head=True)
             db.task_upsert({
                 "id": task_id,
                 "project": "swarm-controller",
@@ -602,7 +602,7 @@ def _fire_idle_librarian() -> None:
     if not already_running:
         LIBRARIAN_COMPLETION_COUNTER = 0
         task_id = f"librarian-{int(time.time())}"
-        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id, ensure_head=True)
         db.task_upsert({
             "id": task_id,
             "project": "swarm-controller",
@@ -670,7 +670,7 @@ def _fire_weekly_auditor() -> None:
         return
 
     task_id = f"meta-auditor-{int(now)}"
-    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id, ensure_head=True)
     managed = list(MANAGED_PROJECTS)
     db.task_upsert({
         "id": task_id,
@@ -737,7 +737,7 @@ def _fire_idle_scheduler() -> None:
         return
 
     task_id = f"meta-scheduler-{int(now)}"
-    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+    deps = chain_to_project_head(db, "swarm-controller", task_id=task_id, ensure_head=True)
     db.task_upsert({
         "id": task_id,
         "project": "swarm-controller",
@@ -1223,7 +1223,7 @@ def _fire_idle_archaeologist() -> None:
             continue
 
         task_id = f"archaeologist-{project_name}-{int(now)}"
-        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
+        deps = chain_to_project_head(db, "swarm-controller", task_id=task_id, ensure_head=True)
         db.task_upsert({
             "id": task_id,
             "project": "swarm-controller",

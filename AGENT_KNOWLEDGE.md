@@ -472,3 +472,13 @@ Self-referential and cross-phantom deps regenerate each time a fresh agent spawn
 ## Signal-Cartel Wall Collision Fix (completed)
 
 `qa-bug-signal-cartel-140c147b7020` (wall StaticBody2D collision_layer=1→4) completed. This unblocked 3 QA reruns and task-aee21a2f7169 (FloorCollision position fix). The art-auto dep `art-auto-signal-cartel-1780147506` was phantom and has been cleared from all downstream tasks.
+
+---
+## Port 5001 for API calls
+The swarm API runs on localhost:5001 (PID from lsof: commplex-link), NOT port 2222. All curl/requests calls must use port 5001.
+
+## Working tree must be clean before completing
+Always check `git status --short` before finishing. If uncommitted changes exist: (a) validate and commit if intentional, (b) restore with `git checkout <file>` if accidental.
+
+## Ghost `\-` in YAML (prompts/bug.yaml)
+If you see `\-` (backslash-escaped dash) in YAML list items in prompts/*.yaml, it means the YAML list item was double-escaped by a previous patch_file attempt. The correct form is plain `- item text` at the start of a line. Always restore with `git checkout` and re-apply the intended change cleanly.
