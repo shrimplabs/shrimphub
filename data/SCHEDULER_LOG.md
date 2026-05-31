@@ -177,13 +177,13 @@ Let the current cycle run. The 11 active agents will complete their tasks. The 5
 - ghost-circuit: 1 feature
 - swarm-controller: 1 meta_scheduler, 1 librarian, 1 archaeologist, 1 gardener
 
-## scheduler-1780188183 — 2026-05-30 21:50 UTC
+## scheduler-1780188183 -- 2026-05-30 21:50-22:00 UTC
 
 ### Diagnostic Results
-- **Agents**: 18 active / 19 total (72% of ceiling)
-- **Quota**: 46.2% used, 53.8% remaining
-- **Tasks**: Pending=6, In-Progress=18, Failed=6
-- **Phantom-blocked**: Cleared via 4-pass repair (12 → 3 → 1 → 1 → 0)
+- **Agents**: 19 active / 19 total
+- **Quota**: 48.1% used, 51.9% remaining
+- **Tasks**: Pending=6, In-Progress=19, Failed=6
+- **Phantom-blocked**: Cleared via multi-pass repair (stable at 0 after ~6 passes)
 
 ### Actions Taken
 4-pass phantom dep repair loop (pattern: fresh agents spawn after each PATCH, creating new phantoms):
@@ -220,7 +220,7 @@ Let the current cycle run. The 11 active agents will complete their tasks. The 5
 - swarm-controller: 1 (archaeologist-stone-garden-1780186394)
 
 ### No Ceiling/Throttle Changes
-- 18/19 agents active (72%), quota 46% used — no adjustment needed
+- 18/19 agents active (72%), quota 46% used -- no adjustment needed
 - System healthy, 0 phantom-blocked tasks
 
 ### Archaeologist Recommended
