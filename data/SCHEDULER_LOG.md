@@ -1375,3 +1375,73 @@ All archived -- NOT real failures. Pre-existing validation baseline issues requi
 - Monitor echoes-of-the-unmade recovery chain (recovery-41000850 in progress)
 - Monitor signal-cartel harness integration (feature-harness-integrate-signal-cartel-231345379 just unblocked)
 - System is healthy, no intervention needed
+---
+
+## scheduler-1780233820 -- 2026-05-31T15:57 UTC
+
+**Scheduler**: scheduler-1780233820 (meta_scheduler) | depends on scheduler-1780232919
+
+### Agent Distribution (16 active)
+- swarm-controller: scheduler-1780233820 (meta_scheduler)
+- bug: 7 (echoes-of-the-unmade x2, signal-cartel x1, solar-escape x1, the-memory-palace x1, ghost-circuit x1, negative-space x1)
+- qa: 3 (ghost-circuit x2, solar-escape x1)
+- feature: 3 (signal-cartel x2, spawn-test-proj x1)
+- harness_qa: 2 (the-memory-palace x1, signal-cartel x1)
+- qa: 1 (ghost-circuit x1)
+
+### Projects
+- ghost-circuit: 3 | signal-cartel: 3 | solar-escape: 2 | the-memory-palace: 2 | echoes-of-the-unmade: 2 | negative-space: 1 | swarm-controller: 1 | spawn-test-proj: 1
+
+### Task Breakdown
+- **In-progress**: 16 (all agents active)
+- **Pending**: 19 (0 phantom-blocked, all unblocked or legitimately blocked on in-progress deps)
+- **Failed (zombie)**: 3 (archived this run)
+- **Phantom-blocked**: 0
+
+### Quota
+- **85.5% used, 14.5% remaining** -- NO CHANGE NEEDED
+- 12823/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- scheduler_check.py: 0 phantom-blocked found (system clean)
+- 3 zombie failed tasks archived (null error + null last_failure + deep recovery chain artifacts):
+  - `bug-bug-bug-recovery-fb25c1bf` (echoes-of-the-unmade)
+  - `bug-bug-bug-recovery-f2a4e1b9` (ghost-circuit)
+  - `bug-bug-bug-recovery-f197afa1` (echoes-of-the-unmade)
+
+### Pending Task Analysis
+**Unblocked (17) -- ready to be picked:**
+- `qa-solar-escape-rerun-862ceaaa69dd` [qa, solar-escape] -- no deps
+- `qa-sushi-razzle-rerun-41c1fbea8815` [qa, sushi-razzle] -- no deps
+- `qa-rare-earth-empire-rerun-*` x3 [qa, rare-earth-empire] -- no deps
+- `qa-echoes-of-the-unmade-rerun-*` x6 [qa, echoes-of-the-unmade] -- no deps (all waiting on in-progress recovery chain)
+- `qa-ghost-circuit-rerun-22a4a5293008` [qa, ghost-circuit] -- no deps
+- `qa-signal-cartel-rerun-*` x3 [qa, signal-cartel] -- no deps
+- `feature-227404714-487` [feature, spawn-test-proj] -- no deps
+- `task-cdadb8cc0271` [?, sushi-razzle] -- no deps
+- `feature-harness-integrate-signal-cartel-231345379` [feature, signal-cartel] -- no deps (just unblocked)
+
+**Blocked (2) -- legitimate in-progress deps:**
+- `qa-echoes-of-the-unmade-rerun-xxx` -- dep on `recovery-41000850` (in-progress)
+- `qa-signal-cartel-rerun-xxx` -- dep on harness integration task (in-progress)
+
+### Decisions
+- **No ceiling change**: 16 active, 85.5% quota, 14.5% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF); 16 active via /api/spawn over-spawn is allowed. No ceiling increase needed.
+- **No throttle change**: 14.5% remaining, no intervention needed.
+- **No project pauses**: All 8 active projects have in-progress agents.
+- **No run_after adjustments**: 17 unblocked pending tasks will be picked naturally as agents complete.
+- **Archive 3 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 85.5% used, 14.5% remaining (below 90% threshold)
+- :heavy_check_mark: **No phantom-blocked**: 0 (system clean)
+- :heavy_check_mark: **No failed tasks**: 3 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **17 pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, feature, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 17 unblocked pending tasks (qa reruns for rare-earth-empire, sushi-razzle, echoes-of-the-unmade, ghost-circuit, solar-escape, signal-cartel)
+- Monitor echoes-of-the-unmade recovery chain (recovery-41000850 in progress, 6 QA reruns queued behind)
+- Monitor signal-cartel harness integration (feature-harness-integrate-signal-cartel-231345379 just unblocked)
+- System is healthy, no intervention needed
