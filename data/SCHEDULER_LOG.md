@@ -1592,3 +1592,83 @@ All archived -- NOT real failures. Root cause bugs need archaeologist triage at 
 - Monitor echoes-of-the-unmade recovery chain (recovery in progress, 6 QA reruns queued behind)
 - Monitor signal-cartel feature chain (task in progress, 2 QA reruns queued behind)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780240594 -- 2026-05-31T17:00 UTC
+
+**Scheduler**: scheduler-1780240594 (meta_scheduler) | depends on scheduler-1780240122
+
+### Agent Distribution (14 active)
+- swarm-controller: scheduler-1780240594 (meta_scheduler)
+- bug: 5 (ghost-circuit x2, echoes-of-the-unmade x1, negative-space x1, temporal-residue x1)
+- harness_qa: 3 (the-memory-palace x1, signal-cartel x1, echoes-of-the-unmade x1)
+- qa: 2 (ghost-circuit x1, solar-escape x1)
+- feature: 1 (spawn-test-proj x1)
+- art_pass: 1 (spawn-test-proj x1)
+
+### Projects
+- ghost-circuit: 3 | signal-cartel: 1 | echoes-of-the-unmade: 2 | negative-space: 1 | temporal-residue: 1 | the-memory-palace: 1 | solar-escape: 1 | spawn-test-proj: 2 | swarm-controller: 1
+
+### Task Breakdown
+- **In-progress**: 14 (all agents active)
+- **Pending**: 20 (8 unblocked, 12 blocked on in-progress deps)
+- **Failed**: 0 (3 zombie tasks archived: bug-bug-qa-bug-ghost-circuit, bug-bug-bug-recovery-dcaedc29, qa-signal-cartel-rerun-1977760)
+- **Phantom-blocked**: 0 (1 auto-cleared by scheduler_check.py)
+
+### Quota
+- **24.9% used, 75.1% remaining** -- NO CHANGE NEEDED
+- 3731/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- scheduler_check.py cleared 1 phantom-blocked task:
+  - `task-3e532679564b` -- deps cleared → unblocked
+- Stable at 0 phantom-blocked after pass 1.
+
+### Failed Task Triage (3 archived)
+All 3 have null error + null last_failure + 3 attempts -- deep recovery chain artifacts:
+- `bug-bug-qa-bug-ghost-circuit-068784f06094` (ghost-circuit) -- deep chain artifact, archived=true in metadata.
+- `bug-bug-bug-recovery-dcaedc29` (negative-space) -- deep chain artifact, scene parse errors (crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn) are pre-existing validation baseline.
+- `qa-signal-cartel-rerun-1977760c0a3d` (signal-cartel) -- phantom dep cleared.
+
+All archived -- NOT real failures. Root cause bugs (scene corruption, stale .import files) need archaeologist triage.
+
+### Pending Task Analysis
+**Unblocked (8) -- ready to be picked:**
+- `task-3e532679564b` [bug, ghost-circuit, prio=90] -- just cleared
+- `qa-ghost-circuit-rerun-577a53689cd0` [qa, ghost-circuit, prio=60]
+- `qa-ghost-circuit-rerun-9da463268f05` [qa, ghost-circuit, prio=60]
+- `qa-solar-escape-rerun-3644efdfa204` [qa, solar-escape, prio=60]
+- `qa-sushi-razzle-rerun-54bdacca42b1` [qa, sushi-razzle, prio=60]
+- `qa-rare-earth-empire-rerun-5f231d985d60` [qa, rare-earth-empire, prio=60]
+- `qa-rare-earth-empire-rerun-f674e6eb0161` [qa, rare-earth-empire, prio=60]
+- `qa-rare-earth-empire-rerun-937cb41063f1` [qa, rare-earth-empire, prio=60]
+
+**Blocked (12) -- legitimate in-progress deps:**
+- echoes-of-the-unmade: harness_qa + bug tasks dep on recovery chains (in-progress)
+- signal-cartel: harness_qa dep on in-progress feature/bug chain
+- the-memory-palace: harness_qa dep on in-progress feature chain
+- negative-space: qa dep on in-progress bug chain
+- ghost-circuit: qa dep on in-progress qa chain
+
+### Decisions
+- **No ceiling change**: 14 active, 24.9% quota, 75.1% headroom -- very healthy. max_active_agents=8 (AUTO_SCALE is OFF); 14 active via /api/spawn over-spawn is allowed. No ceiling increase needed.
+- **No throttle change**: 75.1% remaining, no intervention needed.
+- **No project pauses**: All 9 active projects have in-progress agents.
+- **No run_after adjustments**: 8 unblocked pending tasks will be picked naturally as agents complete. 12 blocked on in-progress deps will drain naturally.
+- **Archive 3 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 24.9% used, 75.1% remaining
+- :heavy_check_mark: **No phantom-blocked**: 1 phantom auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 3 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **8 pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **12 pending blocked**: all have verified in-progress dep targets
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, feature, art_pass, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 8 unblocked pending tasks (8 qa reruns for ghost-circuit, solar-escape, sushi-razzle, rare-earth-empire)
+- Monitor echoes-of-the-unmade recovery chain (recovery in progress, harness_qa waiting)
+- Monitor signal-cartel feature chain (in progress, harness_qa queued behind)
+- Archaeologist recommended for ghost-circuit (stale .import files + deep recovery chains), negative-space (scene parse errors in crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn), and deep-chain backlog across 4 projects
+- System is healthy, no intervention needed
