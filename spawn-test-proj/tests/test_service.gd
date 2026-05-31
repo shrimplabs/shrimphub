@@ -49,7 +49,7 @@ func _http_get(req_path: String) -> Dictionary:
         await get_tree().process_frame
     if http.get_status() != HTTPClient.STATUS_CONNECTED:
         return {"error": "status: " + str(http.get_status())}
-    err = http.request(HTTPClient.METHOD_GET, req_path)
+    err = http.request(HTTPClient.METHOD_GET, req_path, [], "")
     if err != OK:
         return {"error": "request failed: " + str(err)}
     while http.get_status() == HTTPClient.STATUS_REQUESTING:
@@ -70,7 +70,7 @@ func _http_post(req_path: String, body: String) -> Dictionary:
         await get_tree().process_frame
     if http.get_status() != HTTPClient.STATUS_CONNECTED:
         return {"error": "status: " + str(http.get_status())}
-    err = http.request(HTTPClient.METHOD_POST, req_path, PackedStringArray(), body)
+    err = http.request(HTTPClient.METHOD_POST, req_path, [], body)
     if err != OK:
         return {"error": "request failed: " + str(err)}
     while http.get_status() == HTTPClient.STATUS_REQUESTING:
