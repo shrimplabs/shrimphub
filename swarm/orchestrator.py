@@ -584,6 +584,7 @@ def _fire_idle_librarian() -> None:
     This runs the librarian periodically to catch recurring prompt quality
     issues before they compound across many tasks.
     """
+    global LIBRARIAN_COMPLETION_COUNTER
     if not LIBRARIAN_ENABLED:
         return
     if not META_MODE_ENABLED:
@@ -599,7 +600,6 @@ def _fire_idle_librarian() -> None:
         for t in all_tasks
     )
     if not already_running:
-        global LIBRARIAN_COMPLETION_COUNTER
         LIBRARIAN_COMPLETION_COUNTER = 0
         task_id = f"librarian-{int(time.time())}"
         deps = chain_to_project_head(db, "swarm-controller", task_id=task_id)
