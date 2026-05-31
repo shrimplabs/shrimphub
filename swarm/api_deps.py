@@ -603,10 +603,21 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
         except Exception:
             history_depth = 2
         history_depth = max(0, min(history_depth, 25))
+        # Exclude scaffolding noise from graph view: research feeders and QA reruns
+        # are internal machinery that pollute the graph and breed rapidly.
+        _LIVE_EXCLUDE_TYPES = frozenset({"research", "harness_qa"})
+        _LIVE_EXCLUDE_ID_PATS = ("rerun", "feeder")
+
+        def _is_live_noise(t) -> bool:
+            if getattr(t, "type", None) in _LIVE_EXCLUDE_TYPES:
+                return True
+            tid = getattr(t, "id", "") or ""
+            return any(p in tid for p in _LIVE_EXCLUDE_ID_PATS)
+
         if project:
-            filtered = [t for t in active_tasks if t.project == project]
+            filtered = [t for t in active_tasks if t.project == project and not _is_live_noise(t)]
         else:
-            filtered = active_tasks
+            filtered = [t for t in active_tasks if not _is_live_noise(t)]
 
         graph = build_graph_from_tasks(filtered)
         dot = graph.to_dot()
@@ -637,15 +648,28 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     dep_ids_needed.add(head_task_id)
                 # Query DB for completed/cancelled/failed tasks (immutable history).
                 # Fall back to JSONL only for pre-migration tasks not in DB.
+                # Exclude scaffolding task types that pollute the graph — research
+                # feeders and QA reruns are internal machinery, not meaningful chain
+                # nodes. They breed rapidly and make graphs unreadable.
+                _GRAPH_EXCLUDE_TYPES = frozenset({"research", "harness_qa"})
+                _GRAPH_EXCLUDE_ID_PATTERNS = ("rerun", "feeder")
+
+                def _is_graph_noise(t: dict) -> bool:
+                    if t.get("type") in _GRAPH_EXCLUDE_TYPES:
+                        return True
+                    tid = t.get("id", "")
+                    return any(pat in tid for pat in _GRAPH_EXCLUDE_ID_PATTERNS)
+
                 db_history = [
                     dict(t) for t in db.task_get_all()
                     if t.get("project") == project
                     and t.get("status") in ("completed", "cancelled", "failed")
                     and t.get("id") not in active_ids
+                    and not _is_graph_noise(t)
                 ]
                 jsonl_history = _load_history_tasks(data_dir, project=project, max_entries=500)
                 db_ids = {t["id"] for t in db_history}
-                jsonl_only = [t for t in jsonl_history if t.get("id") not in db_ids]
+                jsonl_only = [t for t in jsonl_history if t.get("id") not in db_ids and not _is_graph_noise(t)]
                 all_history = db_history + jsonl_only
 
                 head_task_id = _resolve_project_head_for_dot(db, project, all_history)
