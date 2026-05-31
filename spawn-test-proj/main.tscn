@@ -1,6 +1,45 @@
-[gd_scene load_steps=2 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=2 format=3 uid="uid://main_scene_001"]
 
-[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="Script" path="res://main.gd" id="1_abc123"]
 
 [node name="Main" type="Node"]
-script = ExtResource("1_main")
+script = ExtResource("1_abc123")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="VBox" type="VBoxContainer" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+
+[node name="Title" type="Label" parent="CanvasLayer/VBox"]
+layout_mode = 2
+text = "spawn-test-proj"
+horizontal_alignment = 1
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/VBox"]
+layout_mode = 2
+text = "Initializing..."
+
+[node name="ControlPanel" type="HBoxContainer" parent="CanvasLayer/VBox"]
+layout_mode = 2
+
+[node name="StartButton" type="Button" parent="CanvasLayer/VBox/ControlPanel"]
+layout_mode = 2
+text = "Start Service"
+
+[node name="SpawnButton" type="Button" parent="CanvasLayer/VBox/ControlPanel"]
+layout_mode = 2
+text = "Spawn Entity"
+
+[node name="StopButton" type="Button" parent="CanvasLayer/VBox/ControlPanel"]
+layout_mode = 2
+text = "Stop Service"
+
+[node name="OutputLog" type="Label" parent="CanvasLayer/VBox"]
+layout_mode = 2
+text = ""

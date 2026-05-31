@@ -14,7 +14,7 @@ func _scan(path: String, errors: Array) -> void:
 	while f != "":
 		if dir.current_is_dir() and not f.begins_with(".") and f != "addons":
 			_scan(path + f + "/", errors)
-		elif f.ends_with(".tscn") and f != "main.tscn":
+		elif f.ends_with(".tscn"):
 			var s = load(path + f)
 			if s == null: errors.append("Failed to load scene: " + path + f)
 		f = dir.get_next()
