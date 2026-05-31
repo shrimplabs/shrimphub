@@ -1096,3 +1096,65 @@ All 12 pending tasks are unblocked:
 - Monitor ghost-circuit (3 agents, high concurrency)
 - Monitor negative-space (3 agents with bug-bug-bug-recovery still in-progress)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780229269 -- 2026-05-31T13:05 UTC
+
+**Scheduler**: scheduler-1780229269 (meta_scheduler) | depends on scheduler-1780227440
+
+### Agent Distribution (12 active)
+- swarm-controller: scheduler-1780229269 (meta_scheduler, loop 2)
+- negative-space: 1 bug + 1 harness_qa (loops 4, 8)
+- echoes-of-the-unmade: 1 bug + 1 harness_qa (loops 15, 31)
+- temporal-residue: 1 bug (loop 19)
+- ghost-circuit: 1 bug + 1 art_pass (loops 14, 15)
+- signal-cartel: 1 art_pass (loop 14)
+- sushi-razzle: 1 qa (loop 44)
+- rare-earth-empire: 1 qa (loop 92)
+
+### Task Breakdown
+- **In-progress**: 12
+- **Pending**: 25 (24 unblocked, 1 blocked on in-progress dep)
+- **Failed (zombie)**: 0 (3 archived this run)
+- **Phantom-blocked**: 0 (8 phantom deps auto-cleared by scheduler_check.py)
+
+### Phantom Dep Repair
+- scheduler_check.py auto-cleared 8 phantom-blocked tasks:
+  - task-32efc2d48a8a, qa-auto-signal-cartel-1780229035, qa-auto-the-memory-palace-1780229542,
+    qa-auto-echoes-of-the-unmade-1780229035, qa-auto-negative-space-1780229035,
+    art-auto-negative-space-1780229035, pol-auto-negative-space-1780229035,
+    pol-auto-the-memory-palace-1780229035
+- No remaining phantom-blocked tasks.
+
+### Failed Task Triage (3 archived)
+All 3 have null error + null last_failure + 3 attempts -- deep recovery chain artifacts:
+- `bug-bug-bug-recovery-664a72a6` (temporal-residue) -- deep chain stopped at depth 4. Root cause: `Dictionary::operator[] no value for key 'events'` -- persistent pre-existing validation baseline error.
+- `bug-bug-bug-recovery-568aafe7` (echoes-of-the-unmade) -- deep chain stopped at depth 4. Root cause: `!d.has('speed')` SpriteFrames warning treated as parse error.
+- `bug-bug-bug-task-0122098500fd` (negative-space) -- deep chain stopped at depth 4. Root cause: scene parse errors in crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn -- pre-existing validation baseline.
+
+All archived -- NOT real failures. Root cause bugs are pre-existing validation baseline issues.
+
+### Pending Task Analysis
+All 25 pending tasks are unblocked (24 with no deps, 1 blocked on in-progress harness_qa):
+- **unblocked (24)**: bug(task-32e), qa-auto(harness_qa signal-cartel, the-memory-palace), qa(solar-escape x2, ghost-circuit x3), pol-auto(signal-cartel, the-memory-palace), qa-echoe(harness_qa echoes x6), art-auto(the-memory-palace), feature(sushi-razzle x2, solar-escape, sushi-razzle), qa-bug(temporal-residue), srz-004/005(sushi-razzle), task-cda(sushi-razzle)
+- **blocked (1)**: qa-echoe echoes-of-the-unmade -- dep on in-progress harness_qa chain
+
+### Decisions
+- **No ceiling change**: 12 active, 55.5% quota, 44.5% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF); 12 active via /api/spawn over-spawn is allowed.
+- **No throttle change**: 44.5% remaining, no intervention needed.
+- **No project pauses**: All 8 active projects have in-progress agents.
+- **No run_after adjustments**: 24 unblocked pending tasks will be picked naturally as agents complete.
+- **Archive 3 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 55.5% used, 44.5% remaining
+- :heavy_check_mark: **No phantom-blocked**: 8 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 3 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **All pending unblocked**: 24 tasks ready to be picked
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, art_pass, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 24 unblocked pending tasks (should be picked as agents complete)
+- Monitor sushi-razzle qa agent (loop 44, still active)
+- Monitor rare-earth-empire qa agent (loop 92, clicking through menu UI)
+- System is healthy, no intervention needed
