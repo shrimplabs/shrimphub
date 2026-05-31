@@ -17,9 +17,10 @@ func after_each() -> void:
 		_main.free()
 
 func _setup_main() -> void:
-	# Create main instance, skip _ready() which blocks on HTTP requests.
+	# Create main instance in test mode to skip UI dependencies.
 	_main_script = load("res://main.gd")
 	_main = _main_script.new()
+	_main._test_mode = true  # Skip UI nodes and auto-start
 	add_child(_main)
 
 func _on_entities_spawned(count: int, names: Array) -> void:

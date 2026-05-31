@@ -8,13 +8,22 @@ extends Node
 
 var _service_running := false
 var _entities_spawned := 0
+var _test_mode := false  # Set by tests to skip UI dependencies
+
+## Parallel spawn state
+signal entities_spawned(count: int, names: Array)
+var _processing_parallel := false
+var _pending_spawn_count := 0
+var _spawned_entities: Array = []
 
 func _ready() -> void:
-	_start_btn.pressed.connect(_on_start_pressed)
-	_spawn_btn.pressed.connect(_on_spawn_pressed)
-	_stop_btn.pressed.connect(_on_stop_pressed)
-	_update_ui("Ready. Press Start to begin.")
-	_on_start_pressed()
+	if _start_btn != null:
+		_start_btn.pressed.connect(_on_start_pressed)
+		_spawn_btn.pressed.connect(_on_spawn_pressed)
+		_stop_btn.pressed.connect(_on_stop_pressed)
+		_update_ui("Ready. Press Start to begin.")
+	if not _test_mode:
+		_on_start_pressed()
 
 func _on_start_pressed() -> void:
 	if _service_running:
@@ -57,8 +66,53 @@ func _on_stop_pressed() -> void:
 	_update_ui("Service stopped.")
 
 func _update_ui(msg: String) -> void:
-	_status_label.text = msg
-	_output_log.text = "Entities spawned: " + str(_entities_spawned)
+	if _status_label != null:
+		_status_label.text = msg
+	if _output_log != null:
+		_output_log.text = "Entities spawned: " + str(_entities_spawned)
+
+## Parallel spawn functions
+func spawn_entities_parallel(names: Array) -> Array:
+	_processing_parallel = true
+	_pending_spawn_count = names.size()
+	var spawned: Array = []
+	for name in names:
+		var entity = _spawn_entity_internal(name)
+		spawned.append(entity)
+		_spawned_entities.append(name)
+	_processing_parallel = false
+	_pending_spawn_count = 0
+	entities_spawned.emit(spawned.size(), names)
+	return spawned
+
+func spawn_entities_parallel_with_delay(names: Array, delay: float) -> void:
+	_processing_parallel = true
+	_pending_spawn_count = names.size()
+	await get_tree().create_timer(delay).timeout
+	var spawned: Array = []
+	for name in names:
+		var entity = _spawn_entity_internal(name)
+		spawned.append(entity)
+		_spawned_entities.append(name)
+	_processing_parallel = false
+	_pending_spawn_count = 0
+	entities_spawned.emit(spawned.size(), names)
+
+func _spawn_entity_internal(name: String) -> Node:
+	var entity = Node.new()
+	entity.name = name
+	add_child(entity)
+	_entities_spawned += 1
+	return entity
+
+func get_spawned_count() -> int:
+	return _entities_spawned
+
+func is_processing_parallel() -> bool:
+	return _processing_parallel
+
+func get_pending_spawn_count() -> int:
+	return _pending_spawn_count
 
 func get_game_state() -> Dictionary:
 	return {
