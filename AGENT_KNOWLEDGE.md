@@ -482,3 +482,10 @@ Always check `git status --short` before finishing. If uncommitted changes exist
 
 ## Ghost `\-` in YAML (prompts/bug.yaml)
 If you see `\-` (backslash-escaped dash) in YAML list items in prompts/*.yaml, it means the YAML list item was double-escaped by a previous patch_file attempt. The correct form is plain `- item text` at the start of a line. Always restore with `git checkout` and re-apply the intended change cleanly.
+
+---
+## Scheduler Run 2026-05-30
+- 19/19 agents active, 48% quota — no ceiling/throttle changes needed
+- Multi-pass phantom repair (6 passes to stable 0) — fresh agent spawns continuously regenerate phantoms
+- 6 failed tasks across 4 projects need archaeologist triage
+- Clear with: python3 /tmp/clear_all.py (loops until 0 phantoms, ~3s between passes)
