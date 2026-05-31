@@ -76,6 +76,7 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
         with auto_mode_state["lock"]:
             auto_mode_state["enabled"] = enabled
             auto_mode_state["suspended_for_quota"] = False  # user explicitly set it
+            auto_mode_state["user_disabled"] = not enabled  # prevent quota-resume from overriding manual off
         config["auto_mode_enabled"] = enabled
         with _config_write_lock:
             cfg = {}
