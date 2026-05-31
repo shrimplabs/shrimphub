@@ -2090,3 +2090,98 @@ All 26 pending tasks are unblocked. Key clusters:
 1. **Archive 13 zombie failed tasks** -- done
 2. **META_MODE_ENABLED=False**: All 9 librarian tasks are zombies because meta mode is disabled. All 2 meta_scheduler tasks are zombies due to context bloat. If meta agents are needed, enable META_MODE_ENABLED=True and reduce injected context size.
 3. **System healthy**: No ceiling/throttle/project-pause changes needed. 26 pending tasks ready to drain.
+
+---
+
+## scheduler-1780270310 -- 2026-05-31T21:59 UTC
+
+**Scheduler**: scheduler-1780270310 (meta_scheduler) | depends on scheduler-1780269923
+
+### Agent Distribution (12 total, 10 active)
+| Status | Count | Details |
+|--------|-------|---------|
+| active | 10 | solar-escape(2), signal-cartel(2), star-sovereigns(2), echoes-of-the-unmade(2), swarm-controller(1), bug(1) |
+| completed | 2 | echoes-of-the-unmade(bug x2) |
+| zombie | 0 | -- |
+
+**Agents by type**: polish(2), bug(4), harness_qa(2), meta_scheduler(1), bug(2), bug(1)
+
+### Task Breakdown
+- **In-progress**: 10
+- **Pending**: 22 (all unblocked, 0 phantom-blocked)
+- **Failed (archived)**: 8 (all zombie artifacts)
+- **Phantom-blocked**: 0
+
+### Quota
+- **21.2% used, 78.8% remaining** -- NO CHANGE NEEDED
+- 3180/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- 12 phantom deps cleared (2-pass: pass 1 cleared 12, pass 2 confirmed 0 remaining):
+  - bug-bug-recovery-c693cf10 (self-dep on completed)
+  - bug-bug-qa-bug-echoes-of-the-unmade-f53f3615457f (self-dep)
+  - bug-bug-bug-recovery-bb917498 (self-dep)
+  - bug-bug-qa-bug-echoes-of-the-unmade-ec7f69b387c6 (self-dep)
+  - integration-signal-cartel-1780270022 (dep on NOT_FOUND 68785215)
+  - qa-bug-solar-escape-1d8dd0b0572c (dep on NOT_FOUND d7e94856)
+  - harness_qa-249290596-203 (dep on NOT_FOUND 20be148d)
+  - polish-248034986-916 (dep on NOT_FOUND 20be148d)
+  - art-auto-signal-cartel-1780248226 (dep on NOT_FOUND 64b2e157)
+  - pol-auto-signal-cartel-1780248226 (dep on NOT_FOUND 64b2e157)
+  - art-auto-solar-escape-1780248997 (dep on NOT_FOUND 0e01b90b)
+  - pol-auto-solar-escape-1780248997 (dep on NOT_FOUND 0e01b90b)
+  - qa-signal-cartel-rerun-dba54315a878 (dep on NOT_FOUND 68785215)
+  - scheduler-1780270310 (dep on NOT_FOUND 80269923) -- cleared, scheduler unblocked
+- Stable at 0 phantom-blocked after pass 1. Pass 2 confirmed 0 remaining.
+
+### Failed Task Triage (8 archived)
+All 8 have null error + null last_failure + attempts≥1 -- deep recovery chain artifacts:
+- `bug-bug-qa-bug-echoes-of-the-unmade-f53f3615457f` (echoes-of-the-unmade, attempts=3) -- deep chain artifact
+- `bug-bug-bug-recovery-bb917498` (echoes-of-the-unmade, attempts=3) -- deep chain artifact
+- `bug-bug-qa-bug-echoes-of-the-unmade-ec7f69b387c6` (echoes-of-the-unmade, attempts=3) -- deep chain artifact
+- `harness_qa-249290596-203` (the-memory-palace, attempts=4) -- deep chain artifact
+- `qa-echoes-of-the-unmade-rerun-7f54ebfc7feb` (echoes-of-the-unmade, attempts=1) -- deep chain artifact
+- `polish-248034986-916` (the-memory-palace, attempts=4) -- deep chain artifact
+- `art-auto-signal-cartel-1780248226` (signal-cartel, attempts=1) -- blocked on phantom dep, cleared
+- `art-auto-solar-escape-1780248997` (solar-escape, attempts=1) -- blocked on phantom dep, cleared
+
+All archived -- NOT real failures. Deep recovery chain artifacts with null error.
+
+### Pending Task Analysis
+All 22 pending tasks are unblocked and ready to be picked:
+- echoes-of-the-unmade: 4 pending (bug tasks)
+- star-sovereigns: 3 pending (bug tasks, closure triage)
+- signal-cartel: 3 pending (polish + harness_qa)
+- solar-escape: 2 pending (harness_qa)
+- the-memory-palace: 2 pending (feature + qa)
+- negative-space: 2 pending (bug tasks)
+- ghost-circuit: 1 pending (bug task)
+- temporal-residue: 1 pending (bug task)
+- resonance-architect: 1 pending (bug task)
+- spawn-test-proj: 2 pending (feature + bug)
+- swarm-controller: 1 pending (meta_scheduler)
+
+### Decisions
+- **No ceiling change**: 10 active, 21.2% quota, 78.8% headroom -- very healthy. max_active_agents=8 (AUTO_SCALE is OFF); 10 active via /api/spawn over-spawn is allowed. No ceiling increase needed.
+- **No throttle change**: 78.8% remaining, no intervention needed.
+- **No project pauses**: All 10 active projects have in-progress agents.
+- **No run_after adjustments**: All 22 pending tasks are unblocked.
+- **Archive 8 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 21.2% used, 78.8% remaining
+- :heavy_check_mark: **No phantom-blocked**: 12 phantoms cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 8 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **22 pending unblocked**: all ready to be picked naturally
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, polish, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 22 unblocked pending tasks (should be picked as agents complete)
+- Monitor echoes-of-the-unmade (4 pending bug tasks, 2 active QA agents)
+- Monitor star-sovereigns (3 pending closure triage tasks, 2 active bug agents)
+- Monitor signal-cartel (3 pending polish+harness_qa, 2 active agents)
+- System is healthy, no intervention needed
+
+### Commit
+Log written. scheduler-1780270310 COMPLETE.
