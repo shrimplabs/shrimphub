@@ -36,6 +36,8 @@ data/*
 !data/.gitkeep
 !data/scheduler_check.py
 !data/SCHEDULER_LOG.md
+!data/PROJECT_MAP.md
+!data/SWARM_SUMMARY.json
 
 # Beads / Dolt files (added by bd init)
 .dolt/
