@@ -497,3 +497,51 @@ All archived -- NOT real failures. Root cause bugs need archaeologist triage at 
 - Monitor the-memory-palace dep chain (3 deep, feature-211931830-295 in progress)
 - Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780212684 -- 2026-05-31T08:47 UTC
+
+### Agent & Quota Status
+- **13 active agents** / 13 total (100% utilization)
+- **Quota: 63.8% used, 36.2% remaining** -- NO CHANGE NEEDED
+- 9611/15000 quota units consumed
+
+### Agent Distribution (13 active)
+- swarm-controller: scheduler-1780212684 (meta_scheduler)
+- meta_scheduler: 1 | bug: 6 | feature: 3 | art_pass: 1 | harness_qa: 1 | qa: 1
+- Projects: the-memory-palace(2), signal-cartel(1), echoes-of-exile(1), echoes-of-the-unmade(1), negative-space(1), temporal-residue(1), ghost-circuit(1), spawn-test-proj(1), swarm-controller(1)
+
+### Task Breakdown
+- **In-progress**: 13 (bug×6, feature×3, qa×1, art_pass×1, harness_qa×1, meta_scheduler×1)
+- **Pending**: 4 (all legitimately blocked on in-progress deps)
+- **Failed**: 0
+- **Phantom-blocked**: 0
+
+### Pending Task Dep Chain Verification
+All 4 pending tasks have verified in-progress dep targets:
+- `bug-task-c0bbf0d018fb` [bug] -- dep=`feature-208049694-337` [feature, in-progress]
+- `integration-the-memory-palace-1780207783` [bug] -- dep=`bug-task-c0bbf0d018fb` [pending, chain advancing]
+- `qa-auto-echoes-of-the-unmade-1780203746` [harness_qa] -- dep=`bug-bug-recovery-b1469405` [bug, in-progress]
+- `feature-208049694-337` [feature] -- dep=`feature-211931830-295` [feature, in-progress]
+
+### Phantom Dep Repair
+- scheduler_check.py auto-detected and cleared 0 phantom-blocked (system clean)
+- No phantom deps found in full DB scan
+
+### Decisions
+- **No ceiling change**: 13 active, 63.8% quota, 36.2% headroom -- healthy. AUTO_SCALE is off (fixed ceiling), so no dynamic adjustment.
+- **No throttle change**: 36.2% remaining, no intervention needed.
+- **No project pauses**: All 9 active projects have in-progress agents.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains, will drain naturally.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 63.8% used, 36.2% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0
+- :heavy_check_mark: **No failed tasks**: Failed backlog at 0
+- :heavy_check_mark: **Dep chains verified**: All 4 pending tasks blocked on verified in-progress deps
+- :heavy_check_mark: **All in-progress tasks advancing**: feature, bug, qa, art_pass agents all running
+
+### Next Run Recommendations
+- Monitor the-memory-palace dep chain (feature-211931830-295 → feature-208049694-337 → bug-task-c0bbf0d018fb → integration → qa)
+- Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress, qa-auto waiting)
+- System is healthy, no intervention needed
