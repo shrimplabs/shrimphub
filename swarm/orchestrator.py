@@ -771,11 +771,23 @@ def _fire_idle_scheduler() -> None:
     print(f"[Scheduler] Periodic trigger fired -- created meta_scheduler task {task_id}")
 
 
+_META_TASK_TYPES = frozenset({
+    "librarian", "gardener", "meta_auditor", "meta_scheduler",
+    "archaeologist", "cartographer",
+})
+
+
 def _get_next_task() -> Optional[Dict]:
     """Select the next pending task with met dependencies, using TASK_SELECTION_STRATEGY."""
     db.backfill_completed_task_ids()
     all_tasks = db.task_get_all()
     pending = [t for t in all_tasks if t["status"] == "pending"]
+
+    # Meta agents must not run when over quota — they consume LLM calls and
+    # make quota exhaustion worse.  Filter them out of the candidate pool.
+    over_quota, _pct, *_ = check_quota_limit()
+    if over_quota:
+        pending = [t for t in pending if t.get("type") not in _META_TASK_TYPES]
     # Completed tasks now stay in the tasks table (immutable history), so
     # completed_ids is derived directly from the live table.
     completed_ids = {t["id"] for t in all_tasks if t["status"] == "completed"}
