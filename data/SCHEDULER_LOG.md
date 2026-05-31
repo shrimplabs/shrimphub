@@ -75,3 +75,9 @@
 - **Clear scheduler phantom dep**: PATCH scheduler-1780196478 deps to remove completed parent reference.
 
 ### Phantom Dep Repair (pass 1)
+- scheduler-1780196478: phantom dep on completed scheduler-1780195021 → CLEARED
+
+### Status
+- Phantom-blocked: 12 remaining (scheduler self-dep cleared, 12 cross-phantom remain)
+- Agents: 14/14 active, 78.3% quota
+- Archaeologist RECOMMENDED for 11 failed backlog across 5 projects
