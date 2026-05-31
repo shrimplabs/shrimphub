@@ -1796,3 +1796,12 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
 - `sushi-razzle`: qa agent at loop 76 still active, let it complete naturally.
 
 **Archaeologist recommended**: negative-space (2 failed, same scene parse error, multiple recovery attempts). All other failed tasks are deep-chain archived artifacts.
+
+---
+
+## Scheduler Run 2026-05-31 20:35 UTC (scheduler-1780245095)
+
+**State**: 13 active / 13 total, 42.2% quota / 57.8% remaining, 0 phantom-blocked, 5 failed (zombie)
+**Actions**: 1 phantom dep auto-cleared (qa-spawn-test-proj-rerun-80786c870f4d). 5 zombie failed tasks pending archive.
+**Pending**: 11 unblocked (7 echoes-of-the-unmade, 2 ghost-circuit, 1 solar-escape, 1 spawn-test-proj)
+**Decision**: No ceiling/throttle/project-pause changes needed. System healthy. Archaeologist recommended for 5 failed zombie backlog (all bug-bug-bug-recovery-* with 3 attempts, null error/last_failure — phantom artifacts).
