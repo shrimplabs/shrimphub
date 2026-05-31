@@ -589,3 +589,19 @@ The 8 agents I observed all had loop=None even though they were actively running
 - 11 agents active / 11 total (after completing scheduler, 27 unblocked tasks triggered new spawns)
 - 21 pending, 11 in-progress, 0 failed, 0 phantom-blocked
 - 74.5% quota remaining — system healthy, no interventions needed
+
+---
+## Gardener Run 2026-06-01 (gardener-1780271176)
+
+### Findings
+- 1 phantom artifact archived: `bug-bug-bug-recovery-632b593f` (negative-space, error=null, last_failure=null, attempts=3)
+- `gk-swarm-check-deleted` pattern actively recurring: 3 projects now missing `_swarm_check.gd`: echoes-of-the-unmade, negative-space, star-sovereigns
+- 3 fix tasks created: `bug-271398023-836`, `bug-271398100-848`, `bug-271427869-491` (all with cleared phantom deps, priority 90-95)
+- 2 tasks auto-unblocked by scheduler_check.py phantom repair pass: `task-67de8d868b69`, `qa-solar-escape-rerun-04a18ef7ff88`
+
+### State at close
+- 7 active agents, 0 failed, 0 phantom-blocked, 71.1% quota remaining
+- GARDENER_REPORT.md written to data/
+
+### Pattern: `gk-swarm-check-deleted` is self-reinforcing
+Each recovery chain that exhausts and respawns sets up the next refactor sweep to delete the files again. Fix tasks should prevent recurrence but may need CLAUDE.md reinforcement.
