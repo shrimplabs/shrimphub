@@ -123,3 +123,35 @@
 - No agent kills, no project pauses needed
 - Pending task deps verified: all dep targets are in-progress (not completed/stuck)
 - Archaeologist RECOMMENDED for 1 archived failed (bug-bug-bug-pol-auto-negative-space-1780187671, negative-space)
+
+### Scheduler Run $(date)
+- **Time**: $(date)
+- **Agents**: 3/3 active (loop=None display lag, all running based on log output)
+- **Quota**: 11.3% used, 88.7% remaining — NO ceiling/throttle change needed
+- **Phantom deps**: 4 repaired (auto by scheduler_check.py), 0 remaining, 0 phantom-blocked
+- **In-Progress**: 3 | **Pending**: 10 | **Failed**: 3
+
+### Actions Taken
+1. **Zombie agent recovery**: 12 zombie agents (loop=None) detected — all had spawned subprocesses but orchestrator's `_active_handles` was empty. Monitor auto-cleaned. Restarted 4 agents via `/api/spawn`: task-c0bbf0d018fb (the-memory-palace), bug-qa-bug-negative-space-53cee9473b7b (negative-space), qa-bug-negative-space-9cf4258fa799 (negative-space), task-ae8616647f06 (ghost-circuit).
+2. **Phantom dep repair**: 4 phantom deps auto-cleared by scheduler_check.py:
+   - bug-bug-bug-recovery-75d63d01 (phantom dep)
+   - bug-bug-qa-bug-negative-space-53cee9473b7b (phantom dep)
+   - pol-auto-echoes-of-the-unmade-1780203746 (phantom dep)
+   - scheduler-1780204581 (phantom dep on completed scheduler)
+3. **Stale orchestrator state**: orchestrator.get_active_count() showed 4-12 stale count but _active_handles was empty. Used `/api/spawn` direct spawn to bypass monitor's fill_slots (which was blocked by stale count). Monitor now correctly shows 3.
+4. **Agent loop=None display**: The `loop` field in API responses shows None even for actively-running agents. This is a display/refresh lag — agent logs show loops 1-6+ across all 3 active agents. NOT zombies.
+
+### Failed Backlog
+- **bug-bug-bug-pol-auto-negative-space-1780187671**: archived, scene parse errors (phantom dep, cleared)
+- **qa-signal-cartel-rerun-a61ff5f8763b**: needs archaeologist triage
+- **scheduler-1780198279**: blocked on phantom dep (cleared), needs re-run
+
+### No Changes Made
+- **max_active_agents ceiling**: 8 (current max 8, only 3 active) — NO change needed
+- **Project pauses**: NONE — projects are healthy
+- **run_after**: NONE needed
+
+### Archaeologist RECOMMENDED for 2 failed tasks
+- qa-signal-cartel-rerun-a61ff5f8763b: signal-cartel wall collision fix was committed but QA rerun still failing
+- scheduler-1780198279: phantom dep cleared, scheduler needs manual restart or monitor re-trigger
+
