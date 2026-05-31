@@ -1,26 +1,18 @@
 config_version=5
 
 [application]
-
-config/name="spawn-test-proj"
 run/main_scene="res://main.tscn"
-config/features=PackedStringArray("4.2", "Forward Plus")
-config/icon="res://icon.svg"
+config/features=PackedStringArray("4.4")
+config/name="spawn-test-proj"
 
 [autoload]
-
-ServiceManager="*res://scripts/service_manager.gd"
-
-[editor_plugins]
-
-plugin/0="res://addons/gut/plugin.cfg"
+SpawnService="*res://scripts/spawn_service.gd"
 
 [display]
-
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 
 [rendering]
-
-renderer/rendering_method="forward_plus"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

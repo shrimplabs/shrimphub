@@ -12,9 +12,9 @@ func _scan(path: String, errors: Array) -> void:
 	dir.list_dir_begin()
 	var f = dir.get_next()
 	while f != "":
-		if dir.current_is_dir() and not f.begins_with(".") and f != "addons" and f != "tests" and f != "scripts":
+		if dir.current_is_dir() and not f.begins_with(".") and f != "addons" and f != "tests":
 			_scan(path + f + "/", errors)
-		elif f.ends_with(".gd") and f != "main.gd" and not f.begins_with("_"):
+		elif f.ends_with(".gd"):
 			var s = load(path + f)
 			if s == null: errors.append("Failed to load: " + path + f)
 		f = dir.get_next()
