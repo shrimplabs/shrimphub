@@ -543,3 +543,11 @@ Root cause: test isolation issue — tasks from other tests in the TestProjectCh
 Workaround: re-run the full suite — it passes consistently on re-run. The issue is non-deterministic test ordering/isolation, not a code bug in api_tasks.py or the test itself.
 
 All 1315 tests pass in the full suite run.
+
+---
+## Scheduler Run 2026-05-31 16:30 UTC (scheduler-1780240122)
+
+**State**: 16 active / 16 total, 4.8% quota / 95.2% remaining, 0 phantom-blocked, 0 failed
+**Actions**: 1 phantom dep auto-cleared (qa-solar-escape-rerun-3644efdfa204)
+**Pending**: 8 unblocked, 11 blocked on in-progress deps
+**Decision**: No ceiling/throttle/project-pause changes needed. System healthy.
