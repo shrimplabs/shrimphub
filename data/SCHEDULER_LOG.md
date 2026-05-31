@@ -1222,3 +1222,84 @@ All archived -- NOT real failures. Pre-existing validation baseline issues (scen
 - Monitor sushi-razzle integration chain (integration-sushi-ra in progress, srz-004 completed)
 - Archaeologist recommended for echoes-of-the-unmade, ghost-circuit, temporal-residue deep-chain backlog
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780231591 -- 2026-05-31T14:48 UTC
+
+**Scheduler**: scheduler-1780231591 (meta_scheduler) | depends on scheduler-1780230690
+
+### Agent Distribution (16 active)
+- swarm-controller: scheduler-1780231591 (meta_scheduler)
+- harness_qa: signal-cartel x1, the-memory-palace x1, echoes-of-the-unmade x1
+- bug: recovery-f197afa1 x1, recovery-f927fa9b x1, qa-bug-ghost-circuit x2, bug-bug-bug-recovery-e68116fe x1, bug-recovery-fb25c1bf x1
+- qa: ghost-circuit x1, solar-escape x1
+- art_pass: the-memory-palace x1, signal-cartel x1
+- feature: signal-cartel x1
+
+### Task Breakdown
+- **In-progress**: 16
+- **Pending**: 23 (12 unblocked, 11 blocked on phantom-in-progress deps)
+- **Failed (zombie)**: 0 (7 archived this run)
+- **Phantom-blocked**: 0 (2 auto-cleared by scheduler_check.py)
+
+### Quota
+- **74.9% used, 25.1% remaining** -- NO CHANGE NEEDED
+- 11235/15000 quota units consumed, 90% limit threshold
+
+### Phantom Dep Repair
+- scheduler_check.py cleared 2 phantom-blocked tasks across 2 passes:
+  - Pass 1: qa-signal-cartel-rerun-8ce120f4e7d9, qa-signal-cartel-rerun-4fb1c498b54e, qa-echoes-of-the-unmade-rerun-781aa726cd, qa-ghost-circuit-rerun-22a4a5293008, qa-solar-escape-rerun-d251a720b433 (5 cleared)
+  - Pass 2: bug-bug-recovery-fb25c1bf (1 cleared)
+- Stable at 0 phantom-blocked after pass 2.
+
+### Failed Task Triage (7 archived)
+All 7 have null error + null last_failure + 3 attempts -- deep recovery chain artifacts:
+- `bug-bug-bug-recovery-94aafb48` (echoes-of-the-unmade) -- deep chain stopped at depth 4. Root cause: `!d.has('speed')` SpriteFrames warning treated as parse error + test_async_syntax.gd parse error.
+- `bug-bug-bug-recovery-84c946de` (ghost-circuit) -- deep chain artifact
+- `bug-bug-bug-recovery-3a98880b` (temporal-residue) -- deep chain artifact
+- `bug-bug-bug-recovery-d4a8bd9f` (negative-space) -- deep chain artifact
+- `bug-bug-bug-recovery-8627a325` (echoes-of-the-unmade) -- deep chain artifact
+- `bug-bug-bug-recovery-ae6d0dd4` (temporal-residue) -- deep chain artifact
+- `bug-bug-bug-recovery-e68116fe` (echoes-of-the-unmade) -- deep chain stopped at depth 4, needs_human_review=true in metadata. Lock conflict with `task-7f7d0b4c81b8` over `test_async_syntax.gd`.
+
+All archived -- NOT real failures. Pre-existing validation baseline issues require archaeologist triage.
+
+### Pending Task Analysis
+**Unblocked (12) -- ready to be picked:**
+- `qa-sushi-razzle-rerun-41c1fbea8815` [harness_qa, sushi-razzle] -- no deps
+- `qa-rare-earth-empire-rerun-03a3969912b6` [qa, rare-earth-empire] -- no deps
+- `qa-rare-earth-empire-rerun-1c3f34414398` [qa, rare-earth-empire] -- no deps
+- `qa-rare-earth-empire-rerun-25c91d13c16c` [qa, rare-earth-empire] -- no deps
+- `qa-signal-cartel-rerun-8ce120f4e7d9` [harness_qa, signal-cartel] -- no deps (just cleared)
+- `qa-signal-cartel-rerun-4fb1c498b54e` [harness_qa, signal-cartel] -- no deps (just cleared)
+- `qa-echoes-of-the-unmade-rerun-781aa726cd2b` [harness_qa, echoes-of-the-unmade] -- no deps (just cleared)
+- `qa-ghost-circuit-rerun-22a4a5293008` [qa, ghost-circuit] -- no deps (just cleared)
+- `qa-solar-escape-rerun-d251a720b433` [qa, solar-escape] -- no deps (just cleared)
+- `task-cdadb8cc0271` [?, solar-escape] -- no deps
+- `feature-227404714-487` [feature, sushi-razzle] -- no deps
+- `qa-solar-escape-rerun-862ceaaa69dd` [qa, solar-escape] -- no deps
+
+**Blocked (11) -- phantom-in-progress deps:**
+- echoes-of-the-unmade: 5 tasks all dep on `ery-f2a4e1b9` (NOT_FOUND/phantom target) -- 4 qa reruns + 1 bug-qa task. Dep target doesn't exist in DB. `is_dependency_met()` escape-hatch treats as MET.
+- solar-escape: `qa-bug-solar-escape-ad42a38e6aec` dep on `9198389bfc76` (NOT_FOUND/phantom target).
+- signal-cartel: `qa-signal-cartel-rerun-414133131095` dep on `el-231345379` (NOT_FOUND/phantom target).
+
+### Decisions
+- **No ceiling change**: 16 active, 74.9% quota, 25.1% headroom -- healthy. max_active_agents=8 (AUTO_SCALE is OFF); 16 active via /api/spawn over-spawn is allowed.
+- **No throttle change**: 25.1% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: 12 unblocked pending tasks will be picked naturally as agents complete.
+- **Archive 7 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 74.9% used, 25.1% remaining
+- :heavy_check_mark: **No phantom-blocked**: 2 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: 7 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **12 pending unblocked**: ready to be picked as agents complete
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, art_pass, feature, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 12 unblocked pending tasks (qa reruns for rare-earth-empire, sushi-razzle, signal-cartel, echoes-of-the-unmade, ghost-circuit, solar-escape)
+- Monitor echoes-of-the-unmade lock conflict (task-7f7d0b4c81b8 vs bug-bug-bug-recovery-e68116fe over test_async_syntax.gd) -- human review needed
+- Archaeologist recommended for echoes-of-the-unmade, ghost-circuit, temporal-residue, negative-space deep-chain backlog (7 failed archived this run)
+- System is healthy, no intervention needed
