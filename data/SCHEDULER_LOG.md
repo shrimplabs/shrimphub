@@ -545,3 +545,69 @@ All 4 pending tasks have verified in-progress dep targets:
 - Monitor the-memory-palace dep chain (feature-211931830-295 → feature-208049694-337 → bug-task-c0bbf0d018fb → integration → qa)
 - Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress, qa-auto waiting)
 - System is healthy, no intervention needed
+
+---
+## scheduler-1780213035 -- 2026-05-31T09:12 UTC
+
+### Agent & Quota Status
+- **11 active agents** / 11 total (100% utilization)
+- **Quota: 67.0% used, 33.0% remaining** -- NO CHANGE NEEDED
+- 10080/15000 quota units consumed
+
+### Agent Distribution (11 active)
+- swarm-controller: scheduler-1780213035 (meta_scheduler)
+- meta_scheduler: 1 | bug: 6 | feature: 1 | art_pass: 2 | harness_qa: 1 | qa: 1
+- Projects: the-memory-palace(2), ghost-circuit(2), temporal-residue(2), signal-cartel(1), echoes-of-exile(1), echoes-of-the-unmade(1), negative-space(1), swarm-controller(1)
+
+### Task Breakdown
+- **In-progress**: 11 (bug×6, feature×1, art_pass×2, harness_qa×1, qa×1, meta_scheduler×1)
+- **Pending**: 8 (4 blocked on in-progress deps, 4 newly unblocked)
+- **Failed**: 0
+- **Phantom-blocked**: 0 (4 cleared by scheduler_check.py)
+
+### Phantom Dep Repair
+- scheduler_check.py auto-detected and cleared 4 phantom-blocked tasks:
+  - `qa-auto-ghost-circuit-1780212802` -- deps cleared → now ready
+  - `qa-auto-temporal-residue-1780212865` -- deps cleared → now ready
+  - `pol-auto-ghost-circuit-1780212802` -- deps cleared → now ready
+  - `pol-auto-temporal-residue-1780212865` -- deps cleared → now ready
+- No remaining phantom-blocked tasks.
+
+### Pending Task Status
+**Blocked (4) -- legitimate dep chains:**
+- `bug-task-c0bbf0d018fb` [bug, the-memory-palace] -- dep=`feature-208049694-337` [feature, pending]
+- `integration-the-memory-palace-1780207783` [bug, the-memory-palace] -- dep=`bug-task-c0bbf0d018fb` [pending, chain advancing]
+- `qa-auto-echoes-of-the-unmade-1780203746` [harness_qa] -- dep=`bug-bug-recovery-b1469405` [bug, in-progress]
+- `feature-208049694-337` [feature, the-memory-palace] -- dep=`feature-211931830-295` [feature, in-progress]
+
+**Newly unblocked (4) -- should be picked by scheduler:**
+- `qa-auto-ghost-circuit-1780212802` [qa, ghost-circuit] -- no deps, dep target completed
+- `qa-auto-temporal-residue-1780212865` [harness_qa, temporal-residue] -- no deps, dep target completed
+- `pol-auto-ghost-circuit-1780212802` [polish, ghost-circuit] -- no deps, dep target completed
+- `pol-auto-temporal-residue-1780212865` [polish, temporal-residue] -- no deps, dep target completed
+
+### In-Progress Task Chain Highlights
+- **the-memory-palace**: `feature-211931830-295` (in-progress) → `feature-208049694-337` (pending) → `bug-task-c0bbf0d018fb` (pending) → `integration` (pending) → `qa`. Chain advancing.
+- **echoes-of-the-unmade**: `bug-bug-recovery-b1469405` (in-progress, dep on completed `bug-recovery-b1469405`) → `qa-auto-echoes-of-the-unmade-1780203746` (pending). Chain advancing.
+- **ghost-circuit**: `art-auto-ghost-circuit-1780212802` (in-progress) → art+pol+qa auto tasks unblocked
+- **temporal-residue**: `art-auto-temporal-residue-1780212865` (in-progress) → art+pol+qa auto tasks unblocked
+
+### Decisions
+- **No ceiling change**: 11 active, 67.0% quota, 33.0% headroom -- healthy. AUTO_SCALE is off (fixed ceiling), so no dynamic adjustment.
+- **No throttle change**: 33.0% remaining, no intervention needed.
+- **No project pauses**: All 8 active projects have in-progress agents.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains, will drain naturally.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 67.0% used, 33.0% remaining
+- :heavy_check_mark: **No phantom-blocked**: 4 phantoms auto-cleared, 0 remaining
+- :heavy_check_mark: **No failed tasks**: Failed backlog at 0
+- :heavy_check_mark: **Dep chains verified**: All blocked pending tasks have verified in-progress dep targets
+- :heavy_check_mark: **4 newly unblocked**: art+pol+qa auto tasks for ghost-circuit and temporal-residue now ready to be picked
+- :heavy_check_mark: **All in-progress tasks advancing**: feature, bug, qa, art_pass agents all running
+
+### Next Run Recommendations
+- Monitor the-memory-palace dep chain (feature-211931830-295 in progress)
+- Monitor echoes-of-the-unmade recovery chain (bug-bug-recovery-b1469405 in progress)
+- Newly unblocked auto tasks (ghost-circuit, temporal-residue) should be picked as agents complete
+- System is healthy, no intervention needed
