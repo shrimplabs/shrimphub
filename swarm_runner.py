@@ -65,6 +65,22 @@ PROJECT_INTENT_PROMPT_VARIANT: str = _config.get("project_intent_prompt_variant"
 # variable is missing; exposed via /api/health so ops can see broken prompts.
 _prompt_warnings: list = []
 
+def _validate_all_prompts() -> None:
+    """Scan all prompt YAML files at startup and populate _prompt_warnings for any broken ones."""
+    import yaml as _yaml
+    prompts_dir = Path(__file__).parent / "prompts"
+    for prompt_file in sorted(prompts_dir.rglob("*.yaml")):
+        try:
+            _yaml.safe_load(prompt_file.read_text(encoding="utf-8"))
+        except _yaml.YAMLError as e:
+            rel = str(prompt_file.relative_to(prompts_dir))
+            msg = f"prompt '{rel}': YAML parse error -- {e}"
+            print(f"[Prompt] ERROR at startup: {msg}")
+            if msg not in _prompt_warnings:
+                _prompt_warnings.append(msg)
+
+_validate_all_prompts()
+
 # LLM provider config
 LLM_PROVIDER: str = _config.get("llm_provider", "minimax")
 LLM_PROVIDERS: dict = {
@@ -692,7 +708,15 @@ def _load_prompt(name: str, **vars) -> tuple:
     prompts_dir = Path(__file__).parent / "prompts"
     parts = name.split("/")
     prompt_file = prompts_dir / "/".join(parts[:-1]) / (parts[-1] + ".yaml")
-    data = yaml.safe_load(prompt_file.read_text(encoding="utf-8"))
+    try:
+        data = yaml.safe_load(prompt_file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        msg = f"prompt '{name}': YAML parse error -- {e}"
+        print(f"[Prompt] ERROR: {msg}")
+        import swarm_runner as _sr
+        if msg not in _sr._prompt_warnings:
+            _sr._prompt_warnings.append(msg)
+        raise RuntimeError(msg) from e
 
     env = Environment(
         loader=FileSystemLoader(str(prompts_dir)),
