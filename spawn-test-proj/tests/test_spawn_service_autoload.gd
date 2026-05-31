@@ -12,13 +12,6 @@ func after_each() -> void:
 	SpawnService.stop()
 	await get_tree().process_frame
 
-func _start_service() -> bool:
-	var result = SpawnService.start()
-	if result == OK:
-		await get_tree().create_timer(2.0).timeout
-		return true
-	return false
-
 func _http_get(req_path: String) -> Dictionary:
 	var http := HTTPClient.new()
 	var err: Error = http.connect_to_host(SERVICE_HOST, SERVICE_PORT)
@@ -75,14 +68,14 @@ func _http_post(req_path: String, body: String) -> Dictionary:
 
 func test_service_starts_and_is_running() -> void:
 	assert_false(SpawnService.is_running(), "not running before start")
-	var result := SpawnService.start()
+	var result: Error = await SpawnService.start()
 	assert_eq(result, OK, "start() returns OK")
 	await get_tree().create_timer(2.0).timeout
 	assert_true(SpawnService.is_running(), "service reports running")
 	assert_gt(SpawnService.get_pid(), 0, "pid is positive")
 
 func test_service_stops() -> void:
-	assert_eq(SpawnService.start(), OK, "start() succeeds")
+	assert_eq(await SpawnService.start(), OK, "start() succeeds")
 	await get_tree().create_timer(2.0).timeout
 	SpawnService.stop()
 	await get_tree().process_frame
@@ -90,13 +83,13 @@ func test_service_stops() -> void:
 	assert_eq(SpawnService.get_pid(), -1, "pid reset to -1")
 
 func test_double_start_returns_error() -> void:
-	assert_eq(SpawnService.start(), OK, "first start OK")
+	assert_eq(await SpawnService.start(), OK, "first start OK")
 	await get_tree().create_timer(2.0).timeout
-	var result := SpawnService.start()
+	var result := await SpawnService.start()
 	assert_eq(result, ERR_INVALID_PARAMETER, "second start returns ERR_INVALID_PARAMETER")
 
 func test_get_ping_returns_200() -> void:
-	assert_eq(SpawnService.start(), OK, "start() must succeed")
+	assert_eq(await SpawnService.start(), OK, "start() must succeed")
 	await get_tree().create_timer(2.0).timeout
 	var resp := await _http_get("/ping")
 	assert_false(resp.has("error"), "no connection error")
@@ -106,7 +99,7 @@ func test_get_ping_returns_200() -> void:
 	assert_eq(data.get("ok"), true, "body.ok == true")
 
 func test_get_health_returns_healthy() -> void:
-	assert_eq(SpawnService.start(), OK, "start() must succeed")
+	assert_eq(await SpawnService.start(), OK, "start() must succeed")
 	await get_tree().create_timer(2.0).timeout
 	var resp := await _http_get("/health")
 	assert_false(resp.has("error"), "no connection error")
@@ -116,7 +109,7 @@ func test_get_health_returns_healthy() -> void:
 	assert_eq(data.get("status"), "healthy", "body.status == healthy")
 
 func test_post_spawn_returns_ok() -> void:
-	assert_eq(SpawnService.start(), OK, "start() must succeed")
+	assert_eq(await SpawnService.start(), OK, "start() must succeed")
 	await get_tree().create_timer(2.0).timeout
 	var resp := await _http_post("/spawn", "{}")
 	assert_false(resp.has("error"), "no connection error")
