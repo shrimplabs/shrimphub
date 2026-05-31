@@ -452,13 +452,19 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                 skipped.append(project)
                 break
 
-        _fire_idle_librarian()
-        if not spawned and get_active_count() == 0:
-            _run_idle_closure_verification_cycle()
-            _fire_idle_gardener()
-            _fire_weekly_auditor()
-            _fire_idle_archaeologist()
-            _fire_idle_scheduler()
+        # Meta agents: never fire when over quota — they consume LLM calls
+        # just like regular agents and make quota exhaustion worse.
+        _over_quota, _pct_used, *_ = check_quota_limit()
+        if not _over_quota:
+            _fire_idle_librarian()
+            if not spawned and get_active_count() == 0:
+                _run_idle_closure_verification_cycle()
+                _fire_idle_gardener()
+                _fire_weekly_auditor()
+                _fire_idle_archaeologist()
+                _fire_idle_scheduler()
+        else:
+            print(f"[Meta] Quota at {_pct_used:.1f}% — skipping all meta agent triggers")
         return spawned, skipped
 
 
