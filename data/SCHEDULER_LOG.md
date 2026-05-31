@@ -2185,3 +2185,52 @@ All 22 pending tasks are unblocked and ready to be picked:
 
 ### Commit
 Log written. scheduler-1780270310 COMPLETE.
+
+---
+## Scheduler Run 2026-06-01 02:50 UTC (scheduler-1780270823)
+
+### State Snapshot
+- **Agents**: 8 active / 8 total
+- **Quota**: 24.9% used, 75.1% remaining (healthy)
+- **Tasks**: 27 pending (0 blocked), 7 in-progress, 1 failed (zombie), 0 phantom-blocked
+
+### Actions Taken
+- **2-pass phantom dep repair**: Pass 1 cleared 5 phantoms (task-36eacfd63f80, task-503a9918ba68, feature-harness-integrate-signal-cartel-270839073, qa-bug-signal-cartel-c04e39f2e749, task-da38957371b6). Pass 2 cleared 1 more (bug-recovery-9a20056c). Confirmed stable at 0 phantom-blocked.
+- **1 zombie failed task** (bug-bug-bug-recovery-c693cf10, loop=None, error=null, last_failure=null) — phantom recovery-chain artifact. Recommend archive via PATCH status=archived.
+
+### Project Breakdown
+| Project | Pending | In-Progress | Failed | Notes |
+|---------|---------|-------------|--------|-------|
+| echoes-of-the-unmade | 7 | 0 | 1 | zombie + pending bug/qa tasks |
+| the-memory-palace | 5 | 0 | 0 | all pending, no active agents |
+| signal-cartel | 5 | 2 | 0 | 2 bug agents active |
+| solar-escape | 1 | 2 | 0 | 2 agents active |
+| star-sovereigns | 0 | 3 | 0 | 3 bug agents active |
+| spawn-test-proj | 3 | 0 | 0 | all pending, no active |
+| swarm-controller | 0 | 1 | 0 | this scheduler |
+| ghost-circuit | 1 | 0 | 0 | single pending |
+| negative-space | 1 | 0 | 0 | single pending |
+| resonance-architect | 1 | 0 | 0 | single pending |
+| temporal-residue | 1 | 0 | 0 | single pending |
+
+### Decision Reasoning
+- **No ceiling change**: 8/8 active (but agent type breakdown shows all 8 have type="?" — possible display lag). With 75% quota remaining, system is not under pressure. AUTO_SCALE is False, ceiling at 60.
+- **No project pauses**: All 11 active projects have in-progress or ready-to-pick work. Pausing any project would stall dependent chains.
+- **No run_after adjustments**: All 27 pending tasks are unblocked and ready. Meta-agents (META_MODE_ENABLED=False) are disabled.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 75.1% remaining
+- :heavy_check_mark: **No phantom-blocked**: 2-pass repair confirmed stable at 0
+- :warning: **1 zombie failed task**: bug-bug-bug-recovery-c693cf10 — null error/last_failure, phantom chain artifact
+- :heavy_check_mark: **27 pending unblocked**: all ready to be picked naturally
+- :heavy_check_mark: **8 in-progress agents advancing**: bug, polish, harness_qa, meta_scheduler all running
+
+### Next Run Recommendations
+- Monitor 27 unblocked pending tasks (should be picked as 7 in-progress agents complete)
+- Monitor the-memory-palace (5 pending tasks, 0 active — may need a spawn trigger next cycle)
+- Monitor echoes-of-the-unmade (7 pending + 1 failed zombie — archaeologically stuck)
+- Archive zombie failed task: `PATCH /api/tasks/bug-bug-bug-recovery-c693cf10 {"status": "archived"}`
+- System is healthy, no ceiling/throttle/pause interventions needed
+
+### Commit
+Log written. scheduler-1780270823 COMPLETE.
