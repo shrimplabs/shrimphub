@@ -43,8 +43,10 @@ def ensure_repair_task_for_regression(regression_id: str) -> dict[str, Any] | No
         # re-enter the repair cycle — the regression is stalled and needs human
         # attention or a manual reset.
         if existing and existing.get("metadata", {}).get("is_closure_triage_task"):
+            print(f"[RepairPlanning] Regression {regression_id} has a triage task ({linked_task_id}) -- skipping re-entry")
             return None
         if regression.get("status") == "stalled":
+            print(f"[RepairPlanning] Regression {regression_id} is stalled -- skipping (needs manual reset)")
             return None
 
     run = db.verification_run_get(regression.get("source_run_id") or "")
