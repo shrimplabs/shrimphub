@@ -631,14 +631,16 @@ def get_active_count() -> int:
     with _finishing_lock:
         finishing = frozenset(_finishing_agents)
 
-    persisted = set()
-    for a in db.agent_get_active():
-        aid = a["id"]
-        if aid in in_process or aid in finishing:
-            continue
-        pid = a.get("pid")
-        if pid and _is_pid_running(pid):
-            persisted.add(aid)
+    # Count all DB-active agents not already tracked in-process or finishing.
+    # We do NOT filter by PID liveness here — a just-died pre-restart agent
+    # still holds a slot until the reconciler updates its DB status next cycle.
+    # Checking PID liveness here creates a race window where a dying agent
+    # is counted as neither in-process, finishing, nor persisted, causing
+    # fill_slots to over-spawn.
+    persisted = {
+        a["id"] for a in db.agent_get_active()
+        if a["id"] not in in_process and a["id"] not in finishing
+    }
 
     return len(in_process) + len(finishing) + len(persisted)
 
