@@ -875,7 +875,7 @@ class TestDelegateHelper:
         rt.TASK_TYPE = "feature"
         rt._sync_core_globals()
 
-        with patch("swarm.llm_utils.call_llm", return_value=("Helper answer", {"input": 11, "output": 7})):
+        with patch("swarm.llm_utils.call_llm", return_value=("Helper answer", {"input": 11, "output": 7}, [])):
             result = rt.delegate_helper("What does foo contain?", ["foo.gd"], "Inspect health state", 4000)
 
         assert result["ok"] is True
@@ -907,7 +907,7 @@ class TestDelegateHelper:
                 return _FakeUrlopenResponse({"task": {"id": "task-123", "metadata": payload["metadata"]}})
             raise AssertionError(f"Unexpected request: {req.get_method()} {req.full_url}")
 
-        with patch("swarm.llm_utils.call_llm", return_value=("Helper answer", {"input": 11, "output": 7})):
+        with patch("swarm.llm_utils.call_llm", return_value=("Helper answer", {"input": 11, "output": 7}, [])):
             with patch("swarm.tools.core._ur.urlopen", side_effect=fake_urlopen):
                 result = rt.delegate_helper("What does foo contain?", ["foo.gd"], "Inspect health state", 4000)
 
@@ -1409,7 +1409,7 @@ class TestCallLlm:
     def test_anthropic_format_returns_text(self):
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", return_value=self._anthropic_resp("Hello!")):
-                text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert text == "Hello!"
         assert isinstance(tokens, dict)
 
@@ -1417,7 +1417,7 @@ class TestCallLlm:
         rt.LLM_PROVIDER = "openrouter"
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
             with patch("requests.post", return_value=self._openai_resp("OpenAI reply")):
-                text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert text == "OpenAI reply"
         assert isinstance(tokens, dict)
 
@@ -1425,19 +1425,19 @@ class TestCallLlm:
         rt.LLM_PROVIDER = "claude"
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
             with patch("requests.post", return_value=self._anthropic_resp("Claude reply")):
-                text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert text == "Claude reply"
         assert isinstance(tokens, dict)
 
     def test_missing_api_key_returns_error_string(self):
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "", "MINIMAX-API": ""}):
-            text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+            text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert "MINIMAX_API_KEY" in text or "not set" in text.lower()
 
     def test_non_200_returns_error_string(self):
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", return_value=self._anthropic_resp("bad", status=400)):
-                text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert "400" in text
 
     def test_429_is_retried_and_succeeds(self):
@@ -1449,14 +1449,14 @@ class TestCallLlm:
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", side_effect=responses):
                 with patch("swarm.llm_utils.time.sleep"):
-                    text, tokens = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
+                    text, tokens, thinking = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
         assert text == "Success after retry"
 
     def test_network_exception_returns_error_after_retries(self):
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", side_effect=Exception("connection refused")):
                 with patch("swarm.llm_utils.time.sleep"):
-                    text, tokens = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
+                    text, tokens, thinking = rt.call_llm("sys", [{"role": "user", "content": "hi"}])
         assert "Error" in text or "error" in text.lower()
 
     def test_truncated_stream_returns_error(self):
@@ -1472,7 +1472,7 @@ class TestCallLlm:
         m.iter_lines.return_value = truncated_lines
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", return_value=m):
-                text, tokens = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert "truncated" in text.lower()
         assert tokens == {"input": 0, "output": 0}
 
@@ -1527,7 +1527,7 @@ class TestCallLlm:
 class TestMainLoop:
     def test_task_complete_exits_zero(self, tmp_path):
         _init_git(tmp_path / "workspace" / "test-proj")
-        with patch("swarm.agent_runtime.call_llm", return_value=("TASK_COMPLETE", {"input": 0, "output": 0})):
+        with patch("swarm.agent_runtime.call_llm", return_value=("TASK_COMPLETE", {"input": 0, "output": 0}, [])):
             code = rt.main()
         assert code == 0
 
@@ -1541,7 +1541,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1554,7 +1554,7 @@ class TestMainLoop:
 
     def test_no_tool_calls_after_nudge_fails_closed(self, tmp_path):
         _init_git(tmp_path / "workspace" / "test-proj")
-        with patch("swarm.agent_runtime.call_llm", return_value=("I'm thinking...", {"input": 0, "output": 0})):
+        with patch("swarm.agent_runtime.call_llm", return_value=("I'm thinking...", {"input": 0, "output": 0}, [])):
             code = rt.main()
         assert code == 1
 
@@ -1565,7 +1565,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             call_count[0] += 1
-            return '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}[/TOOL_CALL]', {"input": 0, "output": 0}
+            return '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}[/TOOL_CALL]', {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             code = rt.main()
@@ -1580,7 +1580,7 @@ class TestMainLoop:
         rt.ART_PASS_USER = "Art pass user"
         rt.MAX_TOOL_LOOPS = 1
         def fake_llm(sys_p, msgs):
-            return '[TOOL_CALL]{"tool": "run_command", "args": {"command": "printf changed > art_note.txt"}}[/TOOL_CALL]', {"input": 0, "output": 0}
+            return '[TOOL_CALL]{"tool": "run_command", "args": {"command": "printf changed > art_note.txt"}}[/TOOL_CALL]', {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), \
              patch("swarm.agent_runtime.git_push") as git_push_mock:
@@ -1606,7 +1606,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1622,7 +1622,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1636,7 +1636,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1650,7 +1650,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1664,7 +1664,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1681,7 +1681,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1695,7 +1695,7 @@ class TestMainLoop:
             '[TOOL_CALL]{"tool": "write_file", "args": {"path": "result.txt", "content": "written!"}}[/TOOL_CALL]',
             "TASK_COMPLETE",
         ])
-        with patch("swarm.agent_runtime.call_llm", side_effect=lambda *a: (next(responses), {"input": 0, "output": 0})), \
+        with patch("swarm.agent_runtime.call_llm", side_effect=lambda *a: (next(responses), {"input": 0, "output": 0}, [])), \
              patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             rt.main()
 
@@ -1712,7 +1712,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1733,7 +1733,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1753,7 +1753,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1779,7 +1779,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             calls.append(list(msgs))
-            return next(responses), {"input": 0, "output": 0}
+            return next(responses), {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()
@@ -1807,7 +1807,7 @@ class TestMainLoop:
 
         def fake_llm(sys_p, msgs):
             captured.append(sys_p)
-            return "TASK_COMPLETE", {"input": 0, "output": 0}
+            return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
             rt.main()

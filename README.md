@@ -156,7 +156,7 @@ Add the output plus `"login_required": true` and `"login_username": "admin"` to 
 
 | Provider | Format | Env var | Default model |
 |----------|--------|---------|---------------|
-| `minimax` | Anthropic-compatible Bearer | `MINIMAX_API_KEY` | `MiniMax-M2.7` |
+| `minimax` | Anthropic-compatible Bearer | `MINIMAX_API_KEY` | `MiniMax-M3` |
 | `claude` | Native Anthropic API | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
 | `openrouter` | OpenAI chat completions | `OPENROUTER_API_KEY` | `anthropic/claude-3.5-sonnet` |
 | `kimi` | Anthropic-compatible Bearer | `KIMI_API_KEY` | `k2p5` |

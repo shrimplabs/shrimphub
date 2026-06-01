@@ -1096,7 +1096,7 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
     return _execute_debug_tool(tool, args, project_root, project=scope, db=db), False
 
 
-_COMPACT_TOKEN_THRESHOLD = 80_000
+_COMPACT_TOKEN_THRESHOLD = 800_000
 _COMPACT_KEEP_TAIL = 4  # messages to keep verbatim at the end
 _COMPACT_MARKER = "[COMPACTED]"
 

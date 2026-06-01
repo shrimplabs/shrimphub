@@ -325,7 +325,7 @@ Built-in providers in `swarm/provider_utils.py`:
 
 | Name | Format | Env var | Model |
 |------|--------|---------|-------|
-| `minimax` | `anthropic` (Bearer) | `MINIMAX_API_KEY` | MiniMax-M2.7 |
+| `minimax` | `anthropic` (Bearer) | `MINIMAX_API_KEY` | MiniMax-M3 |
 | `claude` | `anthropic_native` (x-api-key) | `ANTHROPIC_API_KEY` | claude-sonnet-4-6 |
 | `openrouter` | `openai` | `OPENROUTER_API_KEY` | claude-3.5-sonnet |
 | `kimi` | `anthropic` (Bearer) | `KIMI_API_KEY` | k2p5 |

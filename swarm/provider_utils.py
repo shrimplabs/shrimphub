@@ -8,10 +8,10 @@ LLM provider configuration and resolution helpers extracted from constants.py.
 LLM_PROVIDERS: dict = {
     "minimax": {
         "base_url": "https://api.minimax.io/anthropic/v1",
-        "model": "MiniMax-M2.7",
+        "model": "MiniMax-M3",
         "api_key_env": "MINIMAX_API_KEY",
         "format": "anthropic",
-        "context_window": 204800,
+        "context_window": 1048576,
         "max_tokens": 32768,
         "thinking_budget": 0,
     },

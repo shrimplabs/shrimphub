@@ -324,10 +324,10 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         api_key = os.environ.get("MINIMAX-API", "")
 
     if not api_key:
-        return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}
+        return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}, []
 
     base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
-    model     = cfg.get("model", "MiniMax-M2.7")
+    model     = cfg.get("model", "MiniMax-M3")
     fmt       = cfg.get("format", "anthropic")
     max_tok   = cfg.get("max_tokens", 8096)
 
@@ -390,10 +390,18 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     log(f"[LLM] provider={provider_name} model={model}")
 
     def _parse_sse_stream(resp):
-        """Parse an Anthropic SSE stream, returning (text, tokens)."""
+        """Parse an Anthropic SSE stream, returning (text, tokens, thinking_blocks).
+
+        thinking_blocks is a list of {"type": "thinking", "thinking": ..., "signature": ...}
+        dicts — one per thinking block in the response. Empty list if no thinking occurred.
+        Callers that want to preserve reasoning across turns should include these in the
+        next assistant message content alongside the text block.
+        """
         import json as _json
         text_parts: list[str] = []
-        thinking_parts: list[str] = []
+        # Track per-block thinking state: index → {parts, signature}
+        _thinking_blocks: dict[int, dict] = {}
+        _current_index: int = -1
         tokens = {"input": 0, "output": 0}
         cache_read = cache_write = 0
         stream_complete = False
@@ -421,13 +429,25 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 cache_read = usage.get("cache_read_input_tokens", 0)
                 cache_write = usage.get("cache_creation_input_tokens", 0)
 
+            elif ev_type == "content_block_start":
+                idx = ev.get("index", -1)
+                block = ev.get("content_block", {})
+                if block.get("type") == "thinking":
+                    _thinking_blocks[idx] = {"parts": [], "signature": ""}
+                    _current_index = idx
+
             elif ev_type == "content_block_delta":
                 delta = ev.get("delta", {})
                 dtype = delta.get("type", "")
+                idx = ev.get("index", _current_index)
                 if dtype == "text_delta":
                     text_parts.append(delta.get("text", ""))
                 elif dtype == "thinking_delta":
-                    thinking_parts.append(delta.get("thinking", ""))
+                    if idx in _thinking_blocks:
+                        _thinking_blocks[idx]["parts"].append(delta.get("thinking", ""))
+                elif dtype == "signature_delta":
+                    if idx in _thinking_blocks:
+                        _thinking_blocks[idx]["signature"] = delta.get("signature", "")
 
             elif ev_type == "message_delta":
                 usage = ev.get("usage", {})
@@ -437,14 +457,24 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 stream_complete = True
 
         if not stream_complete:
-            return "Error: stream truncated before completion", {"input": 0, "output": 0}
+            return "Error: stream truncated before completion", {"input": 0, "output": 0}, []
         if cache_read or cache_write:
             log(f"[LLM] cache read={cache_read} write={cache_write}")
-        if thinking_parts:
-            thinking = "".join(thinking_parts)
-            snippet = thinking[:200].replace("\n", " ")
-            log(f"[LLM] thinking: {snippet}{'…' if len(thinking) > 200 else ''}")
-        return "".join(text_parts), tokens
+
+        thinking_blocks = []
+        for idx in sorted(_thinking_blocks):
+            tb = _thinking_blocks[idx]
+            thinking = "".join(tb["parts"])
+            if thinking:
+                snippet = thinking[:200].replace("\n", " ")
+                log(f"[LLM] thinking: {snippet}{'…' if len(thinking) > 200 else ''}")
+                thinking_blocks.append({
+                    "type": "thinking",
+                    "thinking": thinking,
+                    "signature": tb["signature"],
+                })
+
+        return "".join(text_parts), tokens, thinking_blocks
 
     def _parse_response(result: dict):
         """Parse a non-streaming response (OpenAI format fallback)."""
@@ -454,7 +484,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         if cached:
             log(f"[LLM] cache read={cached}")
         text = result.get("choices", [{}])[0].get("message", {}).get("content", "No response")
-        return text, tokens
+        return text, tokens, []
 
     # Use streaming for anthropic formats; non-streaming for openai
     use_stream = fmt in ("anthropic", "anthropic_native")
@@ -474,7 +504,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
-                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}
+                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}, []
             else:
                 resp = requests.post(url, headers=headers, json=body, timeout=120)
                 if resp.status_code == 200:
@@ -485,14 +515,14 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
-                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}
+                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}, []
         except Exception as e:
             wait = backoff[min(attempt, len(backoff) - 1)]
             if attempt < 6:
                 log(f"API error ({e}) — retrying in {wait}s (attempt {attempt+1}/7)")
                 time.sleep(wait)
             else:
-                return f"Error: {e}", {"input": 0, "output": 0}
+                return f"Error: {e}", {"input": 0, "output": 0}, []
 
     # All retries exhausted on 429 — signal orchestrator to rotate provider / cooldown spawn
     try:
@@ -502,7 +532,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         log(f"Rate limit exhausted for {provider_name} — wrote flag for provider rotation")
     except Exception:
         pass
-    return f"Error: {provider_name} rate limited after 7 attempts", {"input": 0, "output": 0}
+    return f"Error: {provider_name} rate limited after 7 attempts", {"input": 0, "output": 0}, []
 
 
 # ---------------------------------------------------------------------------

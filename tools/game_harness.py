@@ -59,7 +59,7 @@ def resolve_project_path(project_name: str, config: dict) -> Path:
 _BUILTIN_PROVIDERS = {
     "minimax": {
         "base_url": "https://api.minimax.io/anthropic/v1",
-        "model": "MiniMax-M2.7",
+        "model": "MiniMax-M3",
         "api_key_env": "MINIMAX_API_KEY",
         "format": "anthropic",
         "max_tokens": 4096,

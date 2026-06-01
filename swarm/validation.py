@@ -1281,7 +1281,7 @@ def _llm_summarise_fix_attempt(
                 "Content-Type": "application/json",
             },
             json={
-                "model": "MiniMax-M2.7",
+                "model": "MiniMax-M3",
                 "max_tokens": 200,
                 "messages": [{"role": "user", "content": prompt}],
             },

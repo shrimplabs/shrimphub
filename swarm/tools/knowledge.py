@@ -153,7 +153,7 @@ def _compact_knowledge(knowledge_path: Path) -> bool:
             f"Return ONLY the distilled markdown — no preamble, no 'Here is...' framing.\n\n"
             f"{text}"
         )
-        compacted, _ = call_llm(sys_prompt, [{"role": "user", "content": user_msg}])
+        compacted, _, _thinking = call_llm(sys_prompt, [{"role": "user", "content": user_msg}])
         if not compacted or compacted.startswith("Error:") or compacted.startswith("API error"):
             return False
 

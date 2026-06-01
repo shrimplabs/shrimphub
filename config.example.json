@@ -7,7 +7,7 @@
   "llm_providers": {
     "minimax": {
       "base_url": "https://api.minimax.io/anthropic/v1",
-      "model": "MiniMax-M2.7"
+      "model": "MiniMax-M3"
     },
     "claude": {
       "model": "claude-sonnet-4-6"
