@@ -228,12 +228,27 @@ def check_quota_limit() -> Tuple[bool, float, float, int, int]:
         if resp.status_code == 200:
             data = resp.json()
             model_remains = data.get("model_remains", [])
-            if model_remains:
-                total = model_remains[0].get("current_interval_total_count", 4500)
-                remaining = model_remains[0].get("current_interval_usage_count", 0)
-                used = total - remaining
-                pct_used = (used / total * 100) if total > 0 else 0.0
-                pct_remaining = 100.0 - pct_used
+            # Find the "general" model row; fall back to first entry
+            general = next((m for m in model_remains if m.get("model_name") == "general"), None)
+            row = general or (model_remains[0] if model_remains else None)
+            if row:
+                # Prefer direct remaining_percent field (new API format)
+                remaining_pct = row.get("current_interval_remaining_percent")
+                total = row.get("current_interval_total_count", 0)
+                usage_count = row.get("current_interval_usage_count", 0)
+                if remaining_pct is not None:
+                    pct_remaining = float(remaining_pct)
+                    pct_used = 100.0 - pct_remaining
+                    # Derive counts from percent when total is 0 (MiniMax new format)
+                    if total > 0:
+                        used = total - usage_count
+                    else:
+                        used = usage_count
+                else:
+                    # Legacy format: total/usage counts
+                    used = total - usage_count if total > 0 else 0
+                    pct_used = (used / total * 100) if total > 0 else 0.0
+                    pct_remaining = 100.0 - pct_used
             else:
                 pct_used, pct_remaining, used, total = 0.0, 100.0, 0, 4500
             return pct_used >= QUOTA_LIMIT_PERCENT, pct_used, pct_remaining, used, total
