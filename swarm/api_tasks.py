@@ -95,6 +95,12 @@ def register_routes(app, task_source, db, workspace):
         lowered = text.lower()
         return lowered.endswith((".gd", ".tscn", ".tres", ".tscn.uid", ".png", ".wav", ".json", ".py", ".md"))
 
+    import re as _re
+    _PLACEHOLDER_DEP_RE = _re.compile(
+        r'^(task[-_]id[-_]\d|dep[-_]id[-_]\d|<.*>|task[-_][123]$|dep[-_][123]$|placeholder)',
+        _re.IGNORECASE,
+    )
+
     def _validate_dependency_ids(project_name: str, deps: list[str], task_id: str, batch_ids: set[str] | None = None) -> str | None:
         batch_ids = batch_ids or set()
         completed_ids = db.task_get_completed_ids()
@@ -106,6 +112,11 @@ def register_routes(app, task_source, db, workspace):
                     f"Invalid dependency '{dep}' for task '{task_id}'. "
                     "dependencies must be task IDs, not file paths. "
                     "Use depends_on for intra-batch ordering, or create_tasks_file_aware(files=[...]) for file-based planning."
+                )
+            if _PLACEHOLDER_DEP_RE.match(dep):
+                return (
+                    f"Placeholder dependency ID '{dep}' rejected for task '{task_id}'. "
+                    "Use the batch endpoint with integer depends_on indices instead of hardcoded placeholder IDs."
                 )
             if db.task_get(dep) is None and dep not in completed_ids and db.task_get_completed_record(dep) is None:
                 return (
