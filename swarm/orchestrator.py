@@ -548,10 +548,10 @@ def _fire_idle_gardener() -> None:
                         pass
 
     if failure_ts and failure_ts > LAST_GARDENER_RUN_TS:
-        # Don't fire if a gardener task is already pending or in_progress
+        # Don't fire if a gardener task is already pending, in_progress, or failed
         already_running = any(
             t.get("type") == "gardener"
-            and t.get("status") in ("pending", "in_progress")
+            and t.get("status") in ("pending", "in_progress", "failed")
             for t in all_tasks
         )
         if not already_running:
@@ -599,10 +599,10 @@ def _fire_idle_librarian() -> None:
         return
 
     all_tasks = db.task_get_all()
-    # Don't fire if a librarian task is already pending or in_progress
+    # Don't fire if a librarian task is already pending, in_progress, or failed
     already_running = any(
         t.get("type") == "librarian"
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
         for t in all_tasks
     )
     if not already_running:
@@ -669,7 +669,7 @@ def _fire_weekly_auditor() -> None:
     all_tasks = db.task_get_all()
     already_running = any(
         t.get("type") == "meta_auditor"
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
         for t in all_tasks
     )
     if already_running:
@@ -736,7 +736,7 @@ def _fire_idle_scheduler() -> None:
     all_tasks = db.task_get_all()
     already_running = any(
         t.get("type") == "meta_scheduler"
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
         for t in all_tasks
     )
     if already_running:
@@ -1212,11 +1212,11 @@ def _fire_idle_archaeologist() -> None:
         return
 
     all_tasks = db.task_get_all()
-    # Count active archaeologist tasks
+    # Count active archaeologist tasks (including failed — don't re-trigger on failure)
     active_arch = [
         t for t in all_tasks
         if t.get("type") == "archaeologist"
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
     ]
     if len(active_arch) >= ARCHAEOLOGIST_MAX_CONCURRENT:
         return
