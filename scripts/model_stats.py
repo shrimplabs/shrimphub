@@ -27,19 +27,27 @@ def parse_args():
     return p.parse_args()
 
 
-def model_from_log(log_path: str) -> str:
-    """Extract model name from first 50 lines of agent log."""
+def parse_log(log_path: str) -> tuple[str, int]:
+    """Extract (model, max_loop) from agent log."""
+    model = "unknown"
+    max_loop = 0
     try:
         with open(log_path) as f:
-            for i, line in enumerate(f):
-                if i > 600:
-                    break
-                m = re.search(r'model=(MiniMax-\S+|claude-\S+|gpt-\S+)', line)
-                if m:
-                    return m.group(1)
+            for line in f:
+                if model == "unknown":
+                    m = re.search(r'model=(MiniMax-\S+|claude-\S+|gpt-\S+)', line)
+                    if m:
+                        model = m.group(1)
+                lm = re.search(r'loop (\d+)/\d+', line)
+                if lm:
+                    max_loop = max(max_loop, int(lm.group(1)))
     except Exception:
         pass
-    return "unknown"
+    return model, max_loop
+
+
+def model_from_log(log_path: str) -> str:
+    return parse_log(log_path)[0]
 
 
 def main():
@@ -54,7 +62,25 @@ def main():
     # Build log path index for fast lookup
     log_index = {p.stem.replace("agent_", ""): p for p in DATA_DIR.glob("agent_*.log")}
 
-    stats = defaultdict(lambda: defaultdict(lambda: {"completed": 0, "failed": 0, "total": 0}))
+    stats = defaultdict(lambda: defaultdict(lambda: {"completed": 0, "failed": 0, "total": 0, "loops": 0, "loop_agents": 0}))
+
+    def _normalize_model(model):
+        if "M3" in model:
+            return "MiniMax-M3"
+        elif "M2" in model or "minimax" in model.lower():
+            return "MiniMax-M2.7"
+        return model
+
+    def _record(model, key, status, log_path):
+        _, loops = parse_log(log_path) if log_path else ("", 0)
+        stats[model][key]["total"] += 1
+        if status == "completed":
+            stats[model][key]["completed"] += 1
+        elif status == "failed":
+            stats[model][key]["failed"] += 1
+        if loops > 0:
+            stats[model][key]["loops"] += loops
+            stats[model][key]["loop_agents"] += 1
 
     with open(history_file) as f:
         for line in f:
@@ -74,23 +100,10 @@ def main():
 
             agent_id = a.get("id", "")
             log_path = a.get("log_path") or str(log_index.get(agent_id, ""))
-            model = model_from_log(log_path) if log_path else "unknown"
-
-            # Normalize model names
-            if "M3" in model:
-                model = "MiniMax-M3"
-            elif "M2" in model or "minimax" in model.lower():
-                model = "MiniMax-M2.7"
-
+            model = _normalize_model(model_from_log(log_path) if log_path else "unknown")
             task_type = a.get("task_type", "unknown")
-            status = a.get("status", "unknown")
             key = task_type if args.by_type else "all"
-
-            stats[model][key]["total"] += 1
-            if status == "completed":
-                stats[model][key]["completed"] += 1
-            elif status == "failed":
-                stats[model][key]["failed"] += 1
+            _record(model, key, a.get("status", "unknown"), log_path)
 
     # Also check live DB agents
     db_file = DATA_DIR / "swarm.db"
@@ -111,18 +124,10 @@ def main():
                 except Exception:
                     pass
             log_path = row["log_path"] or ""
-            model = model_from_log(log_path) if log_path else "unknown"
-            if "M3" in model:
-                model = "MiniMax-M3"
-            elif "M2" in model or "minimax" in model.lower():
-                model = "MiniMax-M2.7"
+            model = _normalize_model(model_from_log(log_path) if log_path else "unknown")
             task_type = row["task_type"] or "unknown"
             key = task_type if args.by_type else "all"
-            stats[model][key]["total"] += 1
-            if row["status"] == "completed":
-                stats[model][key]["completed"] += 1
-            elif row["status"] == "failed":
-                stats[model][key]["failed"] += 1
+            _record(model, key, row["status"], log_path)
         conn.close()
 
     period = f"last {args.days} days" if args.days else "all time"
@@ -144,7 +149,8 @@ def main():
             c = s["completed"]
             f_ = s["failed"]
             rate = f"{c/t*100:.1f}%" if t else "n/a"
-            print(f"{model:20} completed={c:5}  failed={f_:5}  total={t:5}  rate={rate}")
+            avg_loops = f"{s['loops']/s['loop_agents']:.1f}" if s["loop_agents"] else "n/a"
+            print(f"{model:20} completed={c:5}  failed={f_:5}  total={t:5}  rate={rate}  avg_loops={avg_loops}")
     print()
 
 
