@@ -107,6 +107,39 @@ class MCPClient:
 
 
 
+def _try_parse_multi(block: str) -> list:
+    """Parse a block containing multiple concatenated JSON objects.
+
+    Handles the case where the model writes several tool call objects inside a
+    single [TOOL_CALL]...[/TOOL_CALL] block, e.g.:
+        {"tool": "read_file", "args": {...}}
+        {"tool": "run_command", "args": {...}}
+
+    Uses a simple brace-depth scanner to find each top-level object boundary.
+    Returns a list of successfully parsed dicts (may be empty).
+    """
+    results = []
+    depth = 0
+    start = None
+    for i, ch in enumerate(block):
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and start is not None:
+                fragment = block[start:i + 1]
+                try:
+                    obj = json.loads(fragment)
+                    if isinstance(obj, dict) and "tool" in obj:
+                        results.append(obj)
+                except json.JSONDecodeError:
+                    pass
+                start = None
+    return results
+
+
 def parse_tool_calls(text: str) -> list:
     tool_calls = []
 
@@ -165,9 +198,15 @@ def parse_tool_calls(text: str) -> list:
                 tool_calls.append(parsed)
             pos = end + len("[TOOL_CALL]")  # skip past the malformed closing tag
             continue
-        parsed = _try_parse(text[start:end].strip())
+        block = text[start:end].strip()
+        parsed = _try_parse(block)
         if parsed:
             tool_calls.append(parsed)
+        else:
+            # Model may have written multiple JSON objects in one block (NDJSON style).
+            # Try splitting on object boundaries and parsing each one individually.
+            multi = _try_parse_multi(block)
+            tool_calls.extend(multi)
         pos = end + len("[/TOOL_CALL]")
 
     # <tool_call>...</tool_call>  OR  <minimax:tool_call>...</minimax:tool_call>
