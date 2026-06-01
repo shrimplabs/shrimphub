@@ -2349,3 +2349,54 @@ Top priority pending:
 - System is healthy, no intervention needed
 
 **Commit**: Log written. scheduler-1780273012 COMPLETE.
+
+---
+
+### Scheduler Run 2026-06-01 00:48 UTC
+
+**Agent Distribution** (8 active, 8 total):
+- swarm-controller: 1 (scheduler)
+- echoes-of-the-unmade: 1
+- star-sovereigns: 3 (bug-qa-bug + 2 x qa/harness_qa)
+- signal-cartel: 2 (qa-bug + harness_qa rerun)
+- solar-escape: 1 (integration)
+
+**Quota**: 19.6% used, 80.4% remaining (healthy, no throttle needed)
+
+**Task Breakdown**:
+- 8 in-progress (1 meta_scheduler, 7 project tasks)
+- 21 pending: all unblocked, 0 phantom-blocked
+  - echoes-of-the-unmade: 6 bug tasks
+  - the-memory-palace: 5 (4 bug + 1 harness_qa)
+  - star-sovereigns: 3 (1 bug + 1 qa + 1 harness_qa)
+  - spawn-test-proj: 3 (1 qa + 1 feature + 1 bug)
+  - ghost-circuit: 1 bug
+  - negative-space: 1 bug
+  - temporal-residue: 1 bug
+  - resonance-architect: 1 bug
+- 1 failed zombie (bug-bug-bug-recovery-f9935740): self-referential dep cleared
+
+**Top Priority Pending**:
+- bug-qa-bug-the-memory-palace-ec5220be148d [bug, the-memory-palace, prio=95]
+- bug-qa-bug-echoes-of-the-unmade-6a8ebe4b5b7c [bug, echoes-of-the-unmade, prio=95]
+- bug-bug-qa-bug-ghost-circuit-b6ead162f50a [bug, ghost-circuit, prio=90]
+- recovery-eb4e9000 [bug, echoes-of-the-unmade, prio=90]
+
+### Decisions
+- **No ceiling change**: 80.4% quota, 8 active agents, 0 phantom-blocked. No intervention.
+- **No throttle change**: 80.4% remaining, no intervention needed.
+- **No project pauses**: All projects have in-flight tasks.
+- **Zombie task cleared**: bug-bug-bug-recovery-f9935740 self-referential dep cleared via PATCH.
+
+### Health Assessment
+- :heavy_check_mark: **Quota healthy**: 19.6% used, 80.4% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0 (2-pass verified)
+- :heavy_check_mark: **21 pending all unblocked**: ready to be picked naturally
+- :heavy_check_mark: **All in-progress tasks high priority**: bug-classified with prio >=80
+
+### Next Run Recommendations
+- Monitor 21 unblocked pending tasks (should clear in 2-3 agent turns)
+- echoes-of-the-unmade has 6 pending bug tasks + 1 in-progress recovery
+- Archaeologist recommended for echoes-of-the-unmade historical failures
+
+**Commit**: Log written. scheduler-1780273912 COMPLETE.
