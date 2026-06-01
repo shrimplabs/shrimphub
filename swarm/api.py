@@ -633,20 +633,11 @@ def create_app(
                 # Auto-scale: adjust MAX_ACTIVE_AGENTS based on 429 pressure
                 orchestrator.auto_scale_step(_recent_429_count)
 
-                over_limit, pct_used, *_ = orchestrator.check_quota_limit()
-                if over_limit:
-                    with auto_mode_state["lock"]:
-                        if auto_mode_state["enabled"]:
-                            auto_mode_state["enabled"] = False
-                            auto_mode_state["suspended_for_quota"] = True
-                            print(f"[Auto] Quota limit exceeded ({pct_used:.1f}%) -- auto mode suspended")
-                else:
-                    # Quota cleared -- resume only if WE suspended it (not if user manually turned it off)
-                    with auto_mode_state["lock"]:
-                        if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"] and not auto_mode_state.get("user_disabled"):
-                            auto_mode_state["enabled"] = True
-                            auto_mode_state["suspended_for_quota"] = False
-                            print("[Auto] Quota OK -- auto mode resumed")
+                # Quota suspension is handled by the dedicated _quota_watcher thread
+                # (runs every 10s independent of monitor lag). Read the flag here
+                # only to skip fill_slots when suspended.
+                with auto_mode_state["lock"]:
+                    over_limit = auto_mode_state["suspended_for_quota"]
 
                 if over_limit:
                     continue
@@ -765,8 +756,81 @@ def create_app(
         except Exception as _startup_sweep_err:
             print(f"[Startup] Ghost dep sweep error: {_startup_sweep_err}")
 
+        def _quota_signal_agents(sig: int):
+            """Send signal to all active agent processes (SIGSTOP or SIGCONT).
+            Covers both in-memory handles and DB-tracked orphaned agents (PID only)."""
+            import signal as _signal
+            from swarm.agent_lifecycle import _active_handles, _handle_lock
+            sig_name = "SIGSTOP" if sig == _signal.SIGSTOP else "SIGCONT"
+
+            # Collect PIDs from in-memory handles
+            pids: dict[int, str] = {}  # pid -> agent_id
+            with _handle_lock:
+                for agent_id, data in _active_handles.items():
+                    proc = data.get("process")
+                    pid = data.get("pid")
+                    if proc and proc.poll() is None:
+                        pids[proc.pid] = agent_id
+                    elif pid:
+                        pids[pid] = agent_id
+
+            # Also cover DB-tracked agents not in _active_handles (orphans from prior session)
+            for agent in db.agent_get_active():
+                pid = agent.get("pid")
+                if pid and pid not in pids:
+                    try:
+                        os.kill(pid, 0)  # check liveness
+                        pids[pid] = agent["id"]
+                    except OSError:
+                        pass  # process gone
+
+            count = 0
+            for pid, agent_id in pids.items():
+                try:
+                    os.kill(pid, sig)
+                    count += 1
+                except Exception as _e:
+                    print(f"[Quota] Failed to send {sig_name} to agent {agent_id[:8]} (pid {pid}): {_e}")
+            if count:
+                print(f"[Quota] Sent {sig_name} to {count} agent(s)")
+
+        def _quota_watcher():
+            """Lightweight thread that checks quota every 10s independently of the
+            monitor thread.  The monitor can block for minutes on Godot validation;
+            this ensures quota suspension fires promptly regardless.
+            Also SIGSTOPs all running agents when over limit and SIGCONTs on resume."""
+            _agents_frozen = False
+            while True:
+                try:
+                    time.sleep(10)
+                    over_limit, pct_used, *_ = orchestrator.check_quota_limit()
+                    if over_limit:
+                        with auto_mode_state["lock"]:
+                            if auto_mode_state["enabled"]:
+                                auto_mode_state["enabled"] = False
+                                auto_mode_state["suspended_for_quota"] = True
+                                print(f"[Quota] Limit exceeded ({pct_used:.1f}%) -- auto mode suspended")
+                        if not _agents_frozen:
+                            import signal as _sig
+                            _quota_signal_agents(_sig.SIGSTOP)
+                            _agents_frozen = True
+                    else:
+                        with auto_mode_state["lock"]:
+                            if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"] and not auto_mode_state.get("user_disabled"):
+                                auto_mode_state["enabled"] = True
+                                auto_mode_state["suspended_for_quota"] = False
+                                print("[Quota] Quota OK -- auto mode resumed")
+                        if _agents_frozen:
+                            import signal as _sig
+                            _quota_signal_agents(_sig.SIGCONT)
+                            _agents_frozen = False
+                except Exception as _qw_err:
+                    print(f"[Quota] Watcher error: {_qw_err}")
+
         monitor_thread = threading.Thread(target=_monitor, daemon=True)
         monitor_thread.start()
+        quota_watcher_thread = threading.Thread(target=_quota_watcher, daemon=True, name="quota-watcher")
+        quota_watcher_thread.start()
 
     # ---------- Route modules (extracted) ----------
 
