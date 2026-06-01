@@ -708,6 +708,32 @@ func _initialize():
                 # All patterns failed with "no such file" -- no .py files found, skip cleanly
                 print(f"[PostValidation] No Python files found for {project} -- skipping py_compile")
 
+        # Explicit syntax check for Python sub-packages (e.g. swarm/, swarm/tools/).
+        # pytest may not import every module, so a SyntaxError in a seldom-imported
+        # file (like swarm/qa_tools.py) can slip through. This catches it regardless.
+        if not validation_failed:
+            cmd = str(venv_python) if venv_python.exists() else sys.executable
+            py_subdirs = [
+                d for d in project_path.iterdir()
+                if d.is_dir() and (d / "__init__.py").exists()
+                and not d.name.startswith(".")
+                and d.name not in ("node_modules", ".venv", "venv", "build", "dist")
+            ]
+            for subdir in py_subdirs:
+                try:
+                    result = subprocess.run(
+                        f"{cmd} -m py_compile {subdir.name}/**/*.py",
+                        shell=True, cwd=project_path,
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    if result.returncode != 0 and "No such file" not in result.stderr:
+                        validation_failed = True
+                        error_output = f"Syntax error in {subdir.name}/:\n" + (result.stderr or result.stdout)
+                        print(f"[PostValidation] Syntax error in {subdir.name}/ for {project}: {error_output[:200]}")
+                        break
+                except Exception as e:
+                    print(f"[PostValidation] py_compile subdir {subdir.name} error: {e}")
+
     # Prompt YAML validation -- runs for any project that has a prompts/ directory
     # (primarily swarm-controller itself). A broken prompt YAML takes down spawn for
     # the entire swarm, so this must catch errors before the agent marks itself complete.
@@ -726,7 +752,7 @@ func _initialize():
             error_output = "Prompt YAML validation failed:\n" + "\n\n".join(broken)
             print(f"[PostValidation] Broken prompt YAML in {project}: {broken}")
 
-    elif project_type == "custom":
+    if project_type == "custom" and not validation_failed:
         # .swarm_validate: one line, shell command, exit code = result
         try:
             cmd_text = (project_path / ".swarm_validate").read_text().strip()
