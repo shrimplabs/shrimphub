@@ -274,7 +274,9 @@ def register_routes(app, task_source, db, workspace):
         if status_filter:
             tasks = [t for t in all_tasks if t.status == status_filter]
         elif include_completed:
-            tasks = all_tasks
+            # Exclude 'archived' — these are pre-migration legacy rows that pre-date
+            # the immutable-history model. Treat them the same as completed for display.
+            tasks = [t for t in all_tasks if t.status != "archived"]
         else:
             # Default: active working set -- pending, in_progress, failed
             # Completed and cancelled are history; use ?include_completed=true to see them
