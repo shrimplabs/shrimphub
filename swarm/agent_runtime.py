@@ -462,6 +462,10 @@ def main() -> int:
         )
 
     log(f"Starting task: {PROJECT} ({TASK_TYPE})")
+    # Log provider+model so model_stats.py can identify which model ran this agent
+    from swarm.provider_utils import resolve_provider as _resolve_provider
+    _pconf = _resolve_provider(LLM_PROVIDER, LLM_PROVIDERS)
+    log(f"Provider: {LLM_PROVIDER} model={_pconf.get('model', 'unknown')}")
     log(f"Description: {TASK_DESC}")
 
     # Pull latest (skip for virtual/qa tasks and worktree agents on their own branches)
