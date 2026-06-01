@@ -32,7 +32,7 @@ def model_from_log(log_path: str) -> str:
     try:
         with open(log_path) as f:
             for i, line in enumerate(f):
-                if i > 50:
+                if i > 600:
                     break
                 m = re.search(r'model=(MiniMax-\S+|claude-\S+|gpt-\S+)', line)
                 if m:
