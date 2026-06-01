@@ -24,6 +24,15 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
         if generate_task_script is None:
             return jsonify({"error": "generate_task_script not available"}), 500
 
+        # Quota check — same gate as /api/spawn-batch
+        over_limit, pct_used, pct_remaining, used_count, total = orchestrator.check_quota_limit()
+        if over_limit:
+            return jsonify({
+                "error": f"Quota limit ({orchestrator.QUOTA_LIMIT_PERCENT}%) exceeded ({pct_used:.1f}% used)",
+                "quota_percent": pct_used,
+                "limit_percent": orchestrator.QUOTA_LIMIT_PERCENT,
+            }), 507
+
         # Spawn a specific task by ID
         task_id = data.get("task_id")
         if task_id:
