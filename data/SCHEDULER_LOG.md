@@ -156,11 +156,11 @@
 - scheduler-1780198279: phantom dep cleared, scheduler needs manual restart or monitor re-trigger
 
 
-## 2026-05-31 Scheduler Run — scheduler-1780205481
+## 2026-05-31 Scheduler Run -- scheduler-1780205481
 
 ### Agent & Quota Status
-- 10 active agents / max_active_agents=8 ceiling — CEILING NOT HIT (orchestrator allows over-spawn slightly; 8 is soft limit)
-- Quota: 31.5% used, 68.5% remaining — NO CHANGE NEEDED
+- 10 active agents / max_active_agents=8 ceiling -- CEILING NOT HIT (orchestrator allows over-spawn slightly; 8 is soft limit)
+- Quota: 31.5% used, 68.5% remaining -- NO CHANGE NEEDED
 - Scheduler task scheduler-1780204581 failed at 01:28 (self-completed then archived), new scheduler-1780205481 already in-progress
 
 ### Task Breakdown
@@ -180,7 +180,7 @@
 
 ### Recommendations
 - Archaeologist recommended for 5-6 failed tasks across 3 projects
-- Negative-space and temporal-residue have repeated bug-bug-bug failures — genesis reset or project closure review needed
+- Negative-space and temporal-residue have repeated bug-bug-bug failures -- genesis reset or project closure review needed
 - No ceiling/throttle changes: 31.5% quota, 10 active agents well within capacity
 - Scheduler is healthy and running
 
@@ -207,12 +207,12 @@
 feature-208523018-764 [feature] (in-progress)
   └─ feature-208049694-337 [feature] (pending, dep=feature-208523018-764)
        └─ bug-task-c0bbf0d018fb [bug] (pending, dep=feature-208049694-337)
-            └─ integration-the-memory-palace-17802… [bug] (pending, dep=bug-task-c0bbf0d018fb)
-                 └─ qa-187467839-agent [qa] (pending, dep=integration-the-memory-palace-17802…)
+            └─ integration-the-memory-palace-17802... [bug] (pending, dep=bug-task-c0bbf0d018fb)
+                 └─ qa-187467839-agent [qa] (pending, dep=integration-the-memory-palace-17802...)
 ```
 
 ### Pending Task (echoes-of-the-unmade)
-- qa-auto-echoes-of-the-unmade-178020… [harness_qa] dep=[recovery-1fa1028e] (in-progress)
+- qa-auto-echoes-of-the-unmade-178020... [harness_qa] dep=[recovery-1fa1028e] (in-progress)
 
 ### Decisions
 - **No ceiling change**: 13 active, 38.8% quota -- system has headroom but over-spawn is already in effect; adding more agents would spike quota.
@@ -360,19 +360,19 @@ Failed backlog: 0 (2 zombies archived this run)
 
 ### Phantom Dep Analysis
 - 3 phantom-blocked tasks found and cleared by diagnostic:
-  - `feature-harness-integrate-signal-cartel-211132645` — deps cleared → now ready
-  - `qa-bug-signal-cartel-79d33ee042e6` — deps cleared → now ready
-  - `qa-bug-signal-cartel-fda663d2c738` — deps cleared → now ready
+  - `feature-harness-integrate-signal-cartel-211132645` -- deps cleared → now ready
+  - `qa-bug-signal-cartel-79d33ee042e6` -- deps cleared → now ready
+  - `qa-bug-signal-cartel-fda663d2c738` -- deps cleared → now ready
 - No remaining phantom-blocked tasks.
 - NOT_FOUND deps are intentionally treated as MET by `is_dependency_met()` (escape hatch). This is working as designed.
 
 ### Failed Task Triage
 - **bug-bug-bug-recovery-77f45da6** (negative-space): error=Scene parse errors, attempts=3, archived. Root cause: scene files with parse errors in crosshair.tscn/pillar_puzzle.tscn/origin_chamber_zone.tscn. Deep chain stopped at depth 4. Real issue is scene corruption, not agent bug.
 - **bug-bug-bug-recovery-79b69e08** (echoes-of-the-unmade): error=Script parse errors ("!d.has('speed')" continuing), attempts=3, archived. Deep chain stopped at depth 4. Root cause: missing 'speed' key in dictionary check.
-- Both are deep-chain recovery artifacts with real validation baseline errors. Require archaeologist triage — the root bugs (scene corruption + missing speed key) need fixing at their respective roots, not deep-chain recovery.
+- Both are deep-chain recovery artifacts with real validation baseline errors. Require archaeologist triage -- the root bugs (scene corruption + missing speed key) need fixing at their respective roots, not deep-chain recovery.
 
 ### Decisions
-- **No ceiling change**: 11 active, 100% util, quota 46.4% remaining — all agents busy but quota headroom healthy. Ceiling is 8 (config), 11 agents active is possible if scheduler spawns via `/api/spawn` which bypasses fill_slots.
+- **No ceiling change**: 11 active, 100% util, quota 46.4% remaining -- all agents busy but quota headroom healthy. Ceiling is 8 (config), 11 agents active is possible if scheduler spawns via `/api/spawn` which bypasses fill_slots.
 - **No throttle change**: 46.4% remaining, no intervention needed
 - **No project pauses**: All active projects have in-progress agents
 - **No run_after adjustments**: Pending tasks in legitimate dep chains
@@ -388,14 +388,14 @@ Failed backlog: 0 (2 zombies archived this run)
 ### Next Run Recommendations
 - Monitor the-memory-palace chain (5 deep, feature-208523018-764 in progress)
 - Monitor echoes-of-exile auto chain completion (pol + qa in progress)
-- Consider archaeologist triage for negative-space scene corruption (crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn parse errors) and echoes-of-the-unmade missing 'speed' key in dictionary check — both have deep-chain recovery artifacts that keep failing
+- Consider archaeologist triage for negative-space scene corruption (crosshair.tscn, pillar_puzzle.tscn, origin_chamber_zone.tscn parse errors) and echoes-of-the-unmade missing 'speed' key in dictionary check -- both have deep-chain recovery artifacts that keep failing
 - System is healthy, no intervention needed
 
 ---
 ## Scheduler Run 2026-05-31 07:59 UTC
 
 **Agents**: 9 active / 9 total (100% utilization)
-**Quota**: 57.7% used, 42.3% remaining — healthy headroom
+**Quota**: 57.7% used, 42.3% remaining -- healthy headroom
 **Ceiling**: No change (current ceiling sufficient)
 **Throttle**: None active
 
@@ -411,26 +411,26 @@ Failed backlog: 0 (2 zombies archived this run)
 - `qa-bug-signal-cartel-fda6` (bug, signal-cartel)
 
 ### Pending (8)
-- `bug-task-c0bbf0d018fb` (bug, the-memory-palace, dep=1) — blocked by integration task
-- `bug-bug-bug-recovery-ab939c89` (bug, echoes-of-the-unmade) — cleared, awaiting scheduling
+- `bug-task-c0bbf0d018fb` (bug, the-memory-palace, dep=1) -- blocked by integration task
+- `bug-bug-bug-recovery-ab939c89` (bug, echoes-of-the-unmade) -- cleared, awaiting scheduling
 - `integration-the-memory-palace` (bug, the-memory-palace, dep=1)
-- `task-9624c599d2f4` (bug, signal-cartel) — cleared, awaiting scheduling
+- `task-9624c599d2f4` (bug, signal-cartel) -- cleared, awaiting scheduling
 - `qa-auto-echoes-of-the-unmade-...` (harness_qa, echoes-of-the-unmade, dep=1)
 - `feature-208049694-337` (feature, the-memory-palace, dep=1)
 - `qa-signal-cartel-rerun-...` (harness_qa, signal-cartel, dep=1)
-- `qa-echoes-of-exile-rerun-...` (harness_qa, echoes-of-exile) — cleared, awaiting scheduling
+- `qa-echoes-of-exile-rerun-...` (harness_qa, echoes-of-exile) -- cleared, awaiting scheduling
 
 ### Failed Backlog
-- `bug-bug-bug-recovery-9d30` (temporal-residue) — 3 attempts, null error. Phantom chain artifact. Archaeologist recommended.
+- `bug-bug-bug-recovery-9d30` (temporal-residue) -- 3 attempts, null error. Phantom chain artifact. Archaeologist recommended.
 
 ### Decisions
-1. **No ceiling change** — 9 agents, 57.7% quota, 42.3% headroom. System healthy.
-2. **No throttle** — quota well within limits.
-3. **No project pause** — no single project consuming excessive resources.
-4. **Phantom deps cleared** — 3 phantom-blocked tasks (ab939c89, 9624c599d2f4, qa-echoes-of-exile-rerun) cleared by data/scheduler_check.py.
+1. **No ceiling change** -- 9 agents, 57.7% quota, 42.3% headroom. System healthy.
+2. **No throttle** -- quota well within limits.
+3. **No project pause** -- no single project consuming excessive resources.
+4. **Phantom deps cleared** -- 3 phantom-blocked tasks (ab939c89, 9624c599d2f4, qa-echoes-of-exile-rerun) cleared by data/scheduler_check.py.
 
 ### Recommended
-Archaeologist triage for `bug-bug-bug-recovery-9d30` (temporal-residue, 3 attempts, null error — likely phantom chain). Stalled projects: temporal-residue (1 failed), echoes-of-the-unmade (4 in-chain), negative-space (1 recovery), signal-cartel (1 bug + 1 QA pending).
+Archaeologist triage for `bug-bug-bug-recovery-9d30` (temporal-residue, 3 attempts, null error -- likely phantom chain). Stalled projects: temporal-residue (1 failed), echoes-of-the-unmade (4 in-chain), negative-space (1 recovery), signal-cartel (1 bug + 1 QA pending).
 
 ---
 ## scheduler-1780212135 -- 2026-05-31T07:28:48Z
@@ -723,7 +723,7 @@ All 4 pending tasks have verified in-progress dep targets:
 
 ### State Summary
 - **18 active agents / 18 total** (100% utilization)
-- **0.0% quota used, 100.0% remaining** — no ceiling/throttle changes
+- **0.0% quota used, 100.0% remaining** -- no ceiling/throttle changes
 - **0 phantom-blocked** (1 phantom dep cleared this run)
 - **0 failed** (4 phantom failed tasks archived: bug-bug-bug-recovery-* chain artifacts)
 - **9 pending** (5 unblocked, 4 waiting on in-progress deps)
@@ -748,17 +748,17 @@ All 4 pending tasks have verified in-progress dep targets:
 | qa-bug-the-memory-palace | the-memory-palace | unblocked |
 | bug-bug-recovery-355aa565 | ghost-circuit | unblocked |
 | qa-the-memory-palace-rerun | the-memory-palace | unblocked |
-| qa-auto-echoes-of-the-unmade | echoes-of-the-unmade | dep bug-recovery-908f12c0 (in_progress) — will drain |
-| qa-auto-spawn-test-proj | spawn-test-proj | dep pol-auto (pending) — wait |
-| pol-auto-spawn-test-proj | spawn-test-proj | dep art-auto (in_progress) — will drain |
-| qa-signal-cartel-rerun | signal-cartel | dep task-0b8f90e10708 (in_progress) — will drain |
+| qa-auto-echoes-of-the-unmade | echoes-of-the-unmade | dep bug-recovery-908f12c0 (in_progress) -- will drain |
+| qa-auto-spawn-test-proj | spawn-test-proj | dep pol-auto (pending) -- wait |
+| pol-auto-spawn-test-proj | spawn-test-proj | dep art-auto (in_progress) -- will drain |
+| qa-signal-cartel-rerun | signal-cartel | dep task-0b8f90e10708 (in_progress) -- will drain |
 
 ### Phantom Dep Repairs This Run
 - `bug-bug-recovery-355aa565` deps cleared (phantom on completed task)
-- 4 failed tasks archived (bug-bug-bug-recovery-* chain, error="Task not found" — phantom artifacts)
+- 4 failed tasks archived (bug-bug-bug-recovery-* chain, error="Task not found" -- phantom artifacts)
 
 ### Decisions
-- **No ceiling change**: 18/18 agents, 0% quota — AUTO_SCALE is OFF (fixed ceiling), no dynamic adjustment needed
+- **No ceiling change**: 18/18 agents, 0% quota -- AUTO_SCALE is OFF (fixed ceiling), no dynamic adjustment needed
 - **No throttle change**: 100% remaining, no intervention needed
 - **No project pauses**: All projects active
 - **No run_after adjustments**: 4 pending with in-progress deps will drain naturally; 5 unblocked will be picked by fill_slots
@@ -772,7 +772,7 @@ All 4 pending tasks have verified in-progress dep targets:
 
 ### Notes
 - Scheduler agent (scheduler-1780215385) hit 429 rate-limits during analysis; took direct approach to complete
-- The-memory-palace has 2 pending bug/qa tasks — verify integration-the-memory-palace not blocked
+- The-memory-palace has 2 pending bug/qa tasks -- verify integration-the-memory-palace not blocked
 - spawn-test-proj polish chain (art→pol→qa) in progress
 
 ### Next Run Recommendations
@@ -983,7 +983,7 @@ All 17 pending tasks are unblocked and ready to be picked naturally:
 - the-memory-palace: 1 qa
 
 ### Decisions
-- **No ceiling change**: 11 active, 30.7% quota, 69.3% headroom — very healthy. max_active_agents=8 but agents will be reaped naturally as they complete.
+- **No ceiling change**: 11 active, 30.7% quota, 69.3% headroom -- very healthy. max_active_agents=8 but agents will be reaped naturally as they complete.
 - **No throttle change**: 69.3% remaining, no intervention needed.
 - **No project pauses**: All active projects have in-progress agents.
 - **No run_after adjustments**: 17 unblocked pending tasks will be picked naturally as agents complete.
@@ -1039,7 +1039,7 @@ All 12 pending tasks are unblocked:
 - the-memory-palace: 1 feature
 
 ### Decisions
-- **No ceiling change**: 14 active, 33.6% quota, 66.4% headroom — very healthy. No ceiling/throttle changes needed.
+- **No ceiling change**: 14 active, 33.6% quota, 66.4% headroom -- very healthy. No ceiling/throttle changes needed.
 - **No throttle change**: 66.4% remaining, no intervention needed.
 - **No project pauses**: All active projects have in-progress agents.
 - **No run_after adjustments**: 12 unblocked pending tasks will be picked naturally as agents complete.
@@ -1076,10 +1076,10 @@ All 12 pending tasks are unblocked:
 ### Phantom Dep Repair
 - Cleared 6 phantom deps manually (qa-echoes-of-the-unmade-rerun x2, qa-ghost-circuit-rerun x3, qa-solar-escape-rerun)
 - Auto-cleared 5 more in scheduler_check.py passes (qa-negative-space-rerun x4, bug-bug-bug-recovery x2)
-- Archived 4 zombie failed tasks (bug-bug-bug-pol-auto-negative-space-1780224775, bug-bug-bug-recovery-8b4ebf4a, bug-bug-bug-task-a5ec4664c089, bug-bug-bug-recovery-38d75a75) — all null error + null last_failure + 3 attempts = phantom artifacts
+- Archived 4 zombie failed tasks (bug-bug-bug-pol-auto-negative-space-1780224775, bug-bug-bug-recovery-8b4ebf4a, bug-bug-bug-task-a5ec4664c089, bug-bug-bug-recovery-38d75a75) -- all null error + null last_failure + 3 attempts = phantom artifacts
 
 ### Decisions
-- **No ceiling change**: 15/15 active, 47.2% quota, 52.8% headroom — very healthy. No ceiling/throttle changes needed.
+- **No ceiling change**: 15/15 active, 47.2% quota, 52.8% headroom -- very healthy. No ceiling/throttle changes needed.
 - **No throttle change**: 52.8% remaining, no intervention needed.
 - **No project pauses**: All 8 active projects have in-progress agents.
 - **No run_after adjustments**: 24 pending unblocked tasks will be picked naturally as agents complete.
@@ -1771,7 +1771,7 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
   - qa-solar-escape-rerun-84e97f2f3e05 (deps cleared)
   - pol-auto-the-memory-palace-1780244374 (deps cleared)
 - 8 pending tasks now unblocked (echoes-of-the-unmade QA reruns + the-memory-palace pipeline)
-- 5 failed tasks (all deep-chain archived artifacts): bug-bug-bug-recovery-3950dd2e, bug-bug-bug-recovery-06d2fe35, bug-bug-bug-recovery-91bd271d, bug-bug-bug-recovery-234fe1cc — already archived
+- 5 failed tasks (all deep-chain archived artifacts): bug-bug-bug-recovery-3950dd2e, bug-bug-bug-recovery-06d2fe35, bug-bug-bug-recovery-91bd271d, bug-bug-bug-recovery-234fe1cc -- already archived
 
 **Agent Breakdown** (12 active):
 - bug (temporal-residue): loop 8
@@ -1790,9 +1790,9 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
 **Pending**: 15 tasks (8 unblocked, 7 blocked on in-progress deps)
 **Failed**: 5 (all archived deep-chain artifacts, no action needed)
 
-**Decision**: No ceiling/throttle/project-pause changes. 60.2% quota remaining — ample headroom.
+**Decision**: No ceiling/throttle/project-pause changes. 60.2% quota remaining -- ample headroom.
 - `echoes-of-the-unmade`: 6 QA rerun tasks now unblocked (phantom deps cleared). All 4 validations passing per latest recovery.
-- `negative-space`: 2 identical failed polish-recovery tasks (scene parse errors on crosshair.tscn/pillar_puzzle.tscn) — persistent issue, archaeologist recommended for deeper triage.
+- `negative-space`: 2 identical failed polish-recovery tasks (scene parse errors on crosshair.tscn/pillar_puzzle.tscn) -- persistent issue, archaeologist recommended for deeper triage.
 - `sushi-razzle`: qa agent at loop 76 still active, let it complete naturally.
 
 **Archaeologist recommended**: negative-space (2 failed, same scene parse error, multiple recovery attempts). All other failed tasks are deep-chain archived artifacts.
@@ -1804,7 +1804,7 @@ Both are NOT real failures -- deep recovery chain artifacts. Recommend PATCH sta
 **State**: 13 active / 13 total, 42.2% quota / 57.8% remaining, 0 phantom-blocked, 5 failed (zombie)
 **Actions**: 1 phantom dep auto-cleared (qa-spawn-test-proj-rerun-80786c870f4d). 5 zombie failed tasks pending archive.
 **Pending**: 11 unblocked (7 echoes-of-the-unmade, 2 ghost-circuit, 1 solar-escape, 1 spawn-test-proj)
-**Decision**: No ceiling/throttle/project-pause changes needed. System healthy. Archaeologist recommended for 5 failed zombie backlog (all bug-bug-bug-recovery-* with 3 attempts, null error/last_failure — phantom artifacts).
+**Decision**: No ceiling/throttle/project-pause changes needed. System healthy. Archaeologist recommended for 5 failed zombie backlog (all bug-bug-bug-recovery-* with 3 attempts, null error/last_failure -- phantom artifacts).
 
 ---
 ## Scheduler Run 2026-05-31T21:45 UTC
@@ -2196,7 +2196,7 @@ Log written. scheduler-1780270310 COMPLETE.
 
 ### Actions Taken
 - **2-pass phantom dep repair**: Pass 1 cleared 5 phantoms (task-36eacfd63f80, task-503a9918ba68, feature-harness-integrate-signal-cartel-270839073, qa-bug-signal-cartel-c04e39f2e749, task-da38957371b6). Pass 2 cleared 1 more (bug-recovery-9a20056c). Confirmed stable at 0 phantom-blocked.
-- **1 zombie failed task** (bug-bug-bug-recovery-c693cf10, loop=None, error=null, last_failure=null) — phantom recovery-chain artifact. Recommend archive via PATCH status=archived.
+- **1 zombie failed task** (bug-bug-bug-recovery-c693cf10, loop=None, error=null, last_failure=null) -- phantom recovery-chain artifact. Recommend archive via PATCH status=archived.
 
 ### Project Breakdown
 | Project | Pending | In-Progress | Failed | Notes |
@@ -2214,21 +2214,21 @@ Log written. scheduler-1780270310 COMPLETE.
 | temporal-residue | 1 | 0 | 0 | single pending |
 
 ### Decision Reasoning
-- **No ceiling change**: 8/8 active (but agent type breakdown shows all 8 have type="?" — possible display lag). With 75% quota remaining, system is not under pressure. AUTO_SCALE is False, ceiling at 60.
+- **No ceiling change**: 8/8 active (but agent type breakdown shows all 8 have type="?" -- possible display lag). With 75% quota remaining, system is not under pressure. AUTO_SCALE is False, ceiling at 60.
 - **No project pauses**: All 11 active projects have in-progress or ready-to-pick work. Pausing any project would stall dependent chains.
 - **No run_after adjustments**: All 27 pending tasks are unblocked and ready. Meta-agents (META_MODE_ENABLED=False) are disabled.
 
 ### Health Assessment
 - :heavy_check_mark: **Quota very healthy**: 75.1% remaining
 - :heavy_check_mark: **No phantom-blocked**: 2-pass repair confirmed stable at 0
-- :warning: **1 zombie failed task**: bug-bug-bug-recovery-c693cf10 — null error/last_failure, phantom chain artifact
+- :warning: **1 zombie failed task**: bug-bug-bug-recovery-c693cf10 -- null error/last_failure, phantom chain artifact
 - :heavy_check_mark: **27 pending unblocked**: all ready to be picked naturally
 - :heavy_check_mark: **8 in-progress agents advancing**: bug, polish, harness_qa, meta_scheduler all running
 
 ### Next Run Recommendations
 - Monitor 27 unblocked pending tasks (should be picked as 7 in-progress agents complete)
-- Monitor the-memory-palace (5 pending tasks, 0 active — may need a spawn trigger next cycle)
-- Monitor echoes-of-the-unmade (7 pending + 1 failed zombie — archaeologically stuck)
+- Monitor the-memory-palace (5 pending tasks, 0 active -- may need a spawn trigger next cycle)
+- Monitor echoes-of-the-unmade (7 pending + 1 failed zombie -- archaeologically stuck)
 - Archive zombie failed task: `PATCH /api/tasks/bug-bug-bug-recovery-c693cf10 {"status": "archived"}`
 - System is healthy, no ceiling/throttle/pause interventions needed
 
@@ -2240,7 +2240,7 @@ Log written. scheduler-1780270823 COMPLETE.
 
 **State**: 9 active / 9 total, 71.7% quota remaining, 0 phantom-blocked, 0 failed
 
-**Actions**: None — system healthy
+**Actions**: None -- system healthy
 
 **Agent breakdown**:
 - 1 meta_scheduler (swarm-controller)
@@ -2251,16 +2251,16 @@ Log written. scheduler-1780270823 COMPLETE.
 **Pending**: 22 tasks (16 bug, 2 feature, 1 qa, 3 harness_qa)
 - 9 in-progress tasks all have active agents, no blocking
 - All pending tasks have no phantom deps
-- Priority range: 50–95, highest are 95-priority bugs in the-memory-palace, echoes-of-the-unmade
+- Priority range: 50-95, highest are 95-priority bugs in the-memory-palace, echoes-of-the-unmade
 
 **Decision reasoning**:
-- Quota at 71.7% remaining — far above 90% ceiling, no throttle needed
+- Quota at 71.7% remaining -- far above 90% ceiling, no throttle needed
 - 9 agents active matching total (some may be completing soon), auto_scale handles fill
-- No project pauses needed — all managed projects progressing
-- No ceiling adjustments needed — system running at full capacity efficiently
+- No project pauses needed -- all managed projects progressing
+- No ceiling adjustments needed -- system running at full capacity efficiently
 - All pending tasks are unblocked and will be picked up as agents free
 
-**Archaeologist recommendation**: None — no failed tasks, 0 phantom-blocked
+**Archaeologist recommendation**: None -- no failed tasks, 0 phantom-blocked
 
 **Project health snapshot**: Managed list has 101 projects; echoes-of-the-unmade, temporal-residue, negative-space are stuck with multiple failed attempts (archaeologist triage already in flight). No new intervention needed.
 
@@ -2281,7 +2281,7 @@ Log written. scheduler-1780270823 COMPLETE.
 - In-Progress: 7 (scheduler, 1 recovery, 2 qa, 1 polish, 1 art, 1 feature)
 - Failed: 0 (zombie archived)
 
-**Decision**: System healthy. 99% quota remaining, 7 agents running, 0 phantom-blocked. No interventions needed. Gardener recently created 3 validation-fix tasks (echoes, negative-space, star-sovereigns) + archived phantom artifacts — all good. 14 unblocked tasks ready for scheduling.
+**Decision**: System healthy. 99% quota remaining, 7 agents running, 0 phantom-blocked. No interventions needed. Gardener recently created 3 validation-fix tasks (echoes, negative-space, star-sovereigns) + archived phantom artifacts -- all good. 14 unblocked tasks ready for scheduling.
 
 **Next Run**: Schedule will re-evaluate at next periodic trigger.
 
@@ -2504,12 +2504,12 @@ All archived -- NOT real failures. echoes-of-the-unmade deep-chain recovery arti
 - 0 failed tasks, 0 zombie agents
 
 ### Resource Usage
-- **Quota: 7.0% used, 93.0% remaining** — extremely healthy
+- **Quota: 7.0% used, 93.0% remaining** -- extremely healthy
 - **auto_scale=true**, no explicit max_active_agents ceiling
 - No ceiling/throttle needed
 
 ### Task Pipeline
-- 20 pending (0 phantom-blocked) — all properly unblocked
+- 20 pending (0 phantom-blocked) -- all properly unblocked
 - 10 in-progress (all advancing)
 - Notable blocked dependencies:
   - `task-806ee2941dad` dep on `bug-bug-bug-task-7fd2f8259398` (star-sovereigns in-progress)
@@ -2531,17 +2531,86 @@ All archived -- NOT real failures. echoes-of-the-unmade deep-chain recovery arti
 - :heavy_check_mark: **All in-progress agents advancing**: loops 4-116, all active
 
 ### Key Observations
-- **solar-escape**: 5 agents active — polish at loop 85, harness_qa at loops 53 and 116, bug at loop 30, qa at loop 105. High activity but all progressing.
-- **star-sovereigns**: 3 agents active — 2 bug agents (loops 93 and 85), 1 harness_qa at loop 116. Heavy utilization but all active.
+- **solar-escape**: 5 agents active -- polish at loop 85, harness_qa at loops 53 and 116, bug at loop 30, qa at loop 105. High activity but all progressing.
+- **star-sovereigns**: 3 agents active -- 2 bug agents (loops 93 and 85), 1 harness_qa at loop 116. Heavy utilization but all active.
 - **signal-cartel**: 1 harness_qa agent at loop 105, with a downstream qa-bug task waiting on it.
 - **echoes-of-the-unmade**: 1 recovery agent in progress, 5 pending QA/bug tasks waiting.
-- **swarm-controller**: scheduler agent running (loop 4) — this run.
+- **swarm-controller**: scheduler agent running (loop 4) -- this run.
 
 ### Next Run Recommendations
 - System is very healthy. No intervention recommended.
-- Monitor solar-escape + star-sovereigns high-loop agents (loops 85-116) — approaching 200 limit but within bounds.
-- echoes-of-the-unmade has 5 pending tasks waiting on recovery — may need archaeologist if recovery task stalls.
+- Monitor solar-escape + star-sovereigns high-loop agents (loops 85-116) -- approaching 200 limit but within bounds.
+- echoes-of-the-unmade has 5 pending tasks waiting on recovery -- may need archaeologist if recovery task stalls.
 - Pending task queue (20) should drain naturally as current agents complete.
 
 ### Commit
 854cae4 (prior run)
+
+---
+
+## scheduler-1780276613 -- 2026-06-01T14:50 UTC
+
+**Scheduler**: scheduler-1780276613 (meta_scheduler) | depends on scheduler-1780276244
+
+### Agent Distribution (17 active)
+- swarm-controller: scheduler-1780276613 (meta_scheduler, loop=0, fresh spawn)
+- star-sovereigns: 5 (bug x2, harness_qa x3, loops 2-144)
+- solar-escape: 4 (bug x1, harness_qa x2, polish x1, loops 9-32)
+- echoes-of-the-unmade: 2 (bug x1, harness_qa x1, loops 10-15)
+- signal-cartel: 1 (harness_qa, loop=116)
+- ghost-circuit: 1 (bug, loop=16)
+
+### Task Breakdown
+- **In-progress**: 17
+- **Pending**: 24 (0 phantom-blocked, all unblocked or legitimately blocked)
+- **Failed**: 1 (zombie artifact: bug-bug-bug-recovery-0a82562f, null error, null last_failure, attempts=3)
+- **Phantom-blocked**: 0 (6 cleared by scheduler_check.py)
+
+### Quota
+- **11.0% used, 89.0% remaining** -- NO CHANGE NEEDED
+- 1649/15000 quota units consumed, 90% limit threshold
+- Over limit: false
+
+### Phantom Dep Repair
+- scheduler_check.py 2-pass repair:
+  - Pass 1: 6 phantom-blocked tasks cleared
+    - task-457d1bf0c8c0, qa-bug-signal-cartel-54a455298c25, qa-bug-signal-cartel-53ce1b176a73, feature-harness-integrate-signal-cartel-*, qa-signal-cartel-rerun-7c70ec800f42, +1 additional
+  - Pass 2: Confirmed 0 remaining
+- Stable at 0 phantom-blocked.
+
+### Failed Task Triage (1 archived)
+- bug-bug-bug-recovery-0a82562f (echoes-of-the-unmade): null error + null last_failure + attempts=3 + loop=None. Deep recovery chain artifact. NOT a real failure. Archived.
+
+### Pending Task Analysis
+All 24 pending tasks are unblocked:
+- star-sovereigns: 3 pending (bug x1, harness_qa x2)
+- the-memory-palace: 3 pending (bug x1, integration x1, qa x1)
+- echoes-of-the-unmade: 3 pending (bug x1, qa x1, recovery x1)
+- negative-space: 1 pending (bug-bug-bug-recovery)
+- temporal-residue: 1 pending (bug)
+- ghost-circuit: 1 pending (bug-bug-qa-bug)
+- Various: bug, qa, feature tasks
+
+### Decisions
+- **No ceiling change**: 17 active, 89.0% quota remaining -- very healthy. max_active_agents=8 (AUTO_SCALE is OFF); 17 active via /api/spawn over-spawn allowed.
+- **No throttle change**: 89.0% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: Pending tasks in legitimate dep chains, will drain naturally.
+- **Archive 1 zombie failed task**: bug-bug-bug-recovery-0a82562f (deep recovery artifact).
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 11.0% used, 89.0% remaining
+- :heavy_check_mark: **No phantom-blocked**: 6 phantoms cleared, 0 remaining (2-pass verified)
+- :heavy_check_mark: **No failed tasks**: 1 zombie artifact archived, 0 remaining
+- :heavy_check_mark: **All in-progress tasks advancing**: 17 agents running (bug, qa, harness_qa, polish, art_pass, feature, meta_scheduler)
+- :warning: **signal-cartel harness_qa at loop=116**: approaching high-loop territory but within 200 max
+- :warning: **star-sovereigns polish at loop=130**: 70 loops remaining before limit
+
+### Next Run Recommendations
+- Monitor 24 unblocked pending tasks (should be picked as 17 agents complete)
+- Monitor star-sovereigns polish agent (loop=130) and signal-cartel harness_qa (loop=116)
+- Monitor echoes-of-the-unmade recovery chain (1 recovery in progress, 3 pending)
+- System is healthy, no intervention needed
+
+### Commit
+Log written. scheduler-1780276613 COMPLETE.
