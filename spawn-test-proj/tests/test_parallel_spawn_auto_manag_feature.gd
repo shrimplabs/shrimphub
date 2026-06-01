@@ -11,16 +11,16 @@ func before_each() -> void:
 func test_service_starts_and_reports_running() -> void:
 	SpawnService.stop()
 	assert_false(SpawnService.is_running(), "Should not be running before start")
-	var err = SpawnService.start()
+	var err = await SpawnService.start()
 	assert_eq(err, OK, "start() should return OK")
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(1.5).timeout
 	assert_true(SpawnService.is_running(), "Service should be running after start")
 	assert_gt(SpawnService.get_pid(), 0, "PID should be positive")
 	SpawnService.stop()
 
 func test_service_stop_clears_state() -> void:
-	SpawnService.start()
-	await get_tree().create_timer(2.0).timeout
+	await SpawnService.start()
+	await get_tree().create_timer(1.5).timeout
 	assert_gt(SpawnService.get_pid(), 0, "PID should be set after start")
 	SpawnService.stop()
 	assert_false(SpawnService.is_running(), "Should not be running after stop")
