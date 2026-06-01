@@ -4,7 +4,7 @@ ShrimpHub is an open-source swarm orchestration system for agentic software deve
 
 Point it at a workspace full of projects, give it API keys, and it autonomously plans, implements, tests, and fixes — in parallel, across as many projects as you want. Supports Godot, Python, and TypeScript out of the box; extensible to any language via the plugin system.
 
-> **Early software:** expect bugs, changing APIs, and hands-on log inspection. Primarily tested with MiniMax M2.7 — other providers (Claude, OpenRouter, Kimi) are supported but may be less stable.
+> **Early software:** expect bugs, changing APIs, and hands-on log inspection. Primarily tested with MiniMax M3 — other providers (Claude, OpenRouter, Kimi) are supported but may be less stable.
 
 ![System Diagram](./system_diagram.svg)
 
@@ -68,6 +68,28 @@ python swarm_runner.py api
 - At least one LLM API key (MiniMax, Anthropic, OpenRouter, or Kimi)
 - Projects in a workspace directory (`workspace` in `config.json`)
 - Godot 4.x binary (optional — only needed for Godot project agents and QA)
+
+## Starting and Stopping (macOS)
+
+Four scripts handle server lifecycle. Run them from the repo root.
+
+| Script | What it does |
+|--------|--------------|
+| `./launch.sh` | Start swarm + VLM server, wait for the API to respond, open `http://localhost:5001` in your browser |
+| `./shutdown.sh` | Stop both servers cleanly |
+| `./start.sh` | Start swarm only (background, PID-tracked, logs to `data/swarm.log`) |
+| `./stop.sh` | Stop swarm only |
+| `./start-vlm.sh` | Start the local mlx-vlm vision server on port 8080 (waits up to 30s for ready) |
+| `./stop-vlm.sh` | Stop the VLM server |
+
+**Finder shortcuts:** `Swarm Launch.command` and `Swarm Shutdown.command` in the repo root are double-clickable macOS launcher files. Drop them in the Dock or on the Desktop. The first time you run them, macOS will ask for permission to open in Terminal.
+
+**Logs:**
+- Swarm: `data/swarm.log`
+- VLM server: `data/vlm.log`
+- Per-agent: `data/agent_<id>.log`
+
+**The VLM server is only needed for QA agents** that use vision (screenshot analysis). If you're not running QA tasks, skip `start-vlm.sh`.
 
 ## Platform Support
 
