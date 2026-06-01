@@ -46,8 +46,12 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             return jsonify({"error": "max_active_agents must be a positive integer"}), 400
         config["max_active_agents"] = value
         if orchestrator.AUTO_SCALE:
-            # In auto-scale mode, max_active_agents is the ceiling — don't override live count
+            # In auto-scale mode, max_active_agents is the ceiling
             orchestrator.AUTO_SCALE_CEILING = value
+            # Clamp live count immediately if ceiling was lowered
+            if orchestrator._auto_scale_current > value:
+                orchestrator._auto_scale_current = value
+                orchestrator.MAX_ACTIVE_AGENTS = value
         else:
             orchestrator.MAX_ACTIVE_AGENTS = value
         with _config_write_lock:
