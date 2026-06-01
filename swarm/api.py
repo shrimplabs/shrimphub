@@ -800,16 +800,29 @@ def create_app(
             this ensures quota suspension fires promptly regardless.
             Also SIGSTOPs all running agents when over limit and SIGCONTs on resume."""
             _agents_frozen = False
+            _last_pct_used = 0.0
+            _log_tick = 0
             while True:
                 try:
                     time.sleep(10)
-                    over_limit, pct_used, *_ = orchestrator.check_quota_limit()
+                    over_limit, pct_used, pct_remaining, *_ = orchestrator.check_quota_limit()
+                    _log_tick += 1
+
+                    # Log every 60s (6 ticks) so there's a breadcrumb trail in logs
+                    if _log_tick % 6 == 0:
+                        print(f"[Quota] {pct_used:.1f}% used / {pct_remaining:.1f}% remaining")
+
+                    # Detect quota window reset: used% dropped significantly
+                    if _last_pct_used > 20.0 and pct_used < (_last_pct_used - 15.0):
+                        print(f"[Quota] Window reset detected: {_last_pct_used:.1f}% → {pct_used:.1f}% used")
+                    _last_pct_used = pct_used
+
                     if over_limit:
                         with auto_mode_state["lock"]:
                             if auto_mode_state["enabled"]:
                                 auto_mode_state["enabled"] = False
                                 auto_mode_state["suspended_for_quota"] = True
-                                print(f"[Quota] Limit exceeded ({pct_used:.1f}%) -- auto mode suspended")
+                                print(f"[Quota] Limit exceeded ({pct_used:.1f}% used) -- auto mode suspended")
                         if not _agents_frozen:
                             import signal as _sig
                             _quota_signal_agents(_sig.SIGSTOP)
@@ -819,7 +832,7 @@ def create_app(
                             if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"] and not auto_mode_state.get("user_disabled"):
                                 auto_mode_state["enabled"] = True
                                 auto_mode_state["suspended_for_quota"] = False
-                                print("[Quota] Quota OK -- auto mode resumed")
+                                print(f"[Quota] Quota OK ({pct_used:.1f}% used) -- auto mode resumed")
                         if _agents_frozen:
                             import signal as _sig
                             _quota_signal_agents(_sig.SIGCONT)
