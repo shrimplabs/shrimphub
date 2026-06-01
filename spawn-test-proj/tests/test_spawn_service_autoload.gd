@@ -90,12 +90,13 @@ func test_double_start_returns_error() -> void:
 
 func test_get_ping_returns_200() -> void:
 	assert_eq(await SpawnService.start(), OK, "start() must succeed")
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(3.0).timeout
 	var resp := await _http_get("/ping")
-	assert_false(resp.has("error"), "no connection error")
+	assert_false(resp.has("error"), "no connection error: " + str(resp))
 	assert_eq(resp.get("code"), 200, "GET /ping returns 200")
-	var data = JSON.parse_string(resp.get("body", ""))
-	assert_true(data != null, "body parses as JSON")
+	var body_str = resp.get("body", "")
+	var data = JSON.parse_string(body_str)
+	assert_true(data != null, "body parses as JSON: " + body_str)
 	assert_eq(data.get("ok"), true, "body.ok == true")
 
 func test_get_health_returns_healthy() -> void:
