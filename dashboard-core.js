@@ -76,7 +76,7 @@ async function loadData() {
     try {
         const [projectsRes, tasksRes, agentsRes, historyRes, quotaRes, managedRes, healthRes] = await Promise.all([
             fetch(API + '/api/projects'),
-            fetch(API + '/api/tasks'),
+            fetch(API + '/api/tasks?include_completed=false'),
             fetch(API + '/api/agents'),
             fetch(API + '/api/history'),
             fetch(API + '/api/quota'),

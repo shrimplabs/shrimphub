@@ -136,8 +136,19 @@ def _registry_by_name() -> dict[str, ToolSpec]:
 # Tool call validation
 # ---------------------------------------------------------------------------
 
+def _normalize_tool_call(tool_call: dict) -> dict:
+    """Normalize common M3 arg key variants in-place and return the dict."""
+    args = tool_call.get("args")
+    if isinstance(args, dict):
+        # M3 uses "cmd" instead of "command" for run_command
+        if "cmd" in args and "command" not in args:
+            args["command"] = args.pop("cmd")
+    return tool_call
+
+
 def validate_tool_call(tool_call: dict) -> str:
     """Return an error string if the tool call is malformed, else empty string."""
+    tool_call = _normalize_tool_call(tool_call)
     tool = tool_call.get("tool", "")
     args = tool_call.get("args") or {}
 
@@ -299,6 +310,7 @@ def execute_tool(tool_call: dict) -> dict:
     from swarm.runtime_helpers import _normalized_project_file_path, _lock_project_file, _spawn_lock_conflict_handoff
     from swarm.runtime_config import _parse_extra_args, _resolve_harness_action, _project_supports_harness
 
+    tool_call = _normalize_tool_call(tool_call)
     tool = tool_call.get("tool", "")
     args = tool_call.get("args", {})
     log(f"Executing tool: {tool}")

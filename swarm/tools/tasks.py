@@ -730,7 +730,9 @@ def list_tasks(project: str = None) -> dict:
     _proj, _type, _tid, _prio, _port = _read_core()
     target_project = project if project else _proj
     try:
-        with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+        import urllib.parse as _up
+        url = f"http://localhost:{_port}/api/tasks?project={_up.quote(target_project)}&include_completed=false"
+        with _ur.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
         tasks = [
             {
@@ -740,7 +742,6 @@ def list_tasks(project: str = None) -> dict:
                 "description": t.get("description", "")[:80],
             }
             for t in data.get("tasks", [])
-            if t.get("project") == target_project
         ]
         return {"ok": True, "tasks": tasks, "project": target_project}
     except Exception as e:
