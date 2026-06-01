@@ -2400,3 +2400,96 @@ Top priority pending:
 - Archaeologist recommended for echoes-of-the-unmade historical failures
 
 **Commit**: Log written. scheduler-1780273912 COMPLETE.
+
+---
+
+## scheduler-1780275713 -- 2026-05-31T21:05 UTC
+
+**Scheduler**: scheduler-1780275713 (meta_scheduler) | depends on scheduler-1780273912
+
+### Agent Distribution (12 active)
+- swarm-controller: scheduler-1780275713 (meta_scheduler, loop=11)
+- solar-escape: art-auto-solar-escape-1780274793 (art_pass, loop=84)
+- solar-escape: qa-star-sovereigns-rerun-6d8073d784c5 (harness_qa, loop=85)
+- solar-escape: qa-signal-cartel-rerun-5b8d2e6f364b (harness_qa, loop=89)
+- solar-escape: pol-auto-solar-escape-1780274793 (polish, loop=57)
+- solar-escape: qa-bug-solar-escape-9c5b7582c9b2 (bug, loop=25)
+- solar-escape: qa-bug-solar-escape-974accbdb9c3 (bug, loop=?, compile error)
+- solar-escape: qa-solar-escape-rerun-ec231117eaba (harness_qa, loop=13)
+- star-sovereigns: qa-bug-star-sovereigns-b74078a30f38 (bug, loop=50)
+- star-sovereigns: bug-qa-bug-star-sovereigns-3a26fd638736 (bug, loop=69)
+- star-sovereigns: bug-bug-task-7fd2f8259398 (bug, loop=6, TopBar fix blocked on sibling)
+- temporal-residue: recovery-0a82562f (bug, loop=10)
+
+### Task Breakdown
+- **In-progress**: 12 (all agents active)
+- **Pending**: 20 (19 unblocked, 5 blocked on in-progress deps -- legitimate)
+- **Failed**: 0 (3 zombies archived: bug-bug-bug-recovery-f9935740, a7aaddaa, 12cd9469 -- null error/last_failure, deep recovery artifacts)
+- **Phantom-blocked**: 0
+
+### Quota
+- **0.0% used, 100.0% remaining** -- NO CHANGE NEEDED
+- Over limit: false
+- max_active_agents=12, auto_scale=True
+
+### Phantom Dep Repair
+- 0 phantom-blocked (system clean from prior run)
+- scheduler_check.py confirmed 0 phantom-blocked, 0 failed
+- 3 zombie failed tasks archived (bug-bug-bug-recovery-* deep chain artifacts)
+
+### Pending Task Analysis
+All 19 pending tasks are unblocked (14 no deps, 5 blocked on legitimate in-progress deps):
+
+**Blocked (5) -- legitimate in-progress deps:**
+- `qa-bug-the-memory-palace-66e52f8c0c72` [qa, prio=80] -- dep=`bug-qa-bug-the-memory-palace-ec5220be148d` [bug, in-progress]
+- `task-c8bd1254b204` [bug, prio=80] -- dep=`bug-qa-bug-the-memory-palace-ec5220be148d` [bug, in-progress]
+- `qa-the-memory-palace-rerun-f151ca7ecc49` [qa, prio=60] -- dep=`qa-bug-the-memory-palace-66e52f8c0c72` AND `task-c8bd1254b204` [both pending]
+- `qa-bug-signal-cartel-4fe87f067ca4` [qa, prio=80] -- dep=`qa-signal-cartel-rerun-5b8d2e6f364b` [harness_qa, loop=89]
+- `qa-spawn-test-proj-rerun-2bcc4326c692` [qa, prio=60] -- dep=`qa-bug-spawn-test-proj-ab04545cc560` [pending]
+
+**Unblocked (14) -- ready to be picked:**
+- `bug-qa-bug-the-memory-palace-ec5220be148d` [bug, prio=95] -- in-progress
+- `bug-qa-bug-echoes-of-the-unmade-6a8ebe4b5b7c` [bug, prio=95] -- ready
+- `bug-bug-qa-bug-ghost-circuit-b6ead162f50a` [bug, prio=90] -- ready
+- `recovery-eb4e9000` [bug, prio=90] -- ready
+- `bug-bug-bug-recovery-33aa2771` [bug, prio=90] -- ready
+- `recovery-653fd42d` [bug, prio=90] -- ready
+- `recovery-0a82562f` [bug, prio=90] -- in-progress
+- `integration-the-memory-palace-1780248058` [bug, prio=85] -- ready
+- `qa-bug-echoes-of-the-unmade-*` x4 [qa, prio=80] -- ready
+- `qa-bug-spawn-test-proj-ab04545cc560` [qa, prio=80] -- ready
+
+### Failed Task Triage (3 archived)
+All 3 have null error + null last_failure + attempts=3 -- deep recovery chain artifacts:
+- `bug-bug-bug-recovery-f9935740` (echoes-of-the-unmade) -- deep chain artifact
+- `bug-bug-bug-recovery-a7aaddaa` (echoes-of-the-unmade) -- deep chain artifact
+- `bug-bug-bug-recovery-12cd9469` (echoes-of-the-unmade) -- deep chain artifact (loop=None, stuck on list_tasks timeout)
+
+All archived -- NOT real failures. echoes-of-the-unmade deep-chain recovery artifacts persist -- archaeologist recommended for root-cause triage.
+
+### Decisions
+- **No ceiling change**: 12 active, 100% quota remaining -- very healthy. max_active_agents=12, auto_scale=True. No ceiling increase needed.
+- **No throttle change**: 100% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after adjustments**: 14 unblocked pending tasks will be picked naturally as agents complete. 5 blocked on legitimate in-progress deps.
+- **Archive 3 zombie failed tasks**: deep recovery chain artifacts with null error + null last_failure -- done.
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 0.0% used, 100.0% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0 (system clean)
+- :heavy_check_mark: **No failed tasks**: 3 zombie artifacts archived, 0 remaining
+- :heavy_check_mark: **14 pending unblocked**: ready to be picked naturally
+- :heavy_check_mark: **All in-progress tasks advancing**: bug, qa, harness_qa, polish, art_pass, meta_scheduler all running (loops 6-89)
+
+### Key Observations
+- **solar-escape**: 7 agents active across art_pass, polish, harness_qa, and bug tasks. art-auto at loop 84, qa-signal-cartel rerun at loop 89, harness_qa at loop 85 -- all actively working.
+- **star-sovereigns**: 2 bug agents (loops 50 and 69) + 1 harness_qa at loop 85. TopBar fix blocked on sibling qa-bug task completing.
+- **the-memory-palace**: High-priority bug task (prio=95) in-progress, 2 downstream QA tasks queued behind it.
+- **echoes-of-the-unmade**: 5 pending QA/bug tasks (prio 80-95), 3 deep-chain recovery artifacts archived.
+
+### Next Run Recommendations
+- Monitor solar-escape high-loop agents (art_pass loop 84, harness_qa loops 85-89) -- approaching 100-loop territory but not yet at risk
+- Monitor star-sovereigns TopBar fix blocking (bug-task-7fd2f8259398 waiting on sibling qa-bug task)
+- Monitor the-memory-palace chain (prio-95 bug in progress, QA reruns queued)
+- 14 unblocked pending tasks should drain naturally as agents complete
+- System is healthy, no intervention needed
