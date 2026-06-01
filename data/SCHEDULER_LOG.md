@@ -2493,3 +2493,55 @@ All archived -- NOT real failures. echoes-of-the-unmade deep-chain recovery arti
 - Monitor the-memory-palace chain (prio-95 bug in progress, QA reruns queued)
 - 14 unblocked pending tasks should drain naturally as agents complete
 - System is healthy, no intervention needed
+
+---
+
+## Scheduler Run 2026-06-01 01:12 UTC
+
+### Agent Distribution
+- **10 active** (all status=active, loops 4-116)
+- Projects: solar-escape (5 agents), star-sovereigns (3), signal-cartel (1), echoes-of-the-unmade (1), swarm-controller (1 scheduler)
+- 0 failed tasks, 0 zombie agents
+
+### Resource Usage
+- **Quota: 7.0% used, 93.0% remaining** — extremely healthy
+- **auto_scale=true**, no explicit max_active_agents ceiling
+- No ceiling/throttle needed
+
+### Task Pipeline
+- 20 pending (0 phantom-blocked) — all properly unblocked
+- 10 in-progress (all advancing)
+- Notable blocked dependencies:
+  - `task-806ee2941dad` dep on `bug-bug-bug-task-7fd2f8259398` (star-sovereigns in-progress)
+  - `qa-bug-the-memory-palace-66e52f8c0c72` dep on `bug-qa-bug-the-memory-palace-ec5220be148d` (in-progress)
+  - `qa-signal-cartel-4fe87f067ca4` dep on `qa-signal-cartel-rerun-5b8d2e6f364b` (loop 105, still active)
+  - `qa-spawn-test-proj-rerun-2bcc4326c692` dep on `qa-bug-spawn-test-proj-ab04545cc560` (pending)
+
+### Decisions
+- **No ceiling change**: 10 active, 93% quota remaining. System very healthy. Auto_scale handles.
+- **No throttle change**: 93% remaining, no intervention needed.
+- **No project pauses**: All active projects have in-progress agents.
+- **No run_after**: Pending tasks will drain naturally as agents complete.
+- **No phantom repairs**: 0 phantom deps found (all deps valid or legitimately blocked)
+
+### Health Assessment
+- :heavy_check_mark: **Quota very healthy**: 7.0% used, 93.0% remaining
+- :heavy_check_mark: **No phantom-blocked**: 0 (system clean)
+- :heavy_check_mark: **No failed tasks**: 0
+- :heavy_check_mark: **All in-progress agents advancing**: loops 4-116, all active
+
+### Key Observations
+- **solar-escape**: 5 agents active — polish at loop 85, harness_qa at loops 53 and 116, bug at loop 30, qa at loop 105. High activity but all progressing.
+- **star-sovereigns**: 3 agents active — 2 bug agents (loops 93 and 85), 1 harness_qa at loop 116. Heavy utilization but all active.
+- **signal-cartel**: 1 harness_qa agent at loop 105, with a downstream qa-bug task waiting on it.
+- **echoes-of-the-unmade**: 1 recovery agent in progress, 5 pending QA/bug tasks waiting.
+- **swarm-controller**: scheduler agent running (loop 4) — this run.
+
+### Next Run Recommendations
+- System is very healthy. No intervention recommended.
+- Monitor solar-escape + star-sovereigns high-loop agents (loops 85-116) — approaching 200 limit but within bounds.
+- echoes-of-the-unmade has 5 pending tasks waiting on recovery — may need archaeologist if recovery task stalls.
+- Pending task queue (20) should drain naturally as current agents complete.
+
+### Commit
+854cae4 (prior run)
