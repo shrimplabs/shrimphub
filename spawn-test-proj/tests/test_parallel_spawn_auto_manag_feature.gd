@@ -6,7 +6,7 @@ extends GutTest
 func before_each() -> void:
 	assert_not_null(SpawnService, "SpawnService autoload must be registered")
 
-# ─── Service lifecycle ────────────────────────────────────────────
+# ─── SpawnService lifecycle ─────────────────────────────────────
 
 func test_service_starts_and_reports_running() -> void:
 	SpawnService.stop()
@@ -18,14 +18,15 @@ func test_service_starts_and_reports_running() -> void:
 	assert_gt(SpawnService.get_pid(), 0, "PID should be positive")
 	SpawnService.stop()
 
-func test_service_stop_clears_pid() -> void:
+func test_service_stop_clears_state() -> void:
 	SpawnService.start()
 	await get_tree().create_timer(2.0).timeout
-	assert_gt(SpawnService.get_pid(), 0, "PID should be set")
+	assert_gt(SpawnService.get_pid(), 0, "PID should be set after start")
 	SpawnService.stop()
 	assert_false(SpawnService.is_running(), "Should not be running after stop")
+	assert_eq(SpawnService.get_pid(), -1, "PID should be -1 after stop")
 
-# ─── Game state ─────────────────────────────────────────
+# ─── Game state integration ───────────────────────────
 
 func test_main_game_state_structure() -> void:
 	var main_script = load("res://main.gd")
@@ -33,9 +34,9 @@ func test_main_game_state_structure() -> void:
 	add_child(inst)
 	var state = inst.get_game_state()
 	assert_true(state is Dictionary, "game state must be Dictionary")
-	assert_has(state.keys(), "service_ready", "state must have service_ready")
-	assert_has(state.keys(), "spawned_count", "state must have spawned_count")
-	assert_has(state.keys(), "processing_parallel", "state must have processing_parallel")
+	assert_true(state.has("service_ready"), "state must have service_ready")
+	assert_true(state.has("spawned_count"), "state must have spawned_count")
+	assert_true(state.has("processing_parallel"), "state must have processing_parallel")
 	inst.queue_free()
 
 func test_parallel_spawn_updates_game_state() -> void:
@@ -58,9 +59,9 @@ func test_multiple_parallel_spawns_accumulate() -> void:
 	inst.spawn_entities_parallel(["C"])
 	var state = inst.get_game_state()
 	assert_eq(state["spawned_count"], 3, "two waves accumulate to 3")
-	assert_has(state["spawned_entities"], "A", "entity A in list")
-	assert_has(state["spawned_entities"], "B", "entity B in list")
-	assert_has(state["spawned_entities"], "C", "entity C in list")
+	assert_true(state["spawned_entities"].has("A"), "entity A in list")
+	assert_true(state["spawned_entities"].has("B"), "entity B in list")
+	assert_true(state["spawned_entities"].has("C"), "entity C in list")
 	inst.queue_free()
 
 func test_empty_parallel_spawn_returns_empty() -> void:
@@ -71,8 +72,6 @@ func test_empty_parallel_spawn_returns_empty() -> void:
 	assert_eq(result.size(), 0, "empty array returns empty")
 	assert_false(inst.is_processing_parallel(), "flag not set for empty")
 	inst.queue_free()
-
-# ─── Process request path ───────────────────────────────────
 
 func test_process_request_formats_deep_path() -> void:
 	var main_script = load("res://main.gd")
