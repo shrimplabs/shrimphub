@@ -250,3 +250,44 @@ Art pass replaces `StandardMaterial3D` with `ShaderMaterial` → unit tests chec
 ## Known Test Flakiness
 - `test_list_tasks_includes_all`: non-deterministic test isolation issue — passes consistently on re-run. Not a code bug.
 - `test_cleanup_recovery_creates_continuation_for_dead_recovery_branch`: same pattern — correct code, re-run passes reliably.
+
+## spawn-test-proj (parallel-spawn-test-proj-0-1780271471)
+- project.godot: SpawnService=*res://scripts/spawn_service.gd, ServiceManager=*res://scripts/service_manager.gd, Gut=*res://addons/gut/gut.gd
+- spawn_service.gd: start() returns Error (coroutine, await), stop() void, is_running() bool, get_pid() int, spawn_entity() bool
+- ServiceManager: is_service_ready(), get_service_uptime(), signals: service_ready, service_error
+- main.gd: spawn_entity(name), spawn_entities_parallel(names), get_spawned_count(), process_request(path), get_game_state()
+- service.py: port 18080, endpoints GET /ping, GET /health, POST /spawn
+- Port 18080: kill stray processes with: lsof -ti:18080 | xargs kill
+- GUT: 102/103 pass (1 pre-existing Door/CollisionShape2D failure from unrelated project -- signal-cartel)
+- Godot 4.6.2: no class_name for autoloads (conflicts with singleton registration)
+- PROJECT_CLOSURE.md required at project root
+- _swarm_check.gd, _swarm_scene_check.gd, _swarm_main_check.gd validation scripts at project root
+
+---
+## test_cleanup_recovery_creates_continuation_for_dead_recovery_branch Flaky (Fixed)
+
+### Bug Description
+The test `test_cleanup_recovery_creates_continuation_for_dead_recovery_branch` in `tests/test_api.py` failed transiently in full suite runs with:
+```
+AssertionError: assert 'bug-recovery-dead-1' in []  # created_continuation_ids was empty
+```
+
+### Root Cause
+Commit `2b3df0b` (fix: update stale recovery assertion) fixed a prior incorrect change that had added `'failed'` to the `live_recoveries`/`live_continuations` status filters in `swarm/maintenance/recovery.py`:
+```python
+# WRONG - 'failed' in live filters meant dead recoveries were treated as live
+live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress", "failed")]
+```
+This prevented the dead-branch continuation from ever being spawned, because failed recoveries were treated as the canonical live task instead of triggering the `else` branch that calls `spawn_terminal_recovery_continuation`.
+
+### Fix (already in HEAD)
+Commit `2b3df0b` reverted to the correct filters:
+```python
+live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress")]
+```
+Now failed recoveries correctly fall through to spawn terminal continuations.
+
+### Current Status
+- 1315/1315 tests pass in full suite
+- Working tree clean
+- No remaining issue
