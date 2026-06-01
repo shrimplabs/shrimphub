@@ -308,7 +308,13 @@ def auto_scale_step(recent_429_count: int) -> None:
         return
 
     now = time.time()
-    ceiling = min(AUTO_SCALE_CEILING, MAX_ACTIVE_AGENTS if not AUTO_SCALE else AUTO_SCALE_CEILING)
+    ceiling = AUTO_SCALE_CEILING
+
+    # Clamp current value immediately if ceiling was lowered (e.g. user changed max agents)
+    if _auto_scale_current > ceiling:
+        _auto_scale_current = ceiling
+        MAX_ACTIVE_AGENTS = _auto_scale_current
+        print(f"[AutoScale] Ceiling lowered to {ceiling} -- clamping to {_auto_scale_current}")
 
     if recent_429_count > 0:
         _auto_scale_clean_cycles = 0
