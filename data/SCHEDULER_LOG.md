@@ -2265,3 +2265,22 @@ Log written. scheduler-1780270823 COMPLETE.
 **Project health snapshot**: Managed list has 101 projects; echoes-of-the-unmade, temporal-residue, negative-space are stuck with multiple failed attempts (archaeologist triage already in flight). No new intervention needed.
 
 **Validation**: `python3 data/scheduler_check.py` → 0 phantom-blocked, 72.1% quota, clean.
+
+---
+## Scheduler Run 2026-06-01 12:55 UTC (scheduler-1780272111)
+
+**State**: 7 active / 7 total, 1.0% quota / 99.0% remaining, 0 phantom-blocked, 0 real failed
+
+**Actions**:
+- 2-pass phantom dep repair: pass 1 cleared 2 (qa-auto-star-sovereigns, pol-auto-star-sovereigns), pass 2 confirmed 0 remaining
+- Zombie task archived: `bug-bug-bug-271398023-836` (err=null, last_failure=null, phantom/recovery artifact)
+- No ceiling/throttle changes needed
+
+**Task Breakdown** (28 total):
+- Pending: 21 (14 unblocked, 7 blocked on in-progress deps)
+- In-Progress: 7 (scheduler, 1 recovery, 2 qa, 1 polish, 1 art, 1 feature)
+- Failed: 0 (zombie archived)
+
+**Decision**: System healthy. 99% quota remaining, 7 agents running, 0 phantom-blocked. No interventions needed. Gardener recently created 3 validation-fix tasks (echoes, negative-space, star-sovereigns) + archived phantom artifacts — all good. 14 unblocked tasks ready for scheduling.
+
+**Next Run**: Schedule will re-evaluate at next periodic trigger.
