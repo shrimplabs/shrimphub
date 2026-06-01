@@ -106,18 +106,28 @@ async function loadData() {
             }
         }
 
-        // Quota meter (use MiniMax-M2.5 entry)
-        const model = (quotaData.model_remains || []).find(m => m.model_name === 'MiniMax-M2.5')
+        // Quota meter (use "general" model entry, fall back to first)
+        const model = (quotaData.model_remains || []).find(m => m.model_name === 'general')
                    || (quotaData.model_remains || [])[0];
         if (model) {
-            const remaining = model.current_interval_usage_count;
+            // New API format: use remaining_percent directly when total_count is 0
+            const remainingPct = model.current_interval_remaining_percent;
             const total = model.current_interval_total_count;
-            const used = total - remaining;
-            const pct = total > 0 ? (used / total * 100) : 0;
+            const usageCount = model.current_interval_usage_count;
+            let pct;
+            if (remainingPct != null) {
+                pct = 100 - remainingPct;
+            } else {
+                const used = total - usageCount;
+                pct = total > 0 ? (used / total * 100) : 0;
+            }
             const fill = document.getElementById('quotaFill');
             fill.style.width = pct + '%';
             fill.style.background = pct > 90 ? '#da3633' : pct > 70 ? '#f0883e' : '#238636';
-            document.getElementById('quotaText').textContent = `${used.toLocaleString()} / ${total.toLocaleString()} (${pct.toFixed(1)}%)`;
+            const quotaLabel = total > 0
+                ? `${(total - usageCount).toLocaleString()} / ${total.toLocaleString()} (${pct.toFixed(1)}%)`
+                : `${pct.toFixed(1)}% used`;
+            document.getElementById('quotaText').textContent = quotaLabel;
             const ms = model.remains_time;
             const h = Math.floor(ms / 3600000);
             const m = Math.floor((ms % 3600000) / 60000);
