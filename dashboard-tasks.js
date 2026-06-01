@@ -522,7 +522,7 @@ async function spawnTask(taskId) {
         const res = await fetch(`${API}/api/spawn`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({task_id: taskId})
+            body: JSON.stringify({task_id: taskId, force: true})
         });
         const data = await res.json();
         if (data.success) {
