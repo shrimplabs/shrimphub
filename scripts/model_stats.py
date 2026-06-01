@@ -62,7 +62,7 @@ def main():
     # Build log path index for fast lookup
     log_index = {p.stem.replace("agent_", ""): p for p in DATA_DIR.glob("agent_*.log")}
 
-    stats = defaultdict(lambda: defaultdict(lambda: {"completed": 0, "failed": 0, "total": 0, "loops": 0, "loop_agents": 0}))
+    stats = defaultdict(lambda: defaultdict(lambda: {"completed": 0, "failed": 0, "total": 0, "loops": 0, "loop_agents": 0, "loops_completed": 0, "loop_agents_completed": 0}))
 
     def _normalize_model(model):
         if "M3" in model:
@@ -81,6 +81,9 @@ def main():
         if loops > 0:
             stats[model][key]["loops"] += loops
             stats[model][key]["loop_agents"] += 1
+            if status == "completed":
+                stats[model][key]["loops_completed"] += loops
+                stats[model][key]["loop_agents_completed"] += 1
 
     with open(history_file) as f:
         for line in f:
@@ -149,8 +152,9 @@ def main():
             c = s["completed"]
             f_ = s["failed"]
             rate = f"{c/t*100:.1f}%" if t else "n/a"
-            avg_loops = f"{s['loops']/s['loop_agents']:.1f}" if s["loop_agents"] else "n/a"
-            print(f"{model:20} completed={c:5}  failed={f_:5}  total={t:5}  rate={rate}  avg_loops={avg_loops}")
+            avg_loops_all = f"{s['loops']/s['loop_agents']:.1f}" if s["loop_agents"] else "n/a"
+            avg_loops_ok = f"{s['loops_completed']/s['loop_agents_completed']:.1f}" if s["loop_agents_completed"] else "n/a"
+            print(f"{model:20} completed={c:5}  failed={f_:5}  total={t:5}  rate={rate}  avg_loops(all)={avg_loops_all}  avg_loops(completed)={avg_loops_ok}")
     print()
 
 
