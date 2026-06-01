@@ -145,7 +145,9 @@ def main():
                 t = s["total"]
                 c = s["completed"]
                 rate = f"{c/t*100:.1f}%" if t else "n/a"
-                print(f"  {task_type:15} {c:4}/{t:4} = {rate}")
+                avg_all = f"{s['loops']/s['loop_agents']:.1f}" if s["loop_agents"] else "n/a"
+                avg_ok = f"{s['loops_completed']/s['loop_agents_completed']:.1f}" if s["loop_agents_completed"] else "n/a"
+                print(f"  {task_type:18} {c:4}/{t:4} = {rate:6}  loops(all)={avg_all:6}  loops(done)={avg_ok}")
         else:
             s = model_stats["all"]
             t = s["total"]
