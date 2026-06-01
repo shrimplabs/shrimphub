@@ -190,6 +190,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "monitor_alive": monitor_thread.is_alive(),
             "monitor_lag_seconds": round(monitor_lag, 1),
             "active_agents": orchestrator.get_active_count(),
+            "max_agents": orchestrator.MAX_ACTIVE_AGENTS,
             "uptime_seconds": int(time.time() - _start_time),
             "prompt_warnings": prompt_warnings,
         })
