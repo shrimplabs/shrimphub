@@ -649,22 +649,32 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                 # Query DB for completed/cancelled/failed tasks (immutable history).
                 # Fall back to JSONL only for pre-migration tasks not in DB.
                 # Exclude scaffolding task types that pollute the graph — research
-                # feeders and QA reruns are internal machinery, not meaningful chain
-                # nodes. They breed rapidly and make graphs unreadable.
-                _GRAPH_EXCLUDE_TYPES = frozenset({"research", "harness_qa"})
+                # feeders, QA reruns, and completed planners are internal machinery,
+                # not meaningful chain nodes. Archived tasks are pre-migration legacy
+                # rows that should not appear in the graph.
+                _GRAPH_EXCLUDE_TYPES = frozenset({"research", "harness_qa", "project_plan"})
                 _GRAPH_EXCLUDE_ID_PATTERNS = ("rerun", "feeder")
+                _GRAPH_EXCLUDE_STATUSES = frozenset({"archived"})
 
                 def _is_graph_noise(t: dict) -> bool:
+                    if t.get("status") in _GRAPH_EXCLUDE_STATUSES:
+                        return True
                     if t.get("type") in _GRAPH_EXCLUDE_TYPES:
                         return True
                     tid = t.get("id", "")
-                    return any(pat in tid for pat in _GRAPH_EXCLUDE_ID_PATTERNS)
+                    if any(pat in tid for pat in _GRAPH_EXCLUDE_ID_PATTERNS):
+                        return True
+                    # Old sprint tasks (cancelled with -agent suffix) are historical
+                    # scaffolding noise — they form long cancelled chains under project_plans
+                    # and make the graph unreadable.
+                    if t.get("status") == "cancelled" and tid.endswith("-agent"):
+                        return True
+                    return False
 
                 db_history = [
                     dict(t) for t in db.task_get_all()
                     if t.get("project") == project
                     and t.get("status") in ("completed", "cancelled", "failed")
-                    and t.get("status") != "archived"
                     and t.get("id") not in active_ids
                     and not _is_graph_noise(t)
                 ]
@@ -711,16 +721,33 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     if dep not in active_ids
                 }
                 if dep_ids_needed:
-                    # DB-first: completed tasks are in the tasks table now
+                    # DB-first: completed tasks are in the tasks table now.
+                    # Exclude archived (pre-migration legacy rows), scaffolding types,
+                    # and cancelled -agent sprint tasks (old sprint chains, historical noise).
+                    _GLOBAL_EXCLUDE_TYPES = frozenset({"research", "harness_qa", "project_plan"})
+                    _GLOBAL_EXCLUDE_ID_PATS = ("rerun", "feeder")
+
+                    def _global_noise(t: dict) -> bool:
+                        if t.get("type") in _GLOBAL_EXCLUDE_TYPES:
+                            return True
+                        tid = t.get("id") or ""
+                        if any(p in tid for p in _GLOBAL_EXCLUDE_ID_PATS):
+                            return True
+                        if t.get("status") == "cancelled" and tid.endswith("-agent"):
+                            return True
+                        return False
+
                     db_hist_global = [
                         dict(t) for t in db.task_get_all()
                         if t.get("status") in ("completed", "cancelled", "failed")
                         and t.get("id") not in active_ids
+                        and not _global_noise(t)
                     ]
                     db_hist_ids = {t["id"] for t in db_hist_global}
                     jsonl_global = [
                         t for t in _load_history_tasks(data_dir, max_entries=500)
                         if t.get("id") not in db_hist_ids
+                        and not _global_noise(t)
                     ]
                     ancestors = _select_history_with_ancestry(
                         db_hist_global + jsonl_global,
