@@ -621,6 +621,12 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
             # Cancelled tasks with -agent suffix are old sprint chains — historical noise
             if status == "cancelled" and tid.endswith("-agent"):
                 return True
+            # Legacy recovery task chains are retry scaffolding — exclude from graph
+            # regardless of status (completed recovery chains pollute the graph)
+            if tid.startswith("recovery-"):
+                return True
+            if "bug-recovery-" in tid or "-bug-recovery-" in tid:
+                return True
             return False
 
         if project:
