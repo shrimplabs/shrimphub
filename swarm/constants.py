@@ -30,4 +30,4 @@ IGNORE_EXTENSIONS: set = {
     ".import", ".uid",
 }
 
-MINIMAX_MODEL: str = "MiniMax-M2.7"
+MINIMAX_MODEL: str = "MiniMax-M3"

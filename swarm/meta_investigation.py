@@ -116,7 +116,7 @@ def _run_meta_investigation(repeated_error: str, loop_history: list[str], task_d
     hint = ""
 
     for inv_loop in range(8):  # max 8 investigator loops
-        response, _ = call_llm(sys_prompt, conversation, provider=_inv_provider)
+        response, _, _thinking = call_llm(sys_prompt, conversation, provider=_inv_provider)
         conversation.append({"role": "assistant", "content": response})
 
         tool_output_parts = []

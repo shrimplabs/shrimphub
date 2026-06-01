@@ -430,7 +430,7 @@ def delegate_helper(question: str, files: list | None = None, scope: str = "", m
 
     try:
         from swarm.llm_utils import call_llm
-        text, tokens = call_llm(helper_system, [{"role": "user", "content": helper_user}])
+        text, tokens, _thinking = call_llm(helper_system, [{"role": "user", "content": helper_user}])
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

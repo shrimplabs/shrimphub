@@ -942,7 +942,7 @@ def _chat_call_llm(system_prompt, messages, config, fmt_override=None):
 
     provider = providers.get(provider_name, {})
     base_url    = provider.get("base_url", "https://api.minimax.io/anthropic/v1")
-    model       = provider.get("model", "MiniMax-M2.7")
+    model       = provider.get("model", "MiniMax-M3")
     api_key_env = provider.get("api_key_env", "MINIMAX_API_KEY")
     fmt         = fmt_override or provider.get("format", "anthropic")
     project_chat_cap = int(config.get("project_chat_max_tokens", 16384))

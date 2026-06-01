@@ -137,7 +137,7 @@ def compact_conversation(
     )
 
     try:
-        summary_text, _ = call_llm(summary_prompt, [{"role": "user", "content": history_text}])
+        summary_text, _, _thinking = call_llm(summary_prompt, [{"role": "user", "content": history_text}])
         compacted = (
             conversation[:1]
             + [{"role": "user", "content": f"[CONTEXT SUMMARY — previous work compressed]\n{summary_text}"},

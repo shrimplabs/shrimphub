@@ -715,7 +715,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             _wrap_up_injected = True
 
         system_with_budget = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}]\n" + system_prompt
-        response, tokens = call_llm(system_with_budget, conversation)
+        response, tokens, thinking_blocks = call_llm(system_with_budget, conversation)
         total_input_tokens += tokens.get("input", 0)
         total_output_tokens += tokens.get("output", 0)
         log(f"[LLM] in={tokens['input']} out={tokens['output']}")
@@ -745,7 +745,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             break
 
         log(f"LLM response: {response[:3000]}{'...' if len(response) > 3000 else ''}")
-        conversation.append({"role": "assistant", "content": response})
+        # Preserve thinking blocks in history so the model retains its reasoning across turns.
+        # Thinking blocks must precede the text block in the content list.
+        if thinking_blocks:
+            assistant_content = thinking_blocks + [{"type": "text", "text": response}]
+            conversation.append({"role": "assistant", "content": assistant_content})
+        else:
+            conversation.append({"role": "assistant", "content": response})
 
         # Strip tool call blocks before checking for TASK_COMPLETE so that
         # tool arguments containing "TASK_COMPLETE" don't trigger a false early exit.
@@ -1123,7 +1129,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     })
                     _ref_nudge_injected = True
 
-                _ref_resp, _ref_tokens = call_llm(_ref_system, _ref_conv)
+                _ref_resp, _ref_tokens, _ref_thinking = call_llm(_ref_system, _ref_conv)
                 total_input_tokens += _ref_tokens.get("input", 0)
                 total_output_tokens += _ref_tokens.get("output", 0)
 

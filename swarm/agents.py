@@ -417,7 +417,7 @@ if ENV_FILE.exists():
 
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", os.environ.get("MINIMAX-API", ""))
 MINIMAX_GROUP_ID = os.environ.get("MINIMAX_GROUP_ID", "")
-MINIMAX_MODEL = "MiniMax-M2.7"
+MINIMAX_MODEL = "MiniMax-M3"
 
 IGNORE_DIRS = {ignore_dirs_repr}
 IGNORE_EXTENSIONS = {ignore_exts_repr}
@@ -679,10 +679,13 @@ def main():
     while tool_loop_count < MAX_TOOL_LOOPS:
         log(f"Calling LLM... (loop {{tool_loop_count + 1}}/{{MAX_TOOL_LOOPS}})")
 
-        response = call_llm({system_prompt_json}, conversation)
+        response, _tokens, _thinking = call_llm({system_prompt_json}, conversation)
         log(f"LLM response: {{response[:500]}}...")
 
-        conversation.append({{"role": "assistant", "content": response}})
+        if _thinking:
+            conversation.append({{"role": "assistant", "content": _thinking + [{{"type": "text", "text": response}}]}})
+        else:
+            conversation.append({{"role": "assistant", "content": response}})
 
         if completion_keyword in response:
             log("Task marked complete by LLM")

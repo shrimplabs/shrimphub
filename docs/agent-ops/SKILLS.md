@@ -148,7 +148,7 @@ curl -X POST http://localhost:5001/api/provider \
 
 | Provider | Env var | Default model |
 |----------|---------|---------------|
-| `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.7` |
+| `minimax` | `MINIMAX_API_KEY` | `MiniMax-M3` |
 | `claude` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-3.5-sonnet` |
 | `kimi` | `KIMI_API_KEY` | `k2p5` |

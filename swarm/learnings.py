@@ -41,7 +41,7 @@ def _summarise_log(log_tail: str, task_type: str, loops_used: int,
             f"{base_url}/messages",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
-                "model": "MiniMax-M2.7",
+                "model": "MiniMax-M3",
                 "max_tokens": 400,
                 "messages": [{"role": "user", "content": prompt}],
             },
