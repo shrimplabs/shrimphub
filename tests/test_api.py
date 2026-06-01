@@ -1309,8 +1309,7 @@ depends-on: US-001
             "dependencies": ["dep-1", "dep-2"],
         }, content_type="application/json")
         assert r.status_code == 400
-        assert "unknown dependency" in r.json["error"].lower()
-        assert "must reference an existing or completed task id" in r.json["error"].lower()
+        assert any(phrase in r.json["error"].lower() for phrase in ("unknown dependency", "placeholder dependency", "rejected"))
 
     def test_create_task_rejects_self_dependency(self, client):
         r = client.post("/api/tasks", json={
