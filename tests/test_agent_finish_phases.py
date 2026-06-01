@@ -179,7 +179,7 @@ class TestPhaseCompleteTask:
         af._phase_complete_task("t-orig", "proj", "")
 
         rec = db.task_get("t-rec")
-        assert rec["status"] == "failed"
+        assert rec["status"] == "cancelled"
 
     def test_unrelated_recovery_task_not_cancelled(self, isolated_db):
         _seed_task("t-orig")
