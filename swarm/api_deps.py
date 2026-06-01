@@ -664,6 +664,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     dict(t) for t in db.task_get_all()
                     if t.get("project") == project
                     and t.get("status") in ("completed", "cancelled", "failed")
+                    and t.get("status") != "archived"
                     and t.get("id") not in active_ids
                     and not _is_graph_noise(t)
                 ]
