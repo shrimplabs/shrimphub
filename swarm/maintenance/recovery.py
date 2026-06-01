@@ -45,8 +45,8 @@ def cleanup_recovery_branches(
     for _branch_root, bucket in branch_groups.items():
         recoveries = bucket["recoveries"]
         continuations = bucket["continuations"]
-        live_continuations = [task for task in continuations if task.get("status") in ("pending", "in_progress", "failed")]
-        live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress", "failed")]
+        live_continuations = [task for task in continuations if task.get("status") in ("pending", "in_progress")]
+        live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress")]
 
         canonical = None
         if live_continuations:
