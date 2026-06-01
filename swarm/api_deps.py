@@ -603,16 +603,25 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
         except Exception:
             history_depth = 2
         history_depth = max(0, min(history_depth, 25))
-        # Exclude scaffolding noise from graph view: research feeders and QA reruns
-        # are internal machinery that pollute the graph and breed rapidly.
-        _LIVE_EXCLUDE_TYPES = frozenset({"research", "harness_qa"})
+        # Exclude scaffolding noise from graph view: research feeders, QA reruns,
+        # completed/archived planners, and old cancelled sprint task chains.
+        _LIVE_EXCLUDE_TYPES = frozenset({"research", "harness_qa", "project_plan"})
         _LIVE_EXCLUDE_ID_PATS = ("rerun", "feeder")
+        _LIVE_EXCLUDE_STATUSES = frozenset({"archived"})
 
         def _is_live_noise(t) -> bool:
+            status = getattr(t, "status", None)
+            if status in _LIVE_EXCLUDE_STATUSES:
+                return True
             if getattr(t, "type", None) in _LIVE_EXCLUDE_TYPES:
                 return True
             tid = getattr(t, "id", "") or ""
-            return any(p in tid for p in _LIVE_EXCLUDE_ID_PATS)
+            if any(p in tid for p in _LIVE_EXCLUDE_ID_PATS):
+                return True
+            # Cancelled tasks with -agent suffix are old sprint chains — historical noise
+            if status == "cancelled" and tid.endswith("-agent"):
+                return True
+            return False
 
         if project:
             filtered = [t for t in active_tasks if t.project == project and not _is_live_noise(t)]
