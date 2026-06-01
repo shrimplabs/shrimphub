@@ -369,7 +369,13 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
 
         # Sprint cycle for auto_replan projects:
         #   queue empty → QA → bugs fixed → queue empty → planner → next sprint
-        _plan_candidates = set(AUTO_REPLAN_PROJECTS) - set(PAUSED_PROJECTS)
+        # Guard: skip sprint QA/planner spawning when over quota — these tasks
+        # consume LLM calls and queueing them when quota is exhausted just means
+        # they'll start immediately on the next fill_slots cycle and burn remaining quota.
+        _sprint_over_quota, *_ = check_quota_limit()
+        _plan_candidates = set() if _sprint_over_quota else (set(AUTO_REPLAN_PROJECTS) - set(PAUSED_PROJECTS))
+        if _sprint_over_quota:
+            print("[Swarm] Sprint QA/planner spawn skipped -- over quota")
         if _plan_candidates:
             all_tasks = db.task_get_all()
             projects_with_tasks = {t["project"] for t in all_tasks}
