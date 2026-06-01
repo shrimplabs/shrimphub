@@ -291,3 +291,25 @@ Now failed recoveries correctly fall through to spawn terminal continuations.
 - 1315/1315 tests pass in full suite
 - Working tree clean
 - No remaining issue
+
+---
+## test_cleanup_recovery_creates_continuation_for_dead_recovery_branch Flaky (2026-06-01)
+
+### Root Cause: Incorrect `live_recoveries` filter (8f3df0b)
+Commit `8f3c28c` incorrectly added `"failed"` to `live_recoveries` and `live_continuations` filters in `swarm/maintenance/recovery.py`:
+```python
+# WRONG (8f3c28c):
+live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress", "failed")]
+```
+This treated failed recovery tasks as "live" (canonical), so the `else` branch that spawns terminal continuations was never reached.
+
+### Fix (2b3df0b):
+Reverted to original:
+```python
+# CORRECT:
+live_recoveries = [task for task in recoveries if task.get("status") in ("pending", "in_progress")]
+```
+Failed tasks now correctly fall through to `else` → `failed_recoveries` → `spawn_terminal_recovery_continuation`.
+
+### Test isolation note
+Test passes in isolation and in single-worker mode. Failure only observed in full suite with xdist. The fix is correct regardless.
