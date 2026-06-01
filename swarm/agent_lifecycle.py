@@ -615,7 +615,11 @@ def get_active_handles() -> Dict[str, Dict]:
 
 
 def get_active_count() -> int:
-    """Count agents that are genuinely still running."""
+    """Count agents that are genuinely still running.
+
+    Includes agents currently finishing (process exited but _finish_agent thread
+    not yet done) so that fill_slots doesn't see a false dip and over-spawn.
+    """
     _lazy_imports()
 
     with _handle_lock:
@@ -624,16 +628,19 @@ def get_active_count() -> int:
             if d["process"].poll() is None
         }
 
+    with _finishing_lock:
+        finishing = frozenset(_finishing_agents)
+
     persisted = set()
     for a in db.agent_get_active():
         aid = a["id"]
-        if aid in in_process:
+        if aid in in_process or aid in finishing:
             continue
         pid = a.get("pid")
         if pid and _is_pid_running(pid):
             persisted.add(aid)
 
-    return len(in_process) + len(persisted)
+    return len(in_process) + len(finishing) + len(persisted)
 
 
 def prune_history():
