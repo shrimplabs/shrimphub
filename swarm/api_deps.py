@@ -678,6 +678,13 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     # and make the graph unreadable.
                     if t.get("status") == "cancelled" and tid.endswith("-agent"):
                         return True
+                    # Legacy recovery task chains (recovery-*, bug-bug-recovery-*,
+                    # bug-bug-bug-recovery-*) accumulate as dead floating chains with no
+                    # live descendants. They're retry scaffolding, not meaningful work nodes.
+                    if tid.startswith("recovery-"):
+                        return True
+                    if "bug-recovery-" in tid or "-bug-recovery-" in tid:
+                        return True
                     return False
 
                 db_history = [
@@ -732,7 +739,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                 if dep_ids_needed:
                     # DB-first: completed tasks are in the tasks table now.
                     # Exclude archived (pre-migration legacy rows), scaffolding types,
-                    # and cancelled -agent sprint tasks (old sprint chains, historical noise).
+                    # cancelled -agent sprint tasks, and legacy recovery chains.
                     _GLOBAL_EXCLUDE_TYPES = frozenset({"research", "harness_qa", "project_plan"})
                     _GLOBAL_EXCLUDE_ID_PATS = ("rerun", "feeder")
 
@@ -743,6 +750,10 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                         if any(p in tid for p in _GLOBAL_EXCLUDE_ID_PATS):
                             return True
                         if t.get("status") == "cancelled" and tid.endswith("-agent"):
+                            return True
+                        if tid.startswith("recovery-"):
+                            return True
+                        if "bug-recovery-" in tid or "-bug-recovery-" in tid:
                             return True
                         return False
 
