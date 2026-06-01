@@ -618,6 +618,17 @@ func _get_state() -> Dictionary:
 			state["game_state"] = child.get_game_state()
 			break
 
+	# Mouse mode -- critical for detecting title screen / UI input blockage.
+	# "visible"=mouse free, "captured"=FPS mode, "hidden"=invisible but free, "confined"=locked to window
+	var mouse_mode_names := {
+		Input.MOUSE_MODE_VISIBLE: "visible",
+		Input.MOUSE_MODE_HIDDEN: "hidden",
+		Input.MOUSE_MODE_CAPTURED: "captured",
+		Input.MOUSE_MODE_CONFINED: "confined",
+		Input.MOUSE_MODE_CONFINED_HIDDEN: "confined_hidden",
+	}
+	state["mouse_mode"] = mouse_mode_names.get(Input.mouse_mode, "unknown")
+
 	return state
 
 
