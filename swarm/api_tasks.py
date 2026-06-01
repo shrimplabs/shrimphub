@@ -97,7 +97,7 @@ def register_routes(app, task_source, db, workspace):
 
     import re as _re
     _PLACEHOLDER_DEP_RE = _re.compile(
-        r'^(task[-_]id[-_]\d|dep[-_]id[-_]\d|<.*>|task[-_][123]$|dep[-_][123]$|placeholder)',
+        r'^(task[-_]id[-_]\d|dep[-_]id[-_]\d|placeholder[-_]id)',
         _re.IGNORECASE,
     )
 
