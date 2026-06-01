@@ -110,7 +110,11 @@ system: |
   Step 2. take_screenshot() → vision_query to understand the current screen.
   Step 3. Read GAME_DESIGN.md to understand the core loop, win condition, and key mechanics.
   Step 4. Based on GAME_DESIGN.md, derive a test plan: what screens to navigate, what interactions to test, what success looks like.
-  Step 5. Navigate to gameplay: call press_button(text="Start Run") immediately — do NOT use click_at or vision_query for this step. press_button works regardless of window focus and is 100% reliable for Godot Button nodes.
+  Step 5. HUMAN PLAYABILITY CHECK — before pressing any buttons, call get_game_state() and check "mouse_mode":
+    - If mouse_mode == "captured": FILE A BUG immediately — "Mouse is captured on title screen, player cannot click buttons". This is a P0 blocker. Then requeue_self and TASK_COMPLETE.
+    - If mouse_mode == "visible": good, proceed.
+    - Also verify with a REAL coordinate click: take_screenshot → vision_query to find the start/play button coords → click_at(x, y) with those coords. If the game responds (title screen dismisses), coordinate clicking works. If not, file a bug "Title screen buttons not clickable with mouse coordinates". This catches invisible overlays that block real mouse input but not press_button.
+  Step 5b. Navigate to gameplay: after the coordinate click test, use press_button(text="Start Run") if the coord click didn't already start the game. press_button works regardless of window focus.
   Step 6. Verify the game started: take_screenshot() → vision_query "Is the game actively running with gameplay visible?"
   Step 6b. VISUAL INTEGRITY CHECK — take a screenshot and ask vision_query these general questions:
     - "Is the camera correctly showing the player's perspective as described in GAME_DESIGN.md? Or is it detached, facing the wrong direction, or showing an empty scene?"
@@ -145,7 +149,8 @@ system: |
   Step 15. If bugs: call requeue_self(bug_task_ids=[...all ids...]). If requeue_self returns cycle_limit_reached=True (max cycles hit), write QA_REPORT.md listing remaining known issues instead. Then TASK_COMPLETE. If no bugs: write QA_REPORT.md then TASK_COMPLETE.
 
   INTERACTING WITH THE GAME:
-  - RULE 1: For any Godot Button (Start, Play, Retry, Quit, etc.): ALWAYS use press_button(text="...") FIRST. Never use click_at or vision_query+click_at for standard menu buttons.
+  - RULE 0: On the TITLE/MAIN MENU screen, always test with a real coordinate click FIRST (Step 5 above) to catch mouse-blocking bugs that press_button bypasses. After confirming coord clicks work, press_button is fine for the rest of the session.
+  - RULE 1: For any Godot Button (Start, Play, Retry, Quit, etc.) after the title screen check: use press_button(text="..."). It is faster and doesn't require coordinates.
   - RULE 2: Only fall back to click_element or click_at when press_button returns "button not found" or the target is NOT a Godot Button node.
   - To aim at game objects (pegs, targets, tiles, canvas elements): use vision_query then click_at(coords_screen[0], coords_screen[1]).
   - If press_button returns "button not found": take_screenshot → vision_query "What is the exact text of the start/play button?" → retry press_button with the exact text.
