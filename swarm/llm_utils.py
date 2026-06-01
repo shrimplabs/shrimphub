@@ -543,7 +543,14 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
-                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}, []
+                    body_text = resp.text[:500]
+                    log(f"API error {resp.status_code} (stream): {body_text}")
+                    if resp.status_code == 500 and ("999" in body_text or "unknown error" in body_text.lower()):
+                        wait = backoff[min(attempt, len(backoff) - 1)]
+                        log(f"MiniMax 999/1000 error — retrying in {wait}s (attempt {attempt+1}/7)")
+                        time.sleep(wait)
+                        continue
+                    return f"API error {resp.status_code}: {body_text}", {"input": 0, "output": 0}, []
             else:
                 resp = requests.post(url, headers=headers, json=body, timeout=120)
                 if resp.status_code == 200:
@@ -554,7 +561,14 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
-                    return f"API error {resp.status_code}: {resp.text[:300]}", {"input": 0, "output": 0}, []
+                    body_text = resp.text[:500]
+                    log(f"API error {resp.status_code}: {body_text}")
+                    if resp.status_code == 500 and ("999" in body_text or "unknown error" in body_text.lower()):
+                        wait = backoff[min(attempt, len(backoff) - 1)]
+                        log(f"MiniMax 999/1000 error — retrying in {wait}s (attempt {attempt+1}/7)")
+                        time.sleep(wait)
+                        continue
+                    return f"API error {resp.status_code}: {body_text}", {"input": 0, "output": 0}, []
         except Exception as e:
             wait = backoff[min(attempt, len(backoff) - 1)]
             if attempt < 6:
