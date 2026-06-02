@@ -516,6 +516,16 @@ def task_get(task_id: str) -> Optional[Dict]:
     return _task_row(row) if row else None
 
 
+def task_get_recent_by_statuses(statuses: tuple, limit: int = 500) -> List[Dict]:
+    """Fetch the most recently completed/failed/cancelled tasks up to `limit` rows."""
+    placeholders = ",".join("?" * len(statuses))
+    rows = _connect().execute(
+        f"SELECT * FROM tasks WHERE status IN ({placeholders}) ORDER BY completed DESC, created DESC LIMIT ?",
+        (*statuses, limit),
+    ).fetchall()
+    return [_task_row(r) for r in rows]
+
+
 def task_get_by_status(status: str) -> List[Dict]:
     rows = _connect().execute(
         "SELECT * FROM tasks WHERE status=? ORDER BY priority DESC, created ASC",
