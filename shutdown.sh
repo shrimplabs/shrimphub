@@ -32,6 +32,7 @@ _stop() {
     fi
 }
 
-_stop "Swarm controller" ".swarm.pid" "swarm_runner.py api"
-_stop "VLM server"       ".vlm.pid"   "mlx_vlm.server"
+_stop "Swarm controller" ".swarm.pid"   "swarm_runner.py api"
+_stop "VLM server"       ".vlm.pid"     "mlx_vlm.server"
+_stop "Shrimp router"    ".shrimp.pid"  "shrimp_router.app"
 echo "All done."
