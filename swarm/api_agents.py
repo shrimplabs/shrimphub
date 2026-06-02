@@ -35,6 +35,8 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
                             agent.output_tokens = tok.get("output", 0)
                             agent.metadata["conv_estimate"] = tok.get("conv_estimate", 0)
                             agent.metadata["compact_threshold"] = tok.get("compact_threshold", 120000)
+                            agent.metadata["cache_read_tokens"] = tok.get("cache_read", 0)
+                            agent.metadata["cache_write_tokens"] = tok.get("cache_write", 0)
                     except Exception:
                         pass
         import re as _re

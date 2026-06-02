@@ -6,7 +6,17 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 from swarm.provider_utils import LLM_PROVIDERS as _STATIC_LLM_PROVIDERS
+
+
+def _is_loopback_base_url(base_url: str) -> bool:
+    """Return true for localhost-style provider URLs."""
+    try:
+        host = urlparse(base_url).hostname or ""
+    except Exception:
+        return False
+    return host.lower() in {"localhost", "127.0.0.1", "::1"}
 
 class MCPClient:
     """MCP client for connecting to external MCP servers (godot-mcp, etc.)."""
@@ -371,8 +381,10 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
 
     base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
 
-    # Local providers (localhost) don't need a real API key — use a placeholder
-    if not api_key and base_url.startswith("http://localhost"):
+    is_loopback_provider = _is_loopback_base_url(base_url)
+
+    # Local providers don't need a real API key — use a placeholder.
+    if not api_key and is_loopback_provider:
         api_key = "local"
     elif not api_key:
         return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}, []
@@ -428,7 +440,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     # Inject routing hint headers when pointing at shrimp-router.
     # Controlled by SHRIMP_ROUTER_HINTS env var (default "1", set "0" to disable).
     # The router uses these to escalate to stronger models on struggling agents.
-    if os.environ.get("SHRIMP_ROUTER_HINTS", "1") != "0" and "localhost" in base_url:
+    if os.environ.get("SHRIMP_ROUTER_HINTS", "1") != "0" and is_loopback_provider:
         try:
             import swarm.agent_runtime as _rt
             headers["X-Task-Type"] = getattr(_rt, "TASK_TYPE", "")
@@ -518,9 +530,11 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 stream_complete = True
 
         if not stream_complete:
-            return "Error: stream truncated before completion", {"input": 0, "output": 0}, []
+            return "Error: stream truncated before completion", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
         if cache_read or cache_write:
             log(f"[LLM] cache read={cache_read} write={cache_write}")
+        tokens["cache_read"] = cache_read
+        tokens["cache_write"] = cache_write
 
         thinking_blocks = []
         for idx in sorted(_thinking_blocks):
@@ -540,8 +554,13 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     def _parse_response(result: dict):
         """Parse a non-streaming response (OpenAI format fallback)."""
         usage = result.get("usage", {})
-        tokens = {"input": usage.get("prompt_tokens", 0), "output": usage.get("completion_tokens", 0)}
         cached = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
+        tokens = {
+            "input": usage.get("prompt_tokens", 0),
+            "output": usage.get("completion_tokens", 0),
+            "cache_read": cached,
+            "cache_write": 0,
+        }
         if cached:
             log(f"[LLM] cache read={cached}")
         _msg = result.get("choices", [{}])[0].get("message", {})
@@ -614,4 +633,3 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
 # ---------------------------------------------------------------------------
 # Main agent loop
 # ---------------------------------------------------------------------------
-

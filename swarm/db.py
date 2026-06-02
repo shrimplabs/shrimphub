@@ -376,9 +376,14 @@ def _evolve_schema(conn: sqlite3.Connection):
             conn.execute(ddl)
     existing_agents = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
     for col, ddl in [
-        ("input_tokens",  "ALTER TABLE agents ADD COLUMN input_tokens  INTEGER DEFAULT 0"),
-        ("output_tokens", "ALTER TABLE agents ADD COLUMN output_tokens INTEGER DEFAULT 0"),
-        ("loop_count",    "ALTER TABLE agents ADD COLUMN loop_count    INTEGER DEFAULT 0"),
+        ("input_tokens",       "ALTER TABLE agents ADD COLUMN input_tokens       INTEGER DEFAULT 0"),
+        ("output_tokens",      "ALTER TABLE agents ADD COLUMN output_tokens      INTEGER DEFAULT 0"),
+        ("loop_count",         "ALTER TABLE agents ADD COLUMN loop_count         INTEGER DEFAULT 0"),
+        ("cache_read_tokens",  "ALTER TABLE agents ADD COLUMN cache_read_tokens  INTEGER DEFAULT 0"),
+        ("cache_write_tokens", "ALTER TABLE agents ADD COLUMN cache_write_tokens INTEGER DEFAULT 0"),
+        ("provider",           "ALTER TABLE agents ADD COLUMN provider           TEXT    DEFAULT ''"),
+        ("model",              "ALTER TABLE agents ADD COLUMN model              TEXT    DEFAULT ''"),
+        ("estimated_cost_usd", "ALTER TABLE agents ADD COLUMN estimated_cost_usd REAL    DEFAULT 0"),
     ]:
         if col not in existing_agents:
             conn.execute(ddl)
