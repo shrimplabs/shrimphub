@@ -801,6 +801,16 @@
             </div>
 
 
+            <!-- Local Fallback -->
+            <div class="settings-section">
+                <div class="settings-section-label">Local Inference Fallback</div>
+                <div class="settings-row" style="align-items:center;justify-content:space-between">
+                    <span class="settings-label" style="font-size:12px">Use local models when quota exceeded</span>
+                    <button id="localFallbackBtn" onclick="toggleLocalFallback()" class="settings-toggle-btn is-off">Loading...</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">When on, new agents switch to local inference instead of pausing. Running agents finish on current provider.</div>
+            </div>
+
             <!-- Debug -->
             <div class="settings-section">
                 <div class="settings-section-label">Debug</div>

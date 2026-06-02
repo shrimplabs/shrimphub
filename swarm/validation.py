@@ -1313,9 +1313,8 @@ def _spawn_validation_bug_task(
     original_task = original_task or db.task_get(original_task_id) or {}
 
     # --- Fix: deduplicate -- skip if a pending/in-progress bug task already covers the same error.
-    # Normalise error_output to a comparable key (first non-empty line is the most stable indicator).
-    error_key = (error_output or "").strip().splitlines()
-    error_normalised = "".join(line.strip() for line in error_key if line.strip())[:300]
+    # Use normalised error signatures (same function used for baseline diffing) for stable comparison.
+    error_sigs = set(_extract_error_signatures(error_output or "", "godot"))
     for task in db.task_get_all():
         if task.get("id") == bug_task_id:
             continue
@@ -1323,15 +1322,19 @@ def _spawn_validation_bug_task(
             if task.get("type") == "bug" and task.get("project") == project:
                 meta = task.get("metadata") or {}
                 prev_error = meta.get("error_log_excerpt", "") or ""
-                prev_normalised = "".join(line.strip() for line in prev_error.splitlines() if line.strip())[:300]
-                if prev_normalised and error_normalised and prev_normalised == error_normalised:
-                    print(f"[Swarm] SKIP: validation bug task for {original_task_id} already exists as {task['id']} with identical error")
+                prev_sigs = set(_extract_error_signatures(prev_error, "godot"))
+                if error_sigs and prev_sigs and error_sigs == prev_sigs:
+                    print(f"[Swarm] SKIP: validation bug task for {original_task_id} already exists as {task['id']} with identical error signatures")
                     return None
 
     chain_depth = bug_task_id.count("bug-")
-    deep_chain = chain_depth >= 4
+    # Also check cascade_count propagated through recovery/research resets so the
+    # hard stop fires even when the bug- prefix chain is broken by a recovery task.
+    _parent_meta = (original_task or {}).get("metadata") or {}
+    cascade_count = int(_parent_meta.get("cascade_count", 0)) + 1
+    deep_chain = chain_depth >= 4 or cascade_count >= 6
     if deep_chain:
-        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} is {chain_depth} levels deep -- routing to recovery task instead of spawning further bug tasks")
+        print(f"[Swarm] DEEP CHAIN HARD STOP: {bug_task_id} chain_depth={chain_depth} cascade_count={cascade_count} -- routing to recovery task instead of spawning further bug tasks")
         # Don't mark the original task failed directly — that leaves attempts=0 and blocks the chain
         # forever with no recovery. Instead, exhaust its attempts so _spawn_review_task fires and
         # reparents dependents to a recovery task.
@@ -1371,6 +1374,7 @@ def _spawn_validation_bug_task(
         "fix_notes": fix_notes or [],
         "chain_depth": chain_depth,
         "deep_chain": deep_chain,
+        "cascade_count": cascade_count,
         "research_feeder_cycles": parent_cycles,
         **branch_intent_metadata(original_task),
     }

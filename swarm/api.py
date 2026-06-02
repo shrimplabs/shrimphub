@@ -818,16 +818,51 @@ def create_app(
                     _last_pct_used = pct_used
 
                     if over_limit:
-                        with auto_mode_state["lock"]:
-                            if auto_mode_state["enabled"]:
-                                auto_mode_state["enabled"] = False
-                                auto_mode_state["suspended_for_quota"] = True
-                                print(f"[Quota] Limit exceeded ({pct_used:.1f}% used) -- auto mode suspended")
-                        if not _agents_frozen:
-                            import signal as _sig
-                            _quota_signal_agents(_sig.SIGSTOP)
-                            _agents_frozen = True
+                        local_fallback = config.get("local_fallback_on_quota", False)
+                        if local_fallback:
+                            # Switch new agent spawns to local fallback provider instead of suspending
+                            _local_providers = [
+                                p for p in orchestrator.FALLBACK_PROVIDERS
+                                if config.get("llm_providers", {}).get(p, {}).get("base_url", "").startswith("http://localhost")
+                                or config.get("llm_providers", {}).get(p, {}).get("base_url", "").startswith("http://127.")
+                            ]
+                            if _local_providers and not auto_mode_state.get("_quota_fallback_active"):
+                                _primary = config.get("llm_provider", "minimax")
+                                _fallback = _local_providers[0]
+                                auto_mode_state["_quota_fallback_active"] = True
+                                auto_mode_state["_quota_fallback_primary"] = _primary
+                                _runner_mod.LLM_PROVIDER = _fallback
+                                orchestrator.LLM_PROVIDER = _fallback
+                                print(f"[Quota] Limit exceeded ({pct_used:.1f}% used) -- switching new spawns to local fallback: {_fallback}")
+                            elif not _local_providers:
+                                # No local providers configured -- fall back to suspend
+                                with auto_mode_state["lock"]:
+                                    if auto_mode_state["enabled"]:
+                                        auto_mode_state["enabled"] = False
+                                        auto_mode_state["suspended_for_quota"] = True
+                                        print(f"[Quota] Limit exceeded ({pct_used:.1f}% used) -- no local fallback configured, suspending")
+                                if not _agents_frozen:
+                                    import signal as _sig
+                                    _quota_signal_agents(_sig.SIGSTOP)
+                                    _agents_frozen = True
+                        else:
+                            with auto_mode_state["lock"]:
+                                if auto_mode_state["enabled"]:
+                                    auto_mode_state["enabled"] = False
+                                    auto_mode_state["suspended_for_quota"] = True
+                                    print(f"[Quota] Limit exceeded ({pct_used:.1f}% used) -- auto mode suspended")
+                            if not _agents_frozen:
+                                import signal as _sig
+                                _quota_signal_agents(_sig.SIGSTOP)
+                                _agents_frozen = True
                     else:
+                        # Quota OK -- restore primary provider if we were in fallback mode
+                        if auto_mode_state.get("_quota_fallback_active"):
+                            _primary = auto_mode_state.pop("_quota_fallback_primary", config.get("llm_provider", "minimax"))
+                            auto_mode_state.pop("_quota_fallback_active", None)
+                            _runner_mod.LLM_PROVIDER = _primary
+                            orchestrator.LLM_PROVIDER = _primary
+                            print(f"[Quota] Quota OK ({pct_used:.1f}% used) -- restored primary provider: {_primary}")
                         with auto_mode_state["lock"]:
                             if auto_mode_state["suspended_for_quota"] and not auto_mode_state["enabled"] and not auto_mode_state.get("user_disabled"):
                                 auto_mode_state["enabled"] = True

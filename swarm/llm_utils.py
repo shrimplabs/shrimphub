@@ -6,7 +6,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from swarm.provider_utils import LLM_PROVIDERS
+from swarm.provider_utils import LLM_PROVIDERS as _STATIC_LLM_PROVIDERS
 
 class MCPClient:
     """MCP client for connecting to external MCP servers (godot-mcp, etc.)."""
@@ -350,10 +350,17 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         return "requests library not installed", {"input": 0, "output": 0}
 
     # Resolve provider config (fall back to minimax defaults if unknown provider)
-    # Lazy import to avoid circular dep
+    # Lazy import to avoid circular dep. Use agent_runtime.LLM_PROVIDERS (baked dict
+    # from wrapper, contains custom providers like local-qwen27b) in preference to the
+    # static LLM_PROVIDERS from provider_utils which only has built-in providers.
     from swarm.agent_runtime import LLM_PROVIDER, log
+    try:
+        from swarm.agent_runtime import LLM_PROVIDERS as _rt_providers
+    except ImportError:
+        _rt_providers = {}
+    _providers = _rt_providers if _rt_providers else _STATIC_LLM_PROVIDERS
     provider_name = provider or LLM_PROVIDER or "minimax"
-    cfg = dict(LLM_PROVIDERS.get(provider_name, LLM_PROVIDERS.get("minimax", {})))
+    cfg = dict(_providers.get(provider_name, _providers.get("minimax", _STATIC_LLM_PROVIDERS.get("minimax", {}))))
 
     # Allow per-provider overrides in the env
     api_key_env = cfg.get("api_key_env", "MINIMAX_API_KEY")
@@ -362,10 +369,13 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     if not api_key and provider_name == "minimax":
         api_key = os.environ.get("MINIMAX-API", "")
 
-    if not api_key:
-        return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}, []
-
     base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
+
+    # Local providers (localhost) don't need a real API key — use a placeholder
+    if not api_key and base_url.startswith("http://localhost"):
+        api_key = "local"
+    elif not api_key:
+        return f"{api_key_env} not set (provider: {provider_name})", {"input": 0, "output": 0}, []
     model     = cfg.get("model", "MiniMax-M3")
     fmt       = cfg.get("format", "anthropic")
     max_tok   = cfg.get("max_tokens", 8096)
@@ -522,7 +532,8 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         cached = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
         if cached:
             log(f"[LLM] cache read={cached}")
-        text = result.get("choices", [{}])[0].get("message", {}).get("content", "No response")
+        _msg = result.get("choices", [{}])[0].get("message", {})
+        text = _msg.get("content") or _msg.get("reasoning") or "No response"
         return text, tokens, []
 
     # Use streaming for anthropic formats; non-streaming for openai
@@ -552,7 +563,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                         continue
                     return f"API error {resp.status_code}: {body_text}", {"input": 0, "output": 0}, []
             else:
-                resp = requests.post(url, headers=headers, json=body, timeout=120)
+                resp = requests.post(url, headers=headers, json=body, timeout=300)
                 if resp.status_code == 200:
                     return _parse_response(resp.json())
                 elif resp.status_code in (429, 529):

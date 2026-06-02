@@ -91,9 +91,15 @@ async function showAgentOutput(agentId, projectName, isActive, taskId) {
     if (_activeStream) { _activeStream.close(); _activeStream = null; }
 
     if (isActive) {
-        // Stream via SSE (#9)
-        logEl.textContent = '';
-        const es = new EventSource(`${API}/api/agents/${agentId}/stream`);
+        // Pre-load last ~8000 chars synchronously so modal shows content immediately,
+        // then switch to SSE for live updates (SSE tail=0 means no replay from server).
+        try {
+            const res = await fetch(`${API}/api/agent/${agentId}/output`);
+            const data = await res.json();
+            logEl.textContent = data.output || '';
+            logEl.scrollTop = logEl.scrollHeight;
+        } catch (_) {}
+        const es = new EventSource(`${API}/api/agents/${agentId}/stream?tail=0`);
         _activeStream = es;
         es.onmessage = (ev) => {
             logEl.textContent += ev.data + '\n';

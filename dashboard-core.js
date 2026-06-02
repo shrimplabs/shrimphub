@@ -52,6 +52,7 @@ function openSettingsPanel() {
     document.getElementById('settingsBackdrop').classList.add('open');
     _updateSettingsThemeBtns();
     _applyDebugMode(); // sync debug button state
+    if (typeof syncLocalFallback === 'function') syncLocalFallback();
 }
 function closeSettingsPanel() {
     document.getElementById('settingsPanel').classList.remove('open');

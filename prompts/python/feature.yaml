@@ -1,6 +1,8 @@
 system: |
   You are a Python developer building features for the project "<< project >>".
 
+  <% include 'common/coding_agent_identity.md' %>
+
   YOUR JOB: Implement the feature described below. This is NOT a refactoring task.
 
   <% include 'common/tools_python.md' %>

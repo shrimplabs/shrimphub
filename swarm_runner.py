@@ -992,6 +992,64 @@ def generate_task_script(task: dict) -> str:
         recent_failures="",      # populated at runtime by the archaeologist task description
         git_log_summary="",      # populated at runtime by the archaeologist task description
     )
+    # Pre-populate pending/failed bug tasks at spawn time with git evidence
+    # so the pruner only needs to make judgment calls -- no investigation required.
+    try:
+        import sqlite3 as _sqlite3
+        import subprocess as _subprocess
+        _db_path = DATA_DIR / "swarm.db"
+        _pconn = _sqlite3.connect(str(_db_path))
+        _pconn.row_factory = _sqlite3.Row
+        _prows = _pconn.execute(
+            "SELECT id, project, status, substr(description,1,400) as desc, metadata FROM tasks "
+            "WHERE type='bug' AND status IN ('pending','failed') ORDER BY project, created_at"
+        ).fetchall()
+        _pconn.close()
+
+        def _pruner_git_evidence(proj: str, desc: str) -> str:
+            """Fetch git log + VALIDATION_STATE.md for a bug task at spawn time."""
+            proj_path = WORKSPACE / proj
+            evidence_parts = []
+            # Git log (last 30 commits, oneline)
+            try:
+                _gl = _subprocess.run(
+                    ["git", "-C", str(proj_path), "log", "--oneline", "-30"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if _gl.stdout.strip():
+                    evidence_parts.append(f"Recent commits:\n{_gl.stdout.strip()}")
+            except Exception:
+                evidence_parts.append("(git log unavailable)")
+            # VALIDATION_STATE.md
+            _vs_path = proj_path / "VALIDATION_STATE.md"
+            try:
+                if _vs_path.exists():
+                    _vs = _vs_path.read_text(encoding="utf-8", errors="replace")[-800:]
+                    evidence_parts.append(f"VALIDATION_STATE.md (tail):\n{_vs.strip()}")
+            except Exception:
+                pass
+            return "\n".join(evidence_parts) if evidence_parts else "(no evidence available)"
+
+        _task_blocks = []
+        for r in _prows:
+            _evidence = _pruner_git_evidence(r["project"], r["desc"])
+            _block = (
+                f"---\n"
+                f"TASK: {r['id']}\n"
+                f"PROJECT: {r['project']}\n"
+                f"STATUS: {r['status']}\n"
+                f"DESCRIPTION: {r['desc'][:400].replace(chr(10), ' ')}\n"
+                f"EVIDENCE:\n{_evidence}\n"
+            )
+            _task_blocks.append(_block)
+        _pending_bug_tasks = "\n".join(_task_blocks) if _task_blocks else "(no pending/failed bug tasks)"
+    except Exception as _pe:
+        _pending_bug_tasks = f"(query failed: {_pe})"
+    pruner_system, pruner_user = _load_prompt(
+        "pruner", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
+        workspace=str(WORKSPACE),
+        pending_bug_tasks=_pending_bug_tasks,
+    )
     scheduler_system, scheduler_user = _load_prompt(
         "scheduler", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR),
         scheduler_allow_pause=_config.get("scheduler_allow_pause", True),
@@ -1198,6 +1256,8 @@ rt.CARTOGRAPHER_SYSTEM      = {repr(cartographer_system)}
 rt.CARTOGRAPHER_USER        = {repr(cartographer_user)}
 rt.ARCHAEOLOGIST_SYSTEM     = {repr(archaeologist_system)}
 rt.ARCHAEOLOGIST_USER       = {repr(archaeologist_user)}
+rt.PRUNER_SYSTEM            = {repr(pruner_system)}
+rt.PRUNER_USER              = {repr(pruner_user)}
 rt.SCHEDULER_SYSTEM         = {repr(scheduler_system)}
 rt.SCHEDULER_USER           = {repr(scheduler_user)}
 rt.HARNESS_QA_SYSTEM        = {repr(harness_qa_system)}

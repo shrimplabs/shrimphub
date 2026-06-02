@@ -476,6 +476,32 @@ async function loadThinking() {
         btn.style.borderColor = data.enabled ? '#3fb950' : '#30363d';
     } catch(e) {}
 }
+async function syncLocalFallback() {
+    try {
+        const data = await fetch(API + '/api/config').then(r => r.json());
+        const enabled = data.local_fallback_on_quota || false;
+        const btn = document.getElementById('localFallbackBtn');
+        if (!btn) return;
+        btn.classList.remove('is-on', 'is-off');
+        btn.classList.add(enabled ? 'is-on' : 'is-off');
+        btn.textContent = enabled ? '⚡ On' : 'Off';
+    } catch(e) {}
+}
+
+async function toggleLocalFallback() {
+    try {
+        const data = await fetch(API + '/api/config').then(r => r.json());
+        const newVal = !(data.local_fallback_on_quota || false);
+        await fetch(API + '/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({local_fallback_on_quota: newVal}),
+        });
+        await syncLocalFallback();
+        showToast(`Local fallback ${newVal ? 'enabled' : 'disabled'}`, newVal ? '#3fb950' : '#8b949e');
+    } catch(e) { showToast('Error toggling local fallback', '#f85149'); }
+}
+
 async function toggleThinking() {
     try {
         const current = await fetch(API + '/api/thinking').then(r => r.json());

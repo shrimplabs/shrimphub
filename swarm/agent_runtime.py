@@ -162,6 +162,8 @@ AUDITOR_SYSTEM: str = ""
 AUDITOR_USER: str = ""
 ARCHAEOLOGIST_SYSTEM: str = ""
 ARCHAEOLOGIST_USER: str = ""
+PRUNER_SYSTEM: str = ""
+PRUNER_USER: str = ""
 SCHEDULER_SYSTEM: str = ""
 SCHEDULER_USER: str = ""
 CARTOGRAPHER_SYSTEM: str = ""
@@ -173,6 +175,7 @@ PLUGIN_USER: str = ""
 
 # LLM provider config -- set by the wrapper
 LLM_PROVIDER: str = "minimax"
+LLM_PROVIDERS: dict = {}  # populated by wrapper with all known providers (including custom ones)
 
 # EXPERIMENT: meta-investigation -- a short out-of-band LLM call that fires when
 # the same error string repeats 3+ times in run_command output across non-consecutive
@@ -416,6 +419,8 @@ def main() -> int:
             system_prompt, user_prompt = CARTOGRAPHER_SYSTEM, CARTOGRAPHER_USER
         elif TASK_TYPE == "archaeologist":
             system_prompt, user_prompt = ARCHAEOLOGIST_SYSTEM, ARCHAEOLOGIST_USER
+        elif TASK_TYPE == "pruner":
+            system_prompt, user_prompt = PRUNER_SYSTEM, PRUNER_USER
         elif TASK_TYPE == "meta_scheduler":
             system_prompt, user_prompt = SCHEDULER_SYSTEM, SCHEDULER_USER
         elif TASK_TYPE == "harness_qa":
@@ -637,6 +642,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     total_output_tokens = 0
 
     stall_detector = StallDetector()
+
+    # Vision cap: art_pass agents must make a file change every 3 vision/screenshot calls.
+    # Resets after any write_file, patch_file, or git_commit call.
+    _VISION_CAP_TYPES = {"art_pass"}
+    _vision_calls_since_write: int = 0
+    _VISION_CAP_LIMIT: int = 3
+
     # EXPERIMENT: meta-investigation -- track recurring error strings across loops
     _error_counts: _collections.Counter = _collections.Counter()
     _error_loop_history: dict[str, list[str]] = {}  # error_key → list of loop summaries
@@ -645,6 +657,18 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     while tool_loop_count < MAX_TOOL_LOOPS:
         log(f"Calling LLM... (loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS})")
         compact_token_threshold = _get_compaction_threshold()
+
+        # Check for operator hint injected via POST /api/agents/<id>/hint
+        _hint_path = Path(DATA_DIR) / f"agent_{TASK_ID}.hint"
+        if _hint_path.exists():
+            try:
+                _hint_content = _hint_path.read_text(encoding="utf-8", errors="replace").strip()
+                if _hint_content:
+                    conversation.append({"role": "user", "content": f"[OPERATOR HINT]\n{_hint_content}\n\nTake this into account before your next action."})
+                    log(f"[Hint] Injected operator hint ({len(_hint_content)} chars)")
+                _hint_path.unlink(missing_ok=True)
+            except Exception as _hint_err:
+                log(f"[Hint] Failed to read hint file: {_hint_err}")
 
         if stall_detector.check() and not _wrap_up_injected:
             log("WARNING: stall detected -- same tool called 3 times with identical args")
@@ -856,6 +880,32 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         for tc in tool_calls:
             log(f"Tool call: {tc}")
+            _tool_name = tc.get("tool", "")
+
+            # Vision cap enforcement for art_pass: block vision/screenshot if cap exceeded
+            if TASK_TYPE in _VISION_CAP_TYPES and _tool_name in ("vision_query", "take_screenshot", "screenshot_burst"):
+                if _vision_calls_since_write >= _VISION_CAP_LIMIT:
+                    _cap_msg = (
+                        f"[VISION CAP] vision_query/take_screenshot blocked — you have made "
+                        f"{_vision_calls_since_write} visual assessment calls without a file change. "
+                        "You must now make a concrete change: use write_file, patch_file, or run_command "
+                        "to copy/modify an asset or scene file. After committing a change, your "
+                        "screenshot budget resets. Do NOT take more screenshots — act on what you already know."
+                    )
+                    log(f"[VisionCap] Blocked {_tool_name} after {_vision_calls_since_write} calls without write")
+                    result = {"ok": False, "error": _cap_msg}
+                    tool_results.append(f"Tool {_tool_name}: {json.dumps(result)}")
+                    continue
+                _vision_calls_since_write += 1
+
+            # Reset vision cap counter on any file write, commit, or run_command (cp/mv/convert)
+            if _tool_name in ("write_file", "patch_file", "append_file", "git_commit"):
+                _vision_calls_since_write = 0
+            elif _tool_name == "run_command":
+                _cmd = tc.get("args", {}).get("command", "")
+                if any(op in _cmd for op in ("cp ", "mv ", "rsvg-convert", "inkscape", "ffmpeg", "convert ")):
+                    _vision_calls_since_write = 0
+
             result = execute_tool(tc)
             log(f"Result: {str(result)[:200]}")
             tool_results.append(f"Tool {tc.get('tool', '?')}: {json.dumps(result)}")
