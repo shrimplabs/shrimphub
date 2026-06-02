@@ -644,6 +644,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     # Token tracking
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_write_tokens = 0
 
     stall_detector = StallDetector()
 
@@ -750,7 +752,12 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         response, tokens, thinking_blocks = call_llm(system_with_budget, conversation)
         total_input_tokens += tokens.get("input", 0)
         total_output_tokens += tokens.get("output", 0)
-        log(f"[LLM] in={tokens['input']} out={tokens['output']}")
+        total_cache_read_tokens += tokens.get("cache_read", 0)
+        total_cache_write_tokens += tokens.get("cache_write", 0)
+        _cr = tokens.get("cache_read", 0)
+        _cw = tokens.get("cache_write", 0)
+        _cache_str = f" cache_read={_cr} cache_write={_cw}" if (_cr or _cw) else ""
+        log(f"[LLM] in={tokens['input']} out={tokens['output']}{_cache_str}")
         # Write live token counts so dashboard can display them without waiting for agent exit
         try:
             _tok_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
@@ -761,6 +768,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             _tok_file.write_text(json.dumps({
                 "input": total_input_tokens,
                 "output": total_output_tokens,
+                "cache_read": total_cache_read_tokens,
+                "cache_write": total_cache_write_tokens,
                 "total": total_input_tokens + total_output_tokens,
                 "conv_estimate": _conv_est,
                 "compact_threshold": compact_token_threshold,
@@ -1195,6 +1204,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 _ref_resp, _ref_tokens, _ref_thinking = call_llm(_ref_system, _ref_conv)
                 total_input_tokens += _ref_tokens.get("input", 0)
                 total_output_tokens += _ref_tokens.get("output", 0)
+                total_cache_read_tokens += _ref_tokens.get("cache_read", 0)
+                total_cache_write_tokens += _ref_tokens.get("cache_write", 0)
 
                 _ref_conv.append({"role": "assistant", "content": _ref_resp})
 
@@ -1376,14 +1387,18 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         token_data = {
             "input": total_input_tokens,
             "output": total_output_tokens,
+            "cache_read": total_cache_read_tokens,
+            "cache_write": total_cache_write_tokens,
             "total": total_input_tokens + total_output_tokens,
             "loop_count": tool_loop_count,
+            "provider": LLM_PROVIDER,
+            "model": _pconf.get("model", ""),
         }
         token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
         token_file.write_text(json.dumps(token_data))
     except Exception as e:
         log(f"WARNING: failed to write token file: {e}")
-        token_data = {"input": 0, "output": 0, "total": 0}
+        token_data = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "total": 0}
 
     if task_complete_hit:
         log("Task complete!")

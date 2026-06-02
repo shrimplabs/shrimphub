@@ -196,10 +196,15 @@ def _capture_project_diff_stat(project: Optional[str]) -> str:
     return ""
 
 
-def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int, int]:
+def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int, int, int, int, str, str]:
+    """Returns (input, output, cache_read, cache_write, loop_count, provider, model)."""
     input_tokens = 0
     output_tokens = 0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
     loop_count = 0
+    provider = ""
+    model = ""
     token_key = task_id or agent_id
     token_file = Path(str(_al().DATA_DIR)) / f"agent_{token_key}_tokens.json"
     if token_file.exists():
@@ -207,16 +212,23 @@ def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int,
             tok = json.loads(token_file.read_text())
             input_tokens = tok.get("input", 0)
             output_tokens = tok.get("output", 0)
+            cache_read_tokens = tok.get("cache_read", 0)
+            cache_write_tokens = tok.get("cache_write", 0)
             loop_count = tok.get("loop_count", 0)
+            provider = tok.get("provider", "")
+            model = tok.get("model", "")
             token_file.unlink()
         except Exception:
             pass
-    return input_tokens, output_tokens, loop_count
+    return input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model
 
 
 def _mark_agent_finished(agent_id: str, success: bool, exit_code: int,
                          output: str, diff_stat: str, input_tokens: int,
-                         output_tokens: int, loop_count: int = 0):
+                         output_tokens: int, loop_count: int = 0,
+                         cache_read_tokens: int = 0, cache_write_tokens: int = 0,
+                         provider: str = "", model: str = "",
+                         estimated_cost_usd: float = 0.0):  # noqa: PLR0913
     al = _al()
     al._lazy_imports()
     db = al.db
@@ -231,6 +243,11 @@ def _mark_agent_finished(agent_id: str, success: bool, exit_code: int,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         loop_count=loop_count,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        provider=provider,
+        model=model,
+        estimated_cost_usd=estimated_cost_usd,
     )
 
 
@@ -650,8 +667,19 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
     # Phase 4 -- diff, tokens, mark agent finished.
     diff_stat = _capture_project_diff_stat(project)
-    input_tokens, output_tokens, loop_count = _read_agent_token_usage(task_id, agent_id)
-    _mark_agent_finished(agent_id, success, exit_code, output, diff_stat, input_tokens, output_tokens, loop_count)
+    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = \
+        _read_agent_token_usage(task_id, agent_id)
+    from swarm.provider_utils import estimate_cost_usd
+    cost = estimate_cost_usd(model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+    _mark_agent_finished(
+        agent_id, success, exit_code, output, diff_stat,
+        input_tokens, output_tokens, loop_count,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        provider=provider,
+        model=model,
+        estimated_cost_usd=cost,
+    )
 
     # Phase 5 -- task outcome.
     task_snapshot_pre_complete: Optional[dict] = None
