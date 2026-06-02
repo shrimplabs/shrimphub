@@ -265,6 +265,14 @@ def create_app(
     # Mark long-running orphan agents as failed; recent orphans reap on next tick.
     _handle_startup_orphans(data_dir, config.get("agent_timeout", AGENT_TIMEOUT))
 
+    # Reap any Godot processes left over from agents that were SIGKILLed before
+    # their atexit handlers ran (zombies that would squat on StateServer ports).
+    try:
+        from swarm.qa_tools import sweep_godot_zombies as _sweep_godot_zombies
+        _sweep_godot_zombies()
+    except Exception as _sgz_err:
+        print(f"[Startup] Godot zombie sweep error: {_sgz_err}")
+
     _start_time = time.time()
 
     # Clean up any worktrees left over from a previous server run (background thread

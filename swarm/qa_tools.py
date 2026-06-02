@@ -320,6 +320,97 @@ _project_port_cache: dict[str, tuple[int, int]] = {}
 # Lock file for atomic port allocation
 _PORT_LOCK_FILE = "/tmp/swarm_qa_port_lock.lock"
 
+# ---------------------------------------------------------------------------
+# Godot PID registry — survives agent crashes / SIGKILL
+# ---------------------------------------------------------------------------
+# Each launch_game* call registers its Godot PID here. kill_game* deregisters.
+# sweep_godot_zombies() is called at server startup to reap any PIDs left over
+# from agents that were SIGKILLed before their atexit handlers ran.
+
+import threading as _threading
+_pid_registry_lock = _threading.Lock()
+
+
+def _godot_pid_registry_path() -> Path:
+    return Path(DATA_DIR) / "godot_pids.json"
+
+
+def _register_godot_pid(pid: int, project: str, state_port: int) -> None:
+    """Record a live Godot PID so it can be reaped if the agent crashes."""
+    import time as _time
+    path = _godot_pid_registry_path()
+    with _pid_registry_lock:
+        try:
+            registry = json.loads(path.read_text()) if path.exists() else {}
+        except Exception:
+            registry = {}
+        registry[str(pid)] = {
+            "project": project,
+            "state_port": state_port,
+            "spawned_at": _time.time(),
+        }
+        path.write_text(json.dumps(registry, indent=2))
+
+
+def _deregister_godot_pid(pid: int) -> None:
+    """Remove a Godot PID from the registry after clean shutdown."""
+    path = _godot_pid_registry_path()
+    with _pid_registry_lock:
+        try:
+            registry = json.loads(path.read_text()) if path.exists() else {}
+            registry.pop(str(pid), None)
+            path.write_text(json.dumps(registry, indent=2))
+        except Exception:
+            pass
+
+
+def sweep_godot_zombies() -> list[int]:
+    """Kill any Godot processes left in the PID registry from crashed agents.
+
+    Called once at server startup. Returns list of PIDs that were reaped.
+    """
+    path = _godot_pid_registry_path()
+    if not path.exists():
+        return []
+    with _pid_registry_lock:
+        try:
+            registry = json.loads(path.read_text())
+        except Exception:
+            return []
+        reaped = []
+        survivors = {}
+        for pid_str, info in registry.items():
+            pid = int(pid_str)
+            # Check if still running
+            try:
+                os.kill(pid, 0)  # signal 0 = existence check
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True  # exists but owned by another user — leave it
+            if alive:
+                # Verify it's actually Godot before killing
+                try:
+                    result = subprocess.run(
+                        ["ps", "-p", str(pid), "-o", "comm="],
+                        capture_output=True, text=True, timeout=3,
+                    )
+                    comm = result.stdout.strip().lower()
+                    if "godot" in comm:
+                        os.kill(pid, 9)
+                        reaped.append(pid)
+                        print(f"[qa] sweep_godot_zombies: reaped PID {pid} "
+                              f"({info.get('project','?')} port={info.get('state_port','?')})")
+                    else:
+                        # PID recycled to a non-Godot process — drop from registry
+                        pass
+                except Exception:
+                    survivors[pid_str] = info
+            # Dead or reaped — don't keep in registry
+        path.write_text(json.dumps(survivors, indent=2))
+        return reaped
+
 def _find_free_port_pair(base: int = 11009, max_range: int = 200, project_key: str = None) -> tuple:
     """Find two consecutive free ports (state_port, harness_port = state_port+1).
 
@@ -483,10 +574,12 @@ def launch_game(project_path: str) -> dict:
             env=dict(os.environ),
         )
         pid = _qa_game_process.pid
+        _register_godot_pid(pid, resolved_path, _state_port)
         log(f"Launched Godot PID {pid} for {resolved_path} (state={_state_port} harness={_harness_port})")
         _time.sleep(6)
 
         if _qa_game_process.poll() is not None:
+            _deregister_godot_pid(pid)
             return {"ok": False, "error": "Godot exited immediately", "pid": pid}
 
         # Try StateServer screenshot first -- it tells us actual pixel dimensions
@@ -577,10 +670,12 @@ def launch_game_headless(project_path: str) -> dict:
             cwd=resolved_path,
         )
         pid = _qa_game_process.pid
+        _register_godot_pid(pid, resolved_path, _state_port)
         log(f"Launched Godot headless PID {pid} for {resolved_path}")
         _time.sleep(4)
 
         if _qa_game_process.poll() is not None:
+            _deregister_godot_pid(pid)
             return {"ok": False, "error": "Godot exited immediately", "pid": pid}
 
         return {"ok": True, "pid": pid, "headless": True}
@@ -592,9 +687,11 @@ def kill_game() -> dict:
     """Kill the launched game process."""
     global _qa_game_process
     if _qa_game_process is not None:
+        pid = _qa_game_process.pid
         try:
             _qa_game_process.kill()
             _qa_game_process = None
+            _deregister_godot_pid(pid)
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1439,8 +1536,10 @@ def harness_launch_game(project_path: str, extra_args: list = None) -> dict:
         if _harness_game_process.poll() is not None:
             out, err = _harness_game_process.communicate()
             return {"ok": False, "error": f"Game exited immediately: {err.decode()[:300]}"}
-        log(f"Harness game launched (pid={_harness_game_process.pid})")
-        return {"ok": True, "pid": _harness_game_process.pid}
+        pid = _harness_game_process.pid
+        _register_godot_pid(pid, resolved_path, _state_port)
+        log(f"Harness game launched (pid={pid})")
+        return {"ok": True, "pid": pid}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -1572,9 +1671,11 @@ def harness_kill_game() -> dict:
     """Kill the harness game process."""
     global _harness_game_process
     if _harness_game_process is not None:
+        pid = _harness_game_process.pid
         try:
             kill_process_tree(_harness_game_process)
             _harness_game_process = None
+            _deregister_godot_pid(pid)
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
