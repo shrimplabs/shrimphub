@@ -66,7 +66,7 @@ from swarm.tools.files import (
 from swarm.tools.tasks import (
     create_subtask, create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
     list_tasks, list_subtasks,
-    annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
+    annotate_downstream_tasks, split_task, prune_task, cancel_task, insert_dependency, set_task_complexity,
 )
 from swarm.tools.knowledge import (
     scratchpad_write, scratchpad_read,
@@ -495,6 +495,7 @@ def _populate_registry():
     _reg("annotate_downstream_tasks", lambda a, ws, p: annotate_downstream_tasks(a.get("findings", ""), a.get("task_ids")), ["findings"])
     _reg("split_task",      lambda a, ws, p: split_task(a.get("task_id", ""), a.get("replacement_tasks", [])),             ["task_id", "replacement_tasks"])
     _reg("prune_task",      lambda a, ws, p: prune_task(a.get("task_id", ""), a.get("reason", "")),                        ["task_id", "reason"])
+    _reg("cancel_task",     lambda a, ws, p: cancel_task(a.get("task_id", ""), a.get("reason", "")) if _rt.TASK_TYPE == "pruner" else {"ok": False, "error": "cancel_task is only available to the pruner agent"}, ["task_id", "reason"])
     _reg("insert_dependency", lambda a, ws, p: insert_dependency(a.get("from_task_id", ""), a.get("to_task_id", "")),      ["from_task_id", "to_task_id"])
     _reg("set_task_complexity", lambda a, ws, p: set_task_complexity(a.get("task_id", ""), a.get("complexity", ""), a.get("reason", "")), ["task_id", "complexity"])
     _reg("delegate_task_batch", lambda a, ws, p: delegate_task_batch(a.get("children", []), a.get("mode", "integrate"), a.get("project")), ["children"])

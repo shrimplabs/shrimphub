@@ -334,7 +334,8 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             orchestrator.FALLBACK_PROVIDERS = rotated
         if data.get("model"):
             config.setdefault("llm_providers", {}).setdefault(provider, {})["model"] = data["model"]
-        # Persist to config.json
+        # Persist full provider config to config.json (not just model) so restarts work
+        _full_pcfg = _runner_mod.LLM_PROVIDERS.get(provider, {})
         with _config_write_lock:
             cfg_data = {}
             if config_file.exists():
@@ -343,8 +344,9 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
                 except Exception:
                     pass
             cfg_data["llm_provider"] = provider
-            if data.get("model"):
-                cfg_data.setdefault("llm_providers", {}).setdefault(provider, {})["model"] = data["model"]
+            # Always persist the full provider config so custom providers survive restarts
+            if _full_pcfg:
+                cfg_data.setdefault("llm_providers", {})[provider] = dict(_full_pcfg)
             config_file.write_text(json.dumps(cfg_data, indent=2) + "\n")
         print(f"[Config] llm_provider set to {provider}")
         return jsonify({"provider": provider, "model": _runner_mod.LLM_PROVIDERS.get(provider, {}).get("model", "")})

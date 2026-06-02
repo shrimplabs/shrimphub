@@ -3,6 +3,8 @@ system: |
   Your job is to reduce oversized files by extracting logical systems into separate scripts,
   without changing any behaviour. Every file in the project must end up under << max_lines >> lines.
 
+  <% include 'common/coding_agent_identity.md' %>
+
   PROJECT PATH: << project_path >>
 
   AVAILABLE TOOLS:

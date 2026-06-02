@@ -86,37 +86,53 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
     def stream_agent_output(agent_id):
         """Server-Sent Events stream of the agent's log tail (#9)."""
         from flask import Response, stream_with_context
+        # Number of tail lines to send on first connect (avoids replaying huge logs)
+        INITIAL_TAIL_LINES = int(request.args.get("tail", 200))
+
         def _generate():
-            sent_bytes = 0
             idle_ticks = 0
-            while True:
-                agent = agent_tracker.get(agent_id)
-                if agent is None:
-                    yield "event: done\ndata: Agent not found\n\n"
-                    return
-                log_path = agent.log_path and Path(agent.log_path)
-                if log_path and log_path.exists():
-                    try:
-                        content = log_path.read_text(encoding="utf-8", errors="replace")
-                        if len(content) > sent_bytes:
-                            chunk = content[sent_bytes:]
-                            sent_bytes = len(content)
-                            # Escape newlines for SSE data field
-                            for line in chunk.splitlines():
-                                yield f"data: {line}\n"
-                            yield "\n"
-                            idle_ticks = 0
-                        else:
-                            idle_ticks += 1
-                    except Exception:
-                        pass
-                if agent.status != "active":
-                    yield "event: done\ndata: finished\n\n"
-                    return
-                # Keep-alive ping every ~10s of silence
-                if idle_ticks > 0 and idle_ticks % 5 == 0:
-                    yield ": ping\n\n"
-                time.sleep(2)
+            log_fh = None
+            try:
+                while True:
+                    agent = agent_tracker.get(agent_id)
+                    if agent is None:
+                        yield "event: done\ndata: Agent not found\n\n"
+                        return
+                    log_path = agent.log_path and Path(agent.log_path)
+                    if log_path and log_path.exists():
+                        try:
+                            if log_fh is None:
+                                # First open: send only the last INITIAL_TAIL_LINES lines,
+                                # then seek to end so subsequent reads only return new bytes.
+                                with open(log_path, encoding="utf-8", errors="replace") as tmp:
+                                    all_lines = tmp.readlines()
+                                tail_lines = all_lines[-INITIAL_TAIL_LINES:] if INITIAL_TAIL_LINES > 0 else []
+                                if tail_lines:
+                                    for line in tail_lines:
+                                        yield f"data: {line.rstrip()}\n"
+                                    yield "\n"
+                                log_fh = open(log_path, encoding="utf-8", errors="replace")
+                                log_fh.seek(0, 2)  # seek to end
+                            chunk = log_fh.read()
+                            if chunk:
+                                for line in chunk.splitlines():
+                                    yield f"data: {line}\n"
+                                yield "\n"
+                                idle_ticks = 0
+                            else:
+                                idle_ticks += 1
+                        except Exception:
+                            pass
+                    if agent.status != "active":
+                        yield "event: done\ndata: finished\n\n"
+                        return
+                    # Keep-alive ping every ~10s of silence
+                    if idle_ticks > 0 and idle_ticks % 5 == 0:
+                        yield ": ping\n\n"
+                    time.sleep(2)
+            finally:
+                if log_fh is not None:
+                    log_fh.close()
         return Response(
             stream_with_context(_generate()),
             mimetype="text/event-stream",

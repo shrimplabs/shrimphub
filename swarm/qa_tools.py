@@ -522,7 +522,8 @@ def launch_game(project_path: str) -> dict:
                     log(f"launch_game: window at ({win_x},{win_y}) size {logical_w}x{logical_h}, "
                         f"viewport {img_w}x{img_h}, pixel_ratio={pixel_ratio:.2f}")
                     return {"ok": True, "pid": pid, "x": win_x, "y": win_y,
-                            "w": img_w, "h": img_h, "pixel_ratio": pixel_ratio}
+                            "w": img_w, "h": img_h, "pixel_ratio": pixel_ratio,
+                            "state_port": _state_port}
             except Exception as e:
                 log(f"StateServer bounds decode failed: {e}")
 
@@ -532,13 +533,14 @@ def launch_game(project_path: str) -> dict:
         if not bounds.get("ok"):
             log("Window bounds unavailable \u2014 screenshots will capture full screen")
             return {"ok": True, "pid": pid, "x": 0, "y": 0, "w": 0, "h": 0,
-                    "note": "Window bounds unavailable"}
+                    "state_port": _state_port, "note": "Window bounds unavailable"}
         _qa_window = {
             "x": bounds["x"], "y": bounds["y"],
             "w": bounds["w"], "h": bounds["h"],
             "viewport_w": bounds["w"], "viewport_h": bounds["h"],
             "pixel_ratio": 1.0,
         }
+        bounds["state_port"] = _state_port
         return bounds
     except Exception as e:
         return {"ok": False, "error": str(e)}

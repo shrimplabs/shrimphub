@@ -495,10 +495,17 @@ def _migrate(conn: sqlite3.Connection, json_files: Dict[str, Path]):
 # Task operations
 # ---------------------------------------------------------------------------
 
-def task_get_all() -> List[Dict]:
-    rows = _connect().execute(
-        "SELECT * FROM tasks ORDER BY priority DESC, created ASC"
-    ).fetchall()
+def task_get_all(exclude_statuses: tuple = ()) -> List[Dict]:
+    if exclude_statuses:
+        placeholders = ",".join("?" * len(exclude_statuses))
+        rows = _connect().execute(
+            f"SELECT * FROM tasks WHERE status NOT IN ({placeholders}) ORDER BY priority DESC, created ASC",
+            exclude_statuses,
+        ).fetchall()
+    else:
+        rows = _connect().execute(
+            "SELECT * FROM tasks ORDER BY priority DESC, created ASC"
+        ).fetchall()
     return [_task_row(r) for r in rows]
 
 

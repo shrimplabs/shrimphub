@@ -797,10 +797,10 @@ def _fetch_all_project_tasks(proj: str):
     import urllib.request as _ur
     from swarm.tools import core as _c
     try:
-        with _ur.urlopen(f"http://localhost:{_c.API_PORT}/api/tasks", timeout=10) as resp:
+        url = f"http://localhost:{_c.API_PORT}/api/tasks?project={proj}&include_completed=true"
+        with _ur.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
-        tasks = [t for t in data.get("tasks", []) if t.get("project") == proj]
-        return tasks, ""
+        return data.get("tasks", []), ""
     except Exception as e:
         return [], str(e)
 
@@ -1009,6 +1009,36 @@ def prune_task(task_id: str, reason: str) -> dict:
         })
         _log(f"[AdaptiveGraph] Pruned task {task_id}: {reason[:80]}")
         return {"ok": True, "pruned": task_id, "reason": reason.strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def cancel_task(task_id: str, reason: str) -> dict:
+    """Cancel a pending or failed task globally (pruner use only).
+
+    Marks the task as cancelled with a reason. Only works on pending/failed tasks.
+    Does NOT follow downstream-only restriction -- the pruner operates across all projects.
+    """
+    if not reason or not reason.strip():
+        return {"ok": False, "error": "reason must not be empty"}
+    task = _api_request("GET", f"/api/tasks/{task_id}")
+    if not task or "id" not in task:
+        return {"ok": False, "error": f"Task {task_id} not found"}
+    status = task.get("status", "")
+    if status not in ("pending", "failed"):
+        return {"ok": False, "error": f"Task {task_id} is {status} -- can only cancel pending or failed tasks"}
+    existing_meta = task.get("metadata") or {}
+    try:
+        _api_request("PATCH", f"/api/tasks/{task_id}", {
+            "status": "cancelled",
+            "metadata": {
+                **existing_meta,
+                "cancelled_by": "pruner",
+                "cancel_reason": reason.strip(),
+            },
+        })
+        _log(f"[Pruner] Cancelled task {task_id}: {reason[:80]}")
+        return {"ok": True, "cancelled": task_id, "reason": reason.strip()}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

@@ -588,7 +588,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     @app.route("/api/dependencies", methods=["GET"])
     def get_dependency_graph():
         from swarm.dependencies import build_graph_from_tasks
-        tasks = task_source.get_all_tasks()
+        tasks = task_source.get_all_tasks(exclude_statuses=("completed", "archived", "cancelled"))
         graph = build_graph_from_tasks(tasks)
         return jsonify(graph.get_stats())
 
@@ -596,7 +596,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     def get_dependency_dot():
         from swarm.dependencies import build_graph_from_tasks
 
-        active_tasks = task_source.get_all_tasks()
+        active_tasks = task_source.get_all_tasks(exclude_statuses=("archived",))
         project = _req.args.get("project", "").strip()
         try:
             history_depth = int((_req.args.get("history_depth") or _req.args.get("history_limit") or "2").strip())
@@ -816,7 +816,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     @app.route("/api/dependencies/ready", methods=["GET"])
     def get_ready_tasks():
         from swarm.dependencies import build_graph_from_tasks
-        tasks = task_source.get_all_tasks()
+        tasks = task_source.get_all_tasks(exclude_statuses=("archived",))
         project = _req.args.get("project", "").strip()
         if project:
             tasks = [t for t in tasks if t.project == project]
@@ -841,7 +841,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     @app.route("/api/dependencies/execution-order", methods=["GET"])
     def get_execution_order():
         from swarm.dependencies import build_graph_from_tasks
-        tasks = task_source.get_all_tasks()
+        tasks = task_source.get_all_tasks(exclude_statuses=("archived",))
         graph = build_graph_from_tasks(tasks)
         return jsonify({"levels": graph.get_execution_order()})
 
