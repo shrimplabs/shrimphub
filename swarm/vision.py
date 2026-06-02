@@ -46,9 +46,24 @@ from pathlib import Path
 
 
 def _load_image_b64(image_path: str) -> tuple[str, str]:
-    """Load an image file and return (base64_data, media_type)."""
+    """Load an image file and return (base64_data, media_type).
+
+    Raises OSError if the file is truncated or unreadable by PIL.
+    """
     path = Path(image_path)
     data = path.read_bytes()
+
+    # Verify the image is not truncated before sending to VLM
+    try:
+        from PIL import Image, ImageOps
+        import io
+        img = Image.open(io.BytesIO(data))
+        img.load()  # forces full decode — raises OSError if truncated
+    except ImportError:
+        pass  # PIL not available, skip validation
+    except OSError as e:
+        raise OSError(f"Image file is truncated or corrupt: {image_path}: {e}") from e
+
     b64 = base64.standard_b64encode(data).decode()
     ext = path.suffix.lower()
     media_type = {

@@ -1185,10 +1185,27 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
                 return {"ok": True, "answer": answer, "provider": provider_name}
 
             from swarm.vision import call_vision, call_vision_multi
-            if len(image_paths) > 1:
-                answer = call_vision_multi(image_paths, question, provider_name, cfg)
-            else:
-                answer = call_vision(primary_image, question, provider_name, cfg)
+            for _attempt in range(2):
+                try:
+                    if len(image_paths) > 1:
+                        answer = call_vision_multi(image_paths, question, provider_name, cfg)
+                    else:
+                        answer = call_vision(primary_image, question, provider_name, cfg)
+                    break
+                except OSError as _img_err:
+                    if _attempt == 0 and len(image_paths) == 1:
+                        # Truncated image — take a fresh screenshot and retry once
+                        log(f"vision_query: image truncated ({_img_err}), retaking screenshot")
+                        import time as _time
+                        _time.sleep(0.5)
+                        fresh = take_screenshot(primary_image)
+                        if fresh.get("ok"):
+                            primary_image = fresh.get("path", primary_image)
+                            image_paths = [primary_image]
+                        else:
+                            raise
+                    else:
+                        raise
             log(f"vision_query/{model_tier}: {answer[:80]}")
 
             out = {"ok": True, "answer": answer, "provider": provider_name}

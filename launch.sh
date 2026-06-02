@@ -40,7 +40,7 @@ elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
 elif [ -d "$SHRIMP_DIR" ]; then
     rm -f "$SHRIMP_PID_FILE"
     echo "→ Starting shrimp-router..."
-    nohup "$SHRIMP_DIR/.venv/bin/shrimp-router" --config "$SHRIMP_DIR/config.yaml" > data/shrimp.log 2>&1 &
+    nohup env SHRIMP_ROUTER_CONFIG="$SHRIMP_DIR/config.yaml" "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
     echo $! > "$SHRIMP_PID_FILE"
     echo "✓ Shrimp router started (PID $(cat $SHRIMP_PID_FILE))"
 else

@@ -76,6 +76,8 @@ def reset_rt(tmp_path):
     rt.system_prompt = ""
     rt.user_prompt = ""
     rt.mcp_client = None
+    rt._ROUTING_LOOP = 0
+    rt._ROUTING_COMMITS = 0
     rt.API_PORT = 19999   # nothing listens here — prevents tests leaking tasks to live server
     rt.MANAGED_PROJECTS = ["real-proj"]  # non-empty + excludes test-proj → unmanaged guard skips continuation spawning
     rt.TASK_METADATA = {}
@@ -1421,6 +1423,21 @@ class TestCallLlm:
         assert text == "OpenAI reply"
         assert isinstance(tokens, dict)
 
+    def test_loopback_openai_provider_does_not_require_api_key(self):
+        rt.LLM_PROVIDER = "shrimp"
+        rt.LLM_PROVIDERS["shrimp"] = {
+            "base_url": "http://127.0.0.1:8090/v1",
+            "model": "MiniMax-M3",
+            "api_key_env": "SHRIMP_ROUTER_API_KEY",
+            "format": "openai",
+            "max_tokens": 8096,
+        }
+        with patch.dict(os.environ, {"SHRIMP_ROUTER_API_KEY": ""}):
+            with patch("requests.post", return_value=self._openai_resp("Shrimp reply")):
+                text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
+        assert text == "Shrimp reply"
+        assert isinstance(tokens, dict)
+
     def test_anthropic_native_format_returns_text(self):
         rt.LLM_PROVIDER = "claude"
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
@@ -1504,6 +1521,32 @@ class TestCallLlm:
         msgs = bodies[0].get("messages", [])
         system_msgs = [m for m in msgs if m.get("role") == "system"]
         assert any("MY SYSTEM PROMPT" in m.get("content", "") for m in system_msgs)
+
+    def test_loopback_provider_sends_shrimp_router_headers(self):
+        rt.LLM_PROVIDER = "shrimp"
+        rt.TASK_TYPE = "bug"
+        rt._ROUTING_LOOP = 51
+        rt._ROUTING_COMMITS = 0
+        rt.LLM_PROVIDERS["shrimp"] = {
+            "base_url": "http://127.0.0.1:8090/v1",
+            "model": "MiniMax-M3",
+            "api_key_env": "",
+            "format": "openai",
+            "max_tokens": 8096,
+        }
+        headers_used = []
+
+        def capture(url, headers=None, **kwargs):
+            headers_used.append(headers or {})
+            return self._openai_resp("ok")
+
+        with patch.dict(os.environ, {"SHRIMP_ROUTER_HINTS": "1"}):
+            with patch("requests.post", side_effect=capture):
+                rt.call_llm("sys", [])
+
+        assert headers_used[0]["X-Task-Type"] == "bug"
+        assert headers_used[0]["X-Loop-Count"] == "51"
+        assert headers_used[0]["X-Has-Commits"] == "false"
 
     def test_anthropic_native_uses_x_api_key_header(self):
         rt.LLM_PROVIDER = "claude"
