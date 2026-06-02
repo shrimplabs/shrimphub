@@ -13,19 +13,32 @@ from __future__ import annotations
 from swarm.tools._shared import _sanitize_text  # noqa: F401
 
 
+_READ_FILE_DEFAULT_LIMIT = 2000  # lines; prevents large files from bloating context
+
 def read_file(relative_path: str, offset: int = 0, limit: int = 0) -> dict:
-    """Read a file. offset/limit are in lines (0 = no limit)."""
+    """Read a file. offset/limit are in lines (0 = use default limit of 300 lines).
+    Pass limit=-1 to read the entire file regardless of size."""
     import swarm.tools.core as _core
     path = _core.os.path.join(_core._project_root(), relative_path)
     try:
         lines, encoding = _core._read_lines_with_fallback(path)
         total = len(lines)
-        if offset or limit:
-            chunk = lines[offset: offset + limit] if limit else lines[offset:]
-            content = "".join(chunk)
-            return {"ok": True, "content": content, "total_lines": total,
-                    "returned_lines": len(chunk), "offset": offset, "encoding": encoding}
-        return {"ok": True, "content": "".join(lines), "total_lines": total, "encoding": encoding}
+        effective_limit = limit if limit != 0 else _READ_FILE_DEFAULT_LIMIT
+        if effective_limit == -1:
+            chunk = lines[offset:]
+        else:
+            chunk = lines[offset: offset + effective_limit]
+        truncated = len(chunk) < (total - offset)
+        result = {"ok": True, "content": "".join(chunk), "total_lines": total,
+                  "returned_lines": len(chunk), "offset": offset, "encoding": encoding}
+        if truncated:
+            result["truncated"] = True
+            result["hint"] = (
+                f"File has {total} lines; showing {offset}–{offset + len(chunk) - 1}. "
+                f"Use read_file(path, offset={offset + len(chunk)}) for next page, "
+                f"or read_file_range(path, start, end) for a specific range."
+            )
+        return result
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
