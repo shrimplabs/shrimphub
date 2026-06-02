@@ -30,6 +30,23 @@ else
     echo "✓ VLM started (PID $(cat $VLM_PID_FILE)) — model loads on first request"
 fi
 
+# ── Shrimp router ────────────────────────────────────────────────────────────
+SHRIMP_PID_FILE=".shrimp.pid"
+SHRIMP_DIR="${SHRIMP_ROUTER_DIR:-$HOME/workspace/shrimp-router}"
+if [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRIMP_PID_FILE)" 2>/dev/null; then
+    echo "✓ Shrimp router already running (PID $(cat $SHRIMP_PID_FILE))"
+elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
+    echo "✓ Shrimp router already responding on port 8090"
+elif [ -d "$SHRIMP_DIR" ]; then
+    rm -f "$SHRIMP_PID_FILE"
+    echo "→ Starting shrimp-router..."
+    nohup "$SHRIMP_DIR/.venv/bin/shrimp-router" --config "$SHRIMP_DIR/config.yaml" > data/shrimp.log 2>&1 &
+    echo $! > "$SHRIMP_PID_FILE"
+    echo "✓ Shrimp router started (PID $(cat $SHRIMP_PID_FILE))"
+else
+    echo "  Shrimp router not found at $SHRIMP_DIR — skipping"
+fi
+
 # ── Wait for swarm to be ready, then open browser ───────────────────────────
 echo "→ Waiting for dashboard..."
 for i in $(seq 1 20); do
