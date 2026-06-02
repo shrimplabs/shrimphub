@@ -425,6 +425,18 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         if thinking_budget > 0:
             body["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
 
+    # Inject routing hint headers when pointing at shrimp-router.
+    # Controlled by SHRIMP_ROUTER_HINTS env var (default "1", set "0" to disable).
+    # The router uses these to escalate to stronger models on struggling agents.
+    if os.environ.get("SHRIMP_ROUTER_HINTS", "1") != "0" and "localhost" in base_url:
+        try:
+            import swarm.agent_runtime as _rt
+            headers["X-Task-Type"] = getattr(_rt, "TASK_TYPE", "")
+            headers["X-Loop-Count"] = str(getattr(_rt, "_ROUTING_LOOP", 0))
+            headers["X-Has-Commits"] = "true" if getattr(_rt, "_ROUTING_COMMITS", 0) > 0 else "false"
+        except Exception:
+            pass
+
     # Quota-aware pre-call sleep: if MiniMax quota is near the cap, sleep until
     # the interval resets rather than burning retries on 429s.
     if provider_name == "minimax":

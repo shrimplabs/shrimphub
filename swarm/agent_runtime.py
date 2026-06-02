@@ -177,6 +177,10 @@ PLUGIN_USER: str = ""
 LLM_PROVIDER: str = "minimax"
 LLM_PROVIDERS: dict = {}  # populated by wrapper with all known providers (including custom ones)
 
+# Routing hints -- updated each loop so llm_utils can inject them as headers
+_ROUTING_LOOP: int = 0        # current tool loop count
+_ROUTING_COMMITS: int = 0     # number of git_commit calls so far
+
 # EXPERIMENT: meta-investigation -- a short out-of-band LLM call that fires when
 # the same error string repeats 3+ times in run_command output across non-consecutive
 # loops. It reads relevant files, probes the environment, then injects a hint into
@@ -913,6 +917,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             # H1-H3: increment tool call counter
             tool_name = tc.get("tool", "?")
             _tool_call_counts[tool_name] = _tool_call_counts.get(tool_name, 0) + 1
+
+            # Update routing hints for llm_utils header injection
+            import swarm.agent_runtime as _self_mod
+            _self_mod._ROUTING_LOOP = tool_loop_count
+            _self_mod._ROUTING_COMMITS = _tool_call_counts.get("git_commit", 0)
 
             # H7: track written and read files
             args = tc.get("args", {})
