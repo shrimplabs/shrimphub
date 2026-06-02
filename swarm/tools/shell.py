@@ -180,7 +180,22 @@ def run_command(cmd: str, timeout: int = 120) -> dict:
         err = "\n".join(part for part in ((err or "").strip(), f"Godot runtime error detected: {godot_error}") if part)
         return {"ok": False, "stdout": out, "stderr": err}
 
-    result = {"ok": code == 0, "stdout": out, "stderr": err}
+    # Cap output to prevent large outputs from bloating context
+    _MAX_OUTPUT_CHARS = 20_000
+    truncated_stdout = out
+    truncated_stderr = err
+    output_note = None
+    if len(out) + len(err) > _MAX_OUTPUT_CHARS:
+        keep = _MAX_OUTPUT_CHARS // 2
+        if len(out) > keep:
+            truncated_stdout = out[:keep] + f"\n[stdout truncated — {len(out) - keep} chars omitted]"
+        if len(err) > keep:
+            truncated_stderr = err[:keep] + f"\n[stderr truncated — {len(err) - keep} chars omitted]"
+        output_note = "Output truncated. Pipe through grep/head to reduce output if you need a specific section."
+
+    result = {"ok": code == 0, "stdout": truncated_stdout, "stderr": truncated_stderr}
+    if output_note:
+        result["note"] = output_note
 
     # Cache successful read-only results
     if _is_cacheable(cmd) and code == 0:

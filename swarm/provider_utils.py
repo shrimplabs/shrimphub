@@ -11,7 +11,7 @@ LLM_PROVIDERS: dict = {
         "model": "MiniMax-M3",
         "api_key_env": "MINIMAX_API_KEY",
         "format": "anthropic",
-        "context_window": 1048576,
+        "context_window": 200000,
         "max_tokens": 32768,
         "thinking_budget": 0,
     },
