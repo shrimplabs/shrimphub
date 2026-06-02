@@ -473,16 +473,14 @@ def launch_game(project_path: str) -> dict:
         # headless mode skips rendering so get_image() always returns null.
         # The game window may briefly appear on screen; this is expected.
         # Clicks go through StateServer press_button/input commands (no window focus needed).
-        env = dict(os.environ)
-        env["STATE_PORT"] = str(_state_port)
-        env["HARNESS_PORT"] = str(_harness_port)
         _qa_game_process = subprocess.Popen(
             [godot_bin, "--path", resolved_path,
-             "--resolution", "1280x720"],
+             "--resolution", "1280x720",
+             "--", "--state-port", str(_state_port), "--harness-port", str(_harness_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             cwd=resolved_path,
-            env=env,
+            env=dict(os.environ),
         )
         pid = _qa_game_process.pid
         log(f"Launched Godot PID {pid} for {resolved_path} (state={_state_port} harness={_harness_port})")
