@@ -54,14 +54,26 @@ def _ghost_timestamp(task: dict, project: str) -> float:
 
 
 def _load_history_tasks(data_dir, project=None, max_entries=500):
-    """Return completed/failed tasks from task-history.jsonl."""
+    """Return completed/failed tasks from task-history.jsonl.
+
+    Uses a tail-read strategy: seeks to the end of the file and reads backward
+    in 256KB chunks to avoid loading the entire (potentially 100MB+) file.
+    """
     history_path = _os.path.join(str(data_dir), "task-history.jsonl")
     if not _os.path.exists(history_path):
         return []
     tasks = []
     try:
-        with open(history_path, encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
+        chunk_size = 256 * 1024  # 256 KB
+        with open(history_path, "rb") as fh:
+            fh.seek(0, 2)
+            file_size = fh.tell()
+            # Read up to max_entries * ~2KB average line size from the end
+            read_size = min(file_size, chunk_size * max(1, max_entries // 100))
+            fh.seek(max(0, file_size - read_size))
+            raw = fh.read()
+        lines = raw.decode("utf-8", errors="replace").splitlines()
+        # Take only the last max_entries lines
         for line in lines[-max_entries:]:
             line = line.strip()
             if not line:
@@ -95,7 +107,8 @@ def _completed_ids_from_history(data_dir, project=None, db=None) -> set[str]:
     }
     if db is not None:
         # Dedupe: any task ID in the live DB takes precedence over JSONL
-        live_ids = {row["id"] for row in db.task_get_all()}
+        # Use task_get_completed_ids() — much cheaper than full task_get_all()
+        live_ids = set(db.task_get_completed_ids())
         jsonl_ids -= live_ids
     return jsonl_ids
 
@@ -764,9 +777,10 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                         return False
 
                     db_hist_global = [
-                        dict(t) for t in db.task_get_all()
-                        if t.get("status") in ("completed", "cancelled", "failed")
-                        and t.get("id") not in active_ids
+                        dict(t) for t in db.task_get_recent_by_statuses(
+                            ("completed", "cancelled", "failed"), limit=500
+                        )
+                        if t.get("id") not in active_ids
                         and not _global_noise(t)
                     ]
                     db_hist_ids = {t["id"] for t in db_hist_global}
