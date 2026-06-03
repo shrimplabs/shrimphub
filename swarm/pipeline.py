@@ -162,7 +162,10 @@ def run_pipeline(
         phase_cls = PHASE_REGISTRY[phase_name]
         phase = phase_cls(config=config)
 
-        log_fn(f"[Pipeline] → {phase_name}")
+        log_fn(f"")
+        log_fn(f"{'='*60}")
+        log_fn(f"  PHASE: {phase_name.upper()}  ({pipeline.index(phase_name)+1}/{len(pipeline)})")
+        log_fn(f"{'='*60}")
         t_start = time.monotonic()
 
         try:
@@ -176,7 +179,8 @@ def run_pipeline(
 
         elapsed = time.monotonic() - t_start
         state.mark_phase_done(phase_name, elapsed)
-        log_fn(f"[Pipeline] ✓ {phase_name} ({elapsed:.1f}s)")
+        log_fn(f"  ✓ {phase_name.upper()} complete ({elapsed:.1f}s)")
+        log_fn(f"{'='*60}")
 
         if state.failed:
             log_fn(f"[Pipeline] Stopping — phase {phase_name} signalled failure")
