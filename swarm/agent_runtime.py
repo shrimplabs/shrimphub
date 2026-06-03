@@ -201,6 +201,11 @@ SCOUT_LOOPS: dict = {}         # task_type -> loop count, e.g. {"bug": 15, "feat
 # If empty or same as LLM_PROVIDER, uses the main provider (existing behaviour).
 COMPACTION_PROVIDER: str = ""  # e.g. "claude-haiku"; empty = disabled
 
+# Pipeline phase config -- set by wrapper from config.json "pipelines" key.
+# If non-empty, main() runs the phase pipeline instead of the legacy tool loop.
+# Example: ["plan", "scout", "work", "validate"]
+PIPELINE: list = []
+
 # Write-blocked tools during scout phase -- enforced at dispatch level.
 _SCOUT_BLOCKED_TOOLS: frozenset = frozenset({
     "write_file", "patch_file", "append_file",
@@ -356,6 +361,35 @@ def main() -> int:
         return 1
 
     project_path = _project_root()
+
+    # --- Pipeline branch ---
+    # If a pipeline is configured for this task type, run it instead of the
+    # legacy tool loop. Falls back to legacy if pipeline is empty or fails to
+    # import (so existing tasks are unaffected).
+    if PIPELINE:
+        try:
+            from swarm.pipeline import TaskState, run_pipeline
+            _pipeline_state = TaskState(
+                task_id=TASK_ID,
+                task_type=TASK_TYPE,
+                project=PROJECT,
+                description=TASK_DESC,
+                project_path=str(project_path),
+                workspace=str(WORKSPACE),
+            )
+            _pipeline_config = {
+                "plan_provider": LLM_PROVIDER,
+                "scout_provider": SCOUT_PROVIDER or LLM_PROVIDER,
+                "work_provider": LLM_PROVIDER,
+                "validation_timeout": 120,
+            }
+            _final_state = run_pipeline(PIPELINE, _pipeline_state, config=_pipeline_config, log_fn=log)
+            return 1 if _final_state.failed else 0
+        except Exception as _pipe_exc:
+            log(f"[Pipeline] ERROR: {_pipe_exc} — falling back to legacy loop")
+            import traceback
+            log(traceback.format_exc())
+            # Fall through to legacy loop below
 
     # If this is a continuation task, load the progress file into context
     _progress_context = ""
