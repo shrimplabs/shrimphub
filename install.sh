@@ -227,7 +227,89 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Create launcher script
+# 8. Headroom proxy (optional — token compression for LLM calls)
+# ---------------------------------------------------------------------------
+
+echo
+info "Setting up headroom proxy (optional token compression)..."
+
+HEADROOM_VENV="$HOME/workspace/headroom-venv"
+HEADROOM_INSTALLED=false
+
+# headroom-ai requires Python 3.10–3.12; find a compatible interpreter
+HEADROOM_PYTHON=""
+for candidate in python3.12 python3.11 python3.10; do
+    if command -v "$candidate" &>/dev/null; then
+        HEADROOM_PYTHON="$candidate"
+        break
+    fi
+done
+
+if [ -z "$HEADROOM_PYTHON" ]; then
+    warn "Python 3.10–3.12 not found — skipping headroom install. (headroom-ai does not support Python 3.13+ yet)"
+elif [ -f "$HEADROOM_VENV/bin/headroom" ]; then
+    success "Headroom already installed at $HEADROOM_VENV"
+    HEADROOM_INSTALLED=true
+else
+    info "Installing headroom-ai into $HEADROOM_VENV using $HEADROOM_PYTHON..."
+    mkdir -p "$(dirname "$HEADROOM_VENV")"
+    "$HEADROOM_PYTHON" -m venv "$HEADROOM_VENV"
+    "$HEADROOM_VENV/bin/pip" install --quiet --upgrade pip
+    if "$HEADROOM_VENV/bin/pip" install --quiet "headroom-ai[all]"; then
+        success "Headroom installed"
+        HEADROOM_INSTALLED=true
+    else
+        warn "headroom-ai install failed — continuing without it. You can install it later:"
+        warn "  $HEADROOM_PYTHON -m venv $HEADROOM_VENV && $HEADROOM_VENV/bin/pip install 'headroom-ai[all]'"
+    fi
+fi
+
+if [ "$HEADROOM_INSTALLED" = true ]; then
+    # Wire up Claude Code (writes ANTHROPIC_BASE_URL to .claude/settings.local.json)
+    if "$HEADROOM_VENV/bin/headroom" init claude --non-interactive &>/dev/null 2>&1 || \
+       "$HEADROOM_VENV/bin/headroom" init claude &>/dev/null 2>&1; then
+        success "Headroom wired to Claude Code"
+    else
+        warn "Could not auto-configure headroom for Claude Code. Run manually: headroom init claude"
+    fi
+
+    # Add OPENAI_BASE_URL for Codex if not already set
+    SHELL_RC=""
+    if [ -f "$HOME/.zshrc" ]; then SHELL_RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.bashrc" ]; then SHELL_RC="$HOME/.bashrc"
+    fi
+
+    if [ -n "$SHELL_RC" ]; then
+        if ! grep -q "OPENAI_BASE_URL.*8877" "$SHELL_RC" 2>/dev/null; then
+            echo '' >> "$SHELL_RC"
+            echo '# Headroom proxy for Codex' >> "$SHELL_RC"
+            echo 'export OPENAI_BASE_URL=http://localhost:8877/v1' >> "$SHELL_RC"
+            success "Added OPENAI_BASE_URL to $SHELL_RC"
+        else
+            success "OPENAI_BASE_URL already set in $SHELL_RC"
+        fi
+    fi
+
+    # Point swarm's MiniMax through headroom if a MiniMax key was configured
+    if grep -q "MINIMAX_API_KEY" "${ENV_FILE:-/dev/null}" 2>/dev/null; then
+        "$VENV_PY" - <<PYEOF
+import json, pathlib
+cfg_path = pathlib.Path("config.json")
+cfg = json.loads(cfg_path.read_text())
+providers = cfg.setdefault("llm_providers", {})
+mm = providers.setdefault("minimax", {})
+if not mm.get("base_url"):
+    mm["base_url"] = "http://localhost:8888/v1"
+    cfg_path.write_text(json.dumps(cfg, indent=2))
+    print("  → Swarm MiniMax routed through headroom:8888")
+PYEOF
+    fi
+
+    info "Headroom services start automatically via launch.sh."
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Create launcher script
 # ---------------------------------------------------------------------------
 
 echo
@@ -280,7 +362,7 @@ chmod +x "$LAUNCHER"
 success "Launcher created at $LAUNCHER"
 
 # ---------------------------------------------------------------------------
-# 9. Done
+# 10. Done
 # ---------------------------------------------------------------------------
 
 echo
