@@ -30,6 +30,28 @@ else
     echo "✓ VLM started (PID $(cat $VLM_PID_FILE)) — model loads on first request"
 fi
 
+# ── Headroom proxy (MiniMax compression) ─────────────────────────────────────
+HEADROOM_PID_FILE=".headroom.pid"
+HEADROOM_VENV="$HOME/workspace/headroom-venv"
+if [ -f "$HEADROOM_PID_FILE" ] && kill -0 "$(cat $HEADROOM_PID_FILE)" 2>/dev/null; then
+    echo "✓ Headroom already running (PID $(cat $HEADROOM_PID_FILE))"
+elif curl -s --max-time 1 http://localhost:8888/livez >/dev/null 2>&1; then
+    echo "✓ Headroom already responding on port 8888"
+elif [ -f "$HEADROOM_VENV/bin/headroom" ]; then
+    rm -f "$HEADROOM_PID_FILE"
+    echo "→ Starting headroom proxy..."
+    nohup "$HEADROOM_VENV/bin/headroom" proxy \
+        --port 8888 --mode cache \
+        --anthropic-api-url https://api.minimax.io/anthropic/v1 \
+        --no-telemetry \
+        --log-file data/headroom.log \
+        > data/headroom-server.log 2>&1 &
+    echo $! > "$HEADROOM_PID_FILE"
+    echo "✓ Headroom started (PID $(cat $HEADROOM_PID_FILE))"
+else
+    echo "  Headroom not found at $HEADROOM_VENV — skipping"
+fi
+
 # ── Shrimp router ────────────────────────────────────────────────────────────
 SHRIMP_PID_FILE=".shrimp.pid"
 SHRIMP_DIR="${SHRIMP_ROUTER_DIR:-$HOME/workspace/shrimp-router}"
