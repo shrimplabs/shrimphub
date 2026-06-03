@@ -85,6 +85,7 @@ def compact_conversation(
     system_prompt: str,
     compact_token_threshold: int,
     log_fn=log,
+    compaction_provider: str | None = None,
 ) -> list:
     """Compress the middle of a conversation when it exceeds the token threshold.
 
@@ -137,16 +138,22 @@ def compact_conversation(
     )
 
     try:
-        summary_text, _, _thinking = call_llm(summary_prompt, [{"role": "user", "content": history_text}])
+        _compact_provider = compaction_provider or None
+        summary_text, _, _thinking = call_llm(
+            summary_prompt,
+            [{"role": "user", "content": history_text}],
+            provider=_compact_provider,
+        )
         compacted = (
             conversation[:1]
             + [{"role": "user", "content": f"[CONTEXT SUMMARY — previous work compressed]\n{summary_text}"},
                {"role": "assistant", "content": "Understood. I'll continue from where I left off based on the summary."}]
             + trimmed_tail
         )
+        _provider_note = f" via {_compact_provider}" if _compact_provider else ""
         log_fn(
             f"[Compaction] Compressed {len(to_summarise)} messages into summary "
-            f"({len(summary_text)} chars); conv was ~{_conv_token_estimate} tokens "
+            f"({len(summary_text)} chars){_provider_note}; conv was ~{_conv_token_estimate} tokens "
             f"(threshold {compact_token_threshold})"
         )
         return compacted

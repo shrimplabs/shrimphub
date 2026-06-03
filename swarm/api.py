@@ -766,12 +766,19 @@ def create_app(
 
         def _quota_signal_agents(sig: int):
             """Send signal to all active agent processes (SIGSTOP or SIGCONT).
-            Covers both in-memory handles and DB-tracked orphaned agents (PID only)."""
+            Covers both in-memory handles and DB-tracked orphaned agents (PID only).
+
+            When SIGSTOPping, records freeze_started on each handle so the watchdog
+            timeout clock is paused.  When SIGCONTing, adds the frozen duration to
+            the handle's started time so elapsed time only counts un-frozen wall time.
+            """
             import signal as _signal
             from swarm.agent_lifecycle import _active_handles, _handle_lock
             sig_name = "SIGSTOP" if sig == _signal.SIGSTOP else "SIGCONT"
+            is_stop = (sig == _signal.SIGSTOP)
+            now = time.time()
 
-            # Collect PIDs from in-memory handles
+            # Collect PIDs from in-memory handles + pause/resume timeout clock
             pids: dict[int, str] = {}  # pid -> agent_id
             with _handle_lock:
                 for agent_id, data in _active_handles.items():
@@ -781,6 +788,16 @@ def create_app(
                         pids[proc.pid] = agent_id
                     elif pid:
                         pids[pid] = agent_id
+
+                    # Pause/resume timeout clock
+                    if is_stop:
+                        data["freeze_started"] = now
+                    else:
+                        freeze_started = data.pop("freeze_started", None)
+                        if freeze_started:
+                            frozen_secs = now - freeze_started
+                            data["started"] = data.get("started", now) + frozen_secs
+                            print(f"[Quota] Agent {agent_id[:8]} unfrozen after {frozen_secs:.0f}s — timeout clock adjusted")
 
             # Also cover DB-tracked agents not in _active_handles (orphans from prior session)
             for agent in db.agent_get_active():
