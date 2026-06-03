@@ -667,8 +667,21 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
     # Phase 4 -- diff, tokens, mark agent finished.
     diff_stat = _capture_project_diff_stat(project)
-    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = \
-        _read_agent_token_usage(task_id, agent_id)
+    # Defensive unpacking: handle both the full 7-tuple (input, output, cache_read,
+    # cache_write, loop_count, provider, model) and the legacy 3-tuple shape used by
+    # older test mocks. Cache fields default to zero / empty when absent.
+    _tok_result = _read_agent_token_usage(task_id, agent_id)
+    if len(_tok_result) >= 7:
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = _tok_result[:7]
+    elif len(_tok_result) >= 3:
+        input_tokens, output_tokens, loop_count = _tok_result[:3]
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        provider = ""
+        model = ""
+    else:
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = \
+            0, 0, 0, 0, 0, "", ""
     from swarm.provider_utils import estimate_cost_usd
     cost = estimate_cost_usd(model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
     _mark_agent_finished(

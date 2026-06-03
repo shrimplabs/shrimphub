@@ -321,7 +321,7 @@ _project_port_cache: dict[str, tuple[int, int]] = {}
 _PORT_LOCK_FILE = "/tmp/swarm_qa_port_lock.lock"
 
 # ---------------------------------------------------------------------------
-# Godot PID registry — survives agent crashes / SIGKILL
+# Godot PID registry -- survives agent crashes / SIGKILL
 # ---------------------------------------------------------------------------
 # Each launch_game* call registers its Godot PID here. kill_game* deregisters.
 # sweep_godot_zombies() is called at server startup to reap any PIDs left over
@@ -388,7 +388,7 @@ def sweep_godot_zombies() -> list[int]:
             except ProcessLookupError:
                 alive = False
             except PermissionError:
-                alive = True  # exists but owned by another user — leave it
+                alive = True  # exists but owned by another user -- leave it
             if alive:
                 # Verify it's actually Godot before killing
                 try:
@@ -403,11 +403,11 @@ def sweep_godot_zombies() -> list[int]:
                         print(f"[qa] sweep_godot_zombies: reaped PID {pid} "
                               f"({info.get('project','?')} port={info.get('state_port','?')})")
                     else:
-                        # PID recycled to a non-Godot process — drop from registry
+                        # PID recycled to a non-Godot process -- drop from registry
                         pass
                 except Exception:
                     survivors[pid_str] = info
-            # Dead or reaped — don't keep in registry
+            # Dead or reaped -- don't keep in registry
         path.write_text(json.dumps(survivors, indent=2))
         return reaped
 
@@ -1164,7 +1164,15 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
     image_paths = image_path if isinstance(image_path, list) else [image_path]
     primary_image = image_paths[0] if image_paths else ""
 
-    def _run():
+    # NOTE: `_run` is executed in a worker thread via ThreadPoolExecutor. The
+    # retry path reassigns both `image_paths` and `primary_image` to point at
+    # the freshly retaken screenshot. If we used closure references for those
+    # two names, Python's compile-time scope analysis would mark them as locals
+    # for the entire function and the very first `len(image_paths)` access
+    # would raise UnboundLocalError. Capture the initial values via default
+    # arguments (a Python idiom for early-binding) and use distinct local names
+    # inside `_run` so the rebind doesn't shadow the closure binding.
+    def _run(_initial_paths=image_paths, _initial_primary=primary_image):
         try:
             from swarm.vision import get_provider_name
             cfg = QA_CONFIG if QA_CONFIG else {}
@@ -1175,11 +1183,14 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
             iw = _qa_window.get("viewport_w", _qa_window["w"])
             ih = _qa_window.get("viewport_h", _qa_window["h"])
 
+            current_paths = list(_initial_paths)
+            current_primary = _initial_primary
+
             if provider.get("format") == "mcp" and mcp_client is not None:
                 from swarm.agent_runtime import mcp_call_tool
                 server = provider.get("mcp_server", "minimax")
                 tool = provider.get("mcp_tool", "understand_image")
-                result = mcp_call_tool(server, tool, {"image_source": primary_image, "prompt": question})
+                result = mcp_call_tool(server, tool, {"image_source": current_primary, "prompt": question})
                 answer = result.get("content", str(result))
                 log(f"vision_query/mcp/{model_tier}: {str(answer)[:80]}")
                 return {"ok": True, "answer": answer, "provider": provider_name}
@@ -1187,21 +1198,21 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
             from swarm.vision import call_vision, call_vision_multi
             for _attempt in range(2):
                 try:
-                    if len(image_paths) > 1:
-                        answer = call_vision_multi(image_paths, question, provider_name, cfg)
+                    if len(current_paths) > 1:
+                        answer = call_vision_multi(current_paths, question, provider_name, cfg)
                     else:
-                        answer = call_vision(primary_image, question, provider_name, cfg)
+                        answer = call_vision(current_primary, question, provider_name, cfg)
                     break
                 except OSError as _img_err:
-                    if _attempt == 0 and len(image_paths) == 1:
-                        # Truncated image — take a fresh screenshot and retry once
+                    if _attempt == 0 and len(current_paths) == 1:
+                        # Truncated image -- take a fresh screenshot and retry once
                         log(f"vision_query: image truncated ({_img_err}), retaking screenshot")
                         import time as _time
                         _time.sleep(0.5)
-                        fresh = take_screenshot(primary_image)
+                        fresh = take_screenshot(current_primary)
                         if fresh.get("ok"):
-                            primary_image = fresh.get("path", primary_image)
-                            image_paths = [primary_image]
+                            current_primary = fresh.get("path", current_primary)
+                            current_paths = [current_primary]
                         else:
                             raise
                     else:
@@ -1217,7 +1228,7 @@ def vision_query(image_path, question: str, model_tier: str = "fast", timeout: i
                 import struct as _struct
                 img_w, img_h = iw, ih
                 try:
-                    with open(primary_image, "rb") as _f:
+                    with open(current_primary, "rb") as _f:
                         _hdr = _f.read(24)
                         if len(_hdr) >= 24 and _hdr[:8] == b'\x89PNG\r\n\x1a\n':
                             img_w = _struct.unpack('>I', _hdr[16:20])[0]
