@@ -34,5 +34,6 @@ _stop() {
 
 _stop "Swarm controller" ".swarm.pid"   "swarm_runner.py api"
 _stop "VLM server"       ".vlm.pid"     "mlx_vlm.server"
+_stop "Headroom proxy"   ".headroom.pid" "headroom.*8888"
 _stop "Shrimp router"    ".shrimp.pid"  "shrimp_router.app"
 echo "All done."
