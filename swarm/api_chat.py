@@ -93,7 +93,7 @@ def _build_state_snapshot(db, all_tasks=None, all_agents=None, projects=None):
 
     return f"""CURRENT SWARM STATE ({datetime.now().strftime('%H:%M:%S')}):
 
-KNOWN PROJECTS (exact names — use these verbatim when creating tasks):
+KNOWN PROJECTS (exact names -- use these verbatim when creating tasks):
 {', '.join(known_project_names) or '(none registered)'}
 
 Active agents ({len(active_agents)}):
@@ -314,19 +314,19 @@ You have access to the following tools. Call them using JSON blocks:
 IMPORTANT: The closing tag MUST include the forward slash: [/TOOL_CALL]. Never use [TOOL_CALL] as a closing tag.
 
 File/shell tools (paths relative to project root):
-- read_file(path) — read a file
-- write_file(path, content) — write/overwrite a file
-- list_dir(path="") — list directory contents
-- run_command(command, timeout_seconds=30) — run a shell command in the project root
-- git_commit(message) — stage all changes and commit
+- read_file(path) -- read a file
+- write_file(path, content) -- write/overwrite a file
+- list_dir(path="") -- list directory contents
+- run_command(command, timeout_seconds=30) -- run a shell command in the project root
+- git_commit(message) -- stage all changes and commit
 
 Task graph tools:
-- list_tasks(status="") — list tasks for this project; filter by status (pending/in_progress/completed/failed)
-- create_task(type, description, priority=50, dependencies=[]) — create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
-- update_task(task_id, fields) — update task fields (e.g. priority, description)
-- get_critical_path() — find the longest pending dependency chain (the bottleneck)
-- get_subgraph(root_id, direction="downstream", depth=3) — BFS from a task to see its dependency cluster
-- bulk_deps(ops) — apply multiple add/remove dependency ops atomically; ops=[{action,task_id,dep_id}]
+- list_tasks(status="") -- list tasks for this project; filter by status (pending/in_progress/completed/failed)
+- create_task(type, description, priority=50, dependencies=[]) -- create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
+- update_task(task_id, fields) -- update task fields (e.g. priority, description)
+- get_critical_path() -- find the longest pending dependency chain (the bottleneck)
+- get_subgraph(root_id, direction="downstream", depth=3) -- BFS from a task to see its dependency cluster
+- bulk_deps(ops) -- apply multiple add/remove dependency ops atomically; ops=[{action,task_id,dep_id}]
 
 When asked about priorities or what to work on next, call get_critical_path() first.
 When asked about project state, read AGENT_KNOWLEDGE.md if present.
@@ -340,7 +340,7 @@ BEHAVIOUR GUIDELINES:
 - Investigate before answering: use read_file or run_command to look at actual code, logs, or test output rather than guessing
 - When asked about priorities or what to work on, call get_critical_path() first, then explain the bottleneck
 - Read AGENT_KNOWLEDGE.md before answering questions about project architecture or recent changes
-- Be concise and direct — reference specific file paths, task IDs, and log line numbers
+- Be concise and direct -- reference specific file paths, task IDs, and log line numbers
 - You have full write access: use write_file and git_commit when the user asks you to make changes
 - When you find a bug or issue worth tracking, offer to create a task for it
 
@@ -450,7 +450,7 @@ def _execute_graph_tool(tool: str, args: dict, project: str, db) -> str:
         if not tasks:
             return f"No tasks found for project '{project}'" + (f" with status '{status_filter}'" if status_filter else "")
         lines = [
-            f"[{t['status']}] {t['id']}: {t.get('type','')} — {t.get('description','')[:100]}"
+            f"[{t['status']}] {t['id']}: {t.get('type','')} -- {t.get('description','')[:100]}"
             for t in tasks[:50]
         ]
         return "\n".join(lines)
@@ -685,7 +685,7 @@ def _build_project_context(workspace: Path, project: str, data_dir: Path, db) ->
 
 
 # ---------------------------------------------------------------------------
-# Unified chat — module-level state (stop signals, confirm tokens)
+# Unified chat -- module-level state (stop signals, confirm tokens)
 # ---------------------------------------------------------------------------
 
 _UNIFIED_STOP_EVENTS: dict[str, threading.Event] = {}
@@ -693,7 +693,7 @@ _UNIFIED_CONFIRM_TOKENS: dict[str, dict] = {}   # token -> {action, args, expire
 _UNIFIED_CONFIRM_LOCK = threading.Lock()
 _UNIFIED_CONFIRM_TTL_SECONDS = 60
 
-# Hard-blocked shell patterns — rejected regardless of any confirmation
+# Hard-blocked shell patterns -- rejected regardless of any confirmation
 _UNIFIED_HARD_BLOCKED = frozenset([
     "rm -rf /", "rm -rf ~", "git push --force", "git push -f",
     "sudo rm", "mkfs", "dd if=", ":(){:|:&};:", "chmod -R 777 /",
@@ -739,16 +739,16 @@ def _validate_confirm_token(token: str) -> tuple[bool, str]:
 _UNIFIED_GLOBAL_SCOPE = "_global"
 
 _UNIFIED_GLOBAL_SYSTEM_PROMPT = """\
-You are the Swarm — the brain behind the agent orchestration system.
+You are the Swarm -- the brain behind the agent orchestration system.
 You can observe and control tasks, agents, and projects across all managed projects.
 
 BEHAVIOUR GUIDELINES:
 - Investigate before answering: use list_tasks or the state snapshot to look at actual data
-- Be concise and direct — reference specific task IDs, project names, and agent IDs
+- Be concise and direct -- reference specific task IDs, project names, and agent IDs
 - When asked what to work on, use get_critical_path for the most relevant project
 - Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
-- CRITICAL: project names must exactly match the KNOWN PROJECTS list in the state snapshot. If the user gives a name that doesn't match exactly, pick the closest match and confirm before creating anything — never silently create a task on a misspelled or invented project name
-- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English — one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
+- CRITICAL: project names must exactly match the KNOWN PROJECTS list in the state snapshot. If the user gives a name that doesn't match exactly, pick the closest match and confirm before creating anything -- never silently create a task on a misspelled or invented project name
+- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English -- one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
 
 TOOL USAGE:
 {tools}
@@ -759,18 +759,18 @@ TOOL USAGE:
 
 _UNIFIED_PROJECT_SYSTEM_PROMPT = """\
 You are the Swarm, focused on project '{project}'.
-You can read code, inspect tasks and agents, make changes, and commit — ask anything or give orders.
+You can read code, inspect tasks and agents, make changes, and commit -- ask anything or give orders.
 Your role is to help the user understand what is happening, diagnose issues, and decide what to work on next.
 
 BEHAVIOUR GUIDELINES:
 - Investigate before answering: use read_file or run_command to look at actual code, logs, or test output rather than guessing
 - When asked about priorities or what to work on, call get_critical_path() first, then explain the bottleneck
 - Read AGENT_KNOWLEDGE.md before answering questions about project architecture or recent changes
-- Be concise and direct — reference specific file paths, task IDs, and log line numbers
+- Be concise and direct -- reference specific file paths, task IDs, and log line numbers
 - You have full write access: use write_file and git_commit when the user asks you to make changes
 - When you find a bug or issue worth tracking, offer to create a task for it
 - Destructive actions (delete_task, kill_agent, reset_all_tasks) will require confirmation
-- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English — one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
+- Before executing a cluster of actions (2+ tool calls), briefly state what you're about to do in plain English -- one sentence is enough. After completing a complex set of actions, give a short summary of what was done. For single simple actions, just do it.
 
 TOOL USAGE:
 {tools}
@@ -780,37 +780,37 @@ TOOL USAGE:
 {context}"""
 
 _UNIFIED_TOOLS_DESCRIPTION = """\
-You have access to the following tools. Call them using strict JSON blocks — args MUST be a JSON object with quoted keys and JSON values, never CLI flags:
+You have access to the following tools. Call them using strict JSON blocks -- args MUST be a JSON object with quoted keys and JSON values, never CLI flags:
 [TOOL_CALL]{"tool": "tool_name", "args": {"key": "value", "num": 50, "list": []}}[/TOOL_CALL]
 
-Example — create a QA task:
+Example -- create a QA task:
 [TOOL_CALL]{"tool": "create_task", "args": {"project": "my-project", "type": "qa", "description": "Run QA checks", "priority": 75, "dependencies": []}}[/TOOL_CALL]
 
 IMPORTANT: args must be a JSON object. Never use --flag style. The closing tag must be [/TOOL_CALL] with a forward slash.
 
-File/shell tools (paths relative to project root — only available in project scope):
-- read_file(path) — read a file
-- write_file(path, content) — write/overwrite a file
-- list_dir(path="") — list directory contents
-- run_command(command, timeout_seconds=30) — run a shell command in the project root
-- git_commit(message) — stage all changes and commit
+File/shell tools (paths relative to project root -- only available in project scope):
+- read_file(path) -- read a file
+- write_file(path, content) -- write/overwrite a file
+- list_dir(path="") -- list directory contents
+- run_command(command, timeout_seconds=30) -- run a shell command in the project root
+- git_commit(message) -- stage all changes and commit
 
 Task graph tools:
-- list_tasks(project="", status="") — list tasks; in global scope pass project name; in project scope defaults to current project
-- create_task(project, type, description, priority=50, dependencies=[]) — create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
-- update_task(task_id, fields) — update task fields (e.g. priority, description)
-- delete_task(task_id) — delete a task (requires confirmation)
-- get_critical_path(project) — find the longest pending dependency chain
-- get_subgraph(root_id, direction="downstream", depth=3) — BFS from a task to see its dependency cluster
-- bulk_deps(ops) — apply multiple add/remove dependency ops atomically; ops=[{"action":"add"|"remove","task_id":"...","dep_id":"..."}]
+- list_tasks(project="", status="") -- list tasks; in global scope pass project name; in project scope defaults to current project
+- create_task(project, type, description, priority=50, dependencies=[]) -- create a new task; type MUST be one of: feature, bug, refactor, polish, qa, harness_qa, art_pass, audit, research, plan, project_plan
+- update_task(task_id, fields) -- update task fields (e.g. priority, description)
+- delete_task(task_id) -- delete a task (requires confirmation)
+- get_critical_path(project) -- find the longest pending dependency chain
+- get_subgraph(root_id, direction="downstream", depth=3) -- BFS from a task to see its dependency cluster
+- bulk_deps(ops) -- apply multiple add/remove dependency ops atomically; ops=[{"action":"add"|"remove","task_id":"...","dep_id":"..."}]
 
 Agent tools:
-- kill_agent(agent_id) — kill a running agent (requires confirmation)
-- list_agents(project="") — list active agents
+- kill_agent(agent_id) -- kill a running agent (requires confirmation)
+- list_agents(project="") -- list active agents
 
 Memory tools:
-- write_swarm_memory(content) — overwrite the swarm-level knowledge file (data/SWARM_KNOWLEDGE.md)
-- write_project_memory(project, content) — overwrite a project knowledge file (data/project_knowledge/<project>.md)
+- write_swarm_memory(content) -- overwrite the swarm-level knowledge file (data/SWARM_KNOWLEDGE.md)
+- write_project_memory(project, content) -- overwrite a project knowledge file (data/project_knowledge/<project>.md)
 
 When asked about priorities or what to work on next, call get_critical_path() first.
 When asked about project state, read AGENT_KNOWLEDGE.md if present."""
@@ -879,7 +879,7 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
         if not agents:
             return "No active agents.", False
         lines = [
-            f"  [{a.get('id','')[:12]}] {a.get('project','')} — {a.get('task_id','')[:40]}"
+            f"  [{a.get('id','')[:12]}] {a.get('project','')} -- {a.get('task_id','')[:40]}"
             for a in agents[:30]
         ]
         return f"Active agents ({len(agents)}):\n" + "\n".join(lines), False
@@ -942,7 +942,7 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
             label = f" for project '{project_filter}'" if project_filter else ""
             return f"No tasks found{label}" + (f" with status '{status_filter}'" if status_filter else ""), False
         lines = [
-            f"[{t['status']}] {t['id']}: {t.get('type','')} — {t.get('description','')[:100]}"
+            f"[{t['status']}] {t['id']}: {t.get('type','')} -- {t.get('description','')[:100]}"
             for t in tasks[:50]
         ]
         return "\n".join(lines), False
@@ -1096,7 +1096,7 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
     return _execute_debug_tool(tool, args, project_root, project=scope, db=db), False
 
 
-_COMPACT_TOKEN_THRESHOLD = 800_000
+_COMPACT_TOKEN_THRESHOLD = 80_000
 _COMPACT_KEEP_TAIL = 4  # messages to keep verbatim at the end
 _COMPACT_MARKER = "[COMPACTED]"
 
@@ -1303,7 +1303,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
     def stop_unified_chat(session_id):
         """Emergency stop for unified chat tool loop.
 
-        Request JSON: { "project": "..." }  (optional — for logging only)
+        Request JSON: { "project": "..." }  (optional -- for logging only)
         Response JSON: { "stopped": true, "session_id": "..." }
         """
         event = _UNIFIED_STOP_EVENTS.get(session_id)
@@ -1354,7 +1354,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
 
     @app.route("/api/chat", methods=["POST"])
     def chat():
-        """Conversational swarm manager — can observe state and execute actions.
+        """Conversational swarm manager -- can observe state and execute actions.
 
         Request JSON:
           { "message": "...", "history": [{"role": "user"|"assistant", "content": "..."}] }
@@ -1382,7 +1382,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
         except Exception as e:
             state_snapshot = f"(Could not load swarm state: {e})"
 
-        system_prompt = f"""You are the Swarm Controller manager — you can both observe the swarm and take actions on it.
+        system_prompt = f"""You are the Swarm Controller manager -- you can both observe the swarm and take actions on it.
 
 CAPABILITIES:
 - Answer questions about projects, tasks, agents, failures
@@ -1475,15 +1475,15 @@ IMPORTANT RULES:
 
 EXISTING PROJECTS (avoid name conflicts): {', '.join(existing_projects) or 'none yet'}
 
-YOUR PROCESS — THREE PHASES:
+YOUR PROCESS -- THREE PHASES:
 
-PHASE 1 — QUESTIONS: Ask 3-5 clarifying questions with lettered options, one set at a time.
-PHASE 2 — PLAN PREVIEW: Once you have enough context, write a short plan preview with:
+PHASE 1 -- QUESTIONS: Ask 3-5 clarifying questions with lettered options, one set at a time.
+PHASE 2 -- PLAN PREVIEW: Once you have enough context, write a short plan preview with:
 - project name and concept
 - planned tasks
 - an explicit dependency map per task
 End with: "Want to change anything, or shall I generate the tasks?"
-PHASE 3 — PRD GENERATION: Only when the user explicitly says to proceed (e.g. "yes", "go ahead", "create", "looks good"), emit the full [PRD] block.
+PHASE 3 -- PRD GENERATION: Only when the user explicitly says to proceed (e.g. "yes", "go ahead", "create", "looks good"), emit the full [PRD] block.
 
 FORMAT QUESTIONS LIKE THIS (always use lettered options so users can reply "1A, 2C"):
 1. What is the core mechanic?
@@ -1494,8 +1494,8 @@ FORMAT QUESTIONS LIKE THIS (always use lettered options so users can reply "1A, 
 
 ALWAYS ASK ABOUT QUALITY GATES (in Phase 1):
 What quality checks should pass for each user story in the NEW project?
-   A. No script errors on load (simplest — no test framework needed)
-   B. GUT tests pass (headless Godot run) — the project bootstrap installs GUT automatically
+   A. No script errors on load (simplest -- no test framework needed)
+   B. GUT tests pass (headless Godot run) -- the project bootstrap installs GUT automatically
    C. Other: [specify]
 
 PHASE 2 PLAN SUMMARY EXAMPLE:
@@ -1518,7 +1518,7 @@ Quality gate: GUT tests pass.
 
 Want to change anything, or shall I generate the tasks?
 
-DEPENDENCY RULES (CRITICAL — apply inside the PRD):
+DEPENDENCY RULES (CRITICAL -- apply inside the PRD):
 - Use a DAG, NOT a chain. Most stories should run in parallel.
 - Foundation stories (core scene, data model, foundational gameplay systems) come first; everything that builds on them fans out in parallel.
 - Do NOT create stories for generic project bootstrap, GUT installation, harness installation, StateServer installation, or placeholder tests. New Godot projects get those automatically during project creation.
@@ -1528,7 +1528,7 @@ DEPENDENCY RULES (CRITICAL — apply inside the PRD):
 - Stories with no dependency get no depends-on line.
 - The dependency map in Phase 2 and the `depends-on` lines in Phase 3 must describe the same graph.
 
-PHASE 3 — ONLY when user confirms, emit this EXACT format (dependencies go INSIDE each story block):
+PHASE 3 -- ONLY when user confirms, emit this EXACT format (dependencies go INSIDE each story block):
 
 [PRD]
 # PRD: [Game Title]
@@ -1543,7 +1543,7 @@ These must pass for every user story:
 
 ## User Stories
 
-### US-001: [Foundation title — no deps]
+### US-001: [Foundation title -- no deps]
 **Description:** As a player, I want [feature] so that [benefit].
 **Acceptance Criteria:**
 - [ ] [verifiable criterion]
@@ -1576,7 +1576,7 @@ depends-on: US-002, US-003
 
 OTHER RULES:
 - Never emit [PRD] before the user explicitly confirms in Phase 3
-- In Phase 2, write plain text only — no [PRD] tags
+- In Phase 2, write plain text only -- no [PRD] tags
 - Stories should be small (one agent session each), 5-10 total
 - [PRD] block must be the last thing in your message when emitted
 - ONLY create tasks for the new project being designed. NEVER create tasks for other existing projects."""
@@ -1601,7 +1601,7 @@ PHASE OVERRIDE:
         except Exception as e:
             return jsonify({"error": f"LLM error: {e}"}), 500
 
-        # Check for PRD output — parse into task preview instead of treating it as plain chat.
+        # Check for PRD output -- parse into task preview instead of treating it as plain chat.
         tasks_preview = None
         project_name = None
         overview = ""
@@ -1722,7 +1722,7 @@ RULES:
 
 FORMAT:
 ## Project Ideas
-1. **kebab-case-name** — {type_label}
+1. **kebab-case-name** -- {type_label}
    Concept: ...
    First slice: ...
 """
@@ -2339,7 +2339,7 @@ FORMAT:
 
     @app.route("/api/project-debug/<session_id>/stop", methods=["POST"])
     def stop_project_debug_session(session_id):
-        """Emergency stop — inject a reset message, return immediately without LLM call.
+        """Emergency stop -- inject a reset message, return immediately without LLM call.
 
         Request JSON: { "project": "..." }
         Response JSON: { "response": "...", "session_id": "...", "stopped": true }
@@ -2353,7 +2353,7 @@ FORMAT:
         history = _load_session(data_dir, project, session_id)
 
         stop_message = (
-            "⚠️ Stopped by user. I've been interrupted — please tell me what you'd "
+            "⚠️ Stopped by user. I've been interrupted -- please tell me what you'd "
             "like to do instead and I'll follow your direction."
         )
         history.append({"role": "assistant", "content": stop_message})
