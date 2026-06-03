@@ -55,6 +55,7 @@ class PlanPhase(Phase):
         import swarm.agent_runtime as rt
 
         provider = self.config.get("plan_provider") or rt.LLM_PROVIDER
+        rt._ROUTING_PHASE = "plan"
 
         project_context = f"Project: {state.project}\nPath: {state.project_path}"
         user_msg = f"{project_context}\n\nTask ({state.task_type}):\n{state.description}"
