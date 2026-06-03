@@ -77,6 +77,7 @@ class WorkPhase(Phase):
         import swarm.agent_runtime as rt
 
         provider = self.config.get("work_provider") or rt.LLM_PROVIDER
+        rt._ROUTING_PHASE = "work"
         self.log(f"Using provider: {provider}")
 
         messages = [{"role": "user", "content": _build_work_prompt(state)}]

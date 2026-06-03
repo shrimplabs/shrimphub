@@ -205,6 +205,7 @@ COMPACTION_PROVIDER: str = ""  # e.g. "claude-haiku"; empty = disabled
 # If non-empty, main() runs the phase pipeline instead of the legacy tool loop.
 # Example: ["plan", "scout", "work", "validate"]
 PIPELINE: list = []
+_ROUTING_PHASE: str = ""  # set by pipeline phases so shrimp-router picks the right backend
 
 # Write-blocked tools during scout phase -- enforced at dispatch level.
 _SCOUT_BLOCKED_TOOLS: frozenset = frozenset({

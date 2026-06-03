@@ -4,6 +4,13 @@
 set -e
 cd "$(dirname "$0")"
 
+# ── Load .env so all child processes inherit API keys ────────────────────────
+if [ -f ".env" ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 # ── Swarm server ────────────────────────────────────────────────────────────
 PID_FILE=".swarm.pid"
 if [ -f "$PID_FILE" ] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then
@@ -71,6 +78,27 @@ elif [ -f "$HEADROOM_VENV/bin/headroom" ]; then
     echo "✓ Headroom (Codex) started (PID $(cat $HEADROOM_CODEX_PID_FILE))"
 else
     echo "  Headroom not found at $HEADROOM_VENV — skipping Codex proxy"
+fi
+
+# ── Headroom — OpenCode proxy (port 8886, OpenAI format) ─────────────────────
+HEADROOM_OPENCODE_PID_FILE=".headroom-opencode.pid"
+if [ -f "$HEADROOM_OPENCODE_PID_FILE" ] && kill -0 "$(cat $HEADROOM_OPENCODE_PID_FILE)" 2>/dev/null; then
+    echo "✓ Headroom (OpenCode) already running (PID $(cat $HEADROOM_OPENCODE_PID_FILE))"
+elif curl -s --max-time 1 http://localhost:8886/livez >/dev/null 2>&1; then
+    echo "✓ Headroom (OpenCode) already responding on port 8886"
+elif [ -f "$HEADROOM_VENV/bin/headroom" ] && [ -n "$OPENCODE_API_KEY" ]; then
+    rm -f "$HEADROOM_OPENCODE_PID_FILE"
+    echo "→ Starting headroom proxy (OpenCode)..."
+    nohup "$HEADROOM_VENV/bin/headroom" proxy \
+        --port 8886 --mode cache --backend openai \
+        --openai-api-url https://opencode.ai/zen/go/v1 \
+        --no-telemetry \
+        --log-file data/headroom-opencode.log \
+        > data/headroom-opencode-server.log 2>&1 &
+    echo $! > "$HEADROOM_OPENCODE_PID_FILE"
+    echo "✓ Headroom (OpenCode) started (PID $(cat $HEADROOM_OPENCODE_PID_FILE))"
+else
+    echo "  Headroom or OPENCODE_API_KEY not found — skipping OpenCode proxy"
 fi
 
 # ── Shrimp router ────────────────────────────────────────────────────────────

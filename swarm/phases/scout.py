@@ -102,6 +102,7 @@ class ScoutPhase(Phase):
             return state
 
         provider = self.config.get("scout_provider") or rt.SCOUT_PROVIDER or rt.LLM_PROVIDER
+        rt._ROUTING_PHASE = "scout"
         self.log(f"Using provider: {provider}")
 
         messages = [{"role": "user", "content": _build_scout_prompt(state)}]
