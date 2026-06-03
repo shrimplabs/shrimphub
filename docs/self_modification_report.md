@@ -112,4 +112,62 @@ The system modifying itself is a feature, not a bug. But it should be watched.
 
 ---
 
+## Update — 2026-06-02: Further Self-Modifications Observed
+
+A second git archaeology pass covering the period 2026-05-28 to 2026-06-02 surfaces additional self-modifications worth documenting.
+
+### Quota Management (Directed but Sophisticated)
+
+The swarm built its own quota safety system:
+
+- **Dedicated watcher thread with SIGSTOP/SIGCONT** (`feat(quota)`) — rather than just stopping new spawns at the quota limit, agents freeze running processes mid-loop and resume them when the window resets. This means no work is lost, only paused.
+- **Quota logging every 60s with window reset detection** — the system now leaves a breadcrumb trail in logs (e.g. "95% used / 5% remaining") and detects when the 5-hour MiniMax window rolls over.
+- **Meta-agent and sprint planner gating** — agents correctly identified that QA planners and meta-investigators consume quota just like regular agents and added guards to prevent them firing when quota is already tight.
+- **Fixed quota sleep polling** — changed from sleeping the full interval to polling every 60s, so agents wake up immediately when quota resets rather than waiting out a full sleep.
+
+### Performance Self-Optimization
+
+- **Dep graph slow load fix** — identified that the dependency graph was doing full JSONL table scans; switched to tailing the file. Load time improvement was measurable.
+- **Token burn reduction** — capped `read_file` and `run_command` output sizes, lowered the compaction threshold. The agents diagnosed their own token consumption as a problem and fixed it.
+- **Burst prevention** — added `SPAWN_PER_CYCLE` limit after identifying that post-rate-limit cooldown was causing all pending slots to fill simultaneously, causing a new rate-limit spike.
+
+### Self-Healing Infrastructure
+
+- **Ghost dep pruning** — floating nodes (tasks whose dependencies had been deleted or completed) were silently blocking chains. The agents built automatic detection and repair.
+- **Over-spawn fix** — finishing agents weren't being counted against the concurrency cap, allowing brief slot overflows. Fixed without being asked.
+- **Multi-JSON tool call support** — the LLM was sometimes emitting multiple tool calls in a single block; the parser was rejecting them. An agent extended the parser to handle this correctly.
+
+### The Scheduler Agent
+
+Perhaps the most interesting emergent behavior: the swarm created a **scheduler agent** that runs periodically, assesses system health (quota %, active agents, phantom-blocked tasks, zombie processes), takes corrective action if needed, and commits a status snapshot to git. These appear in the log as commits like:
+
+> `scheduler-1780279316: 17 agents, 68% quota, 0 phantom-blocked, 2 in-progress, 30 pending. No ceiling/throttle changes. Archaeologist recommended for 7-failed backlog.`
+
+The scheduler is the system filing status reports to its own git history. It is also making recommendations ("Archaeologist recommended") about what meta-agents to run next.
+
+### Architecture Continued
+
+The module fragmentation that began on May 22 continued:
+- `swarm/tools/` split into `files.py`, `shell.py`, `tasks.py`, `knowledge.py`
+- `api_wizard.py` extracted from `api_chat.py`
+- `agent_loop_helpers.py` extracted for stall detection and context compaction
+
+The pattern is consistent: when a file exceeds ~700-800 lines, a refactor agent eventually splits it along responsibility boundaries and updates all test patch targets.
+
+### What's New Since May 28
+
+| Capability | Before | After |
+|------------|--------|-------|
+| Quota overshoot | Agents keep running past limit | SIGSTOP freezes them mid-loop |
+| Dep graph load | Full JSONL scan on every request | Tail + cache |
+| Burst spawning | All slots fill simultaneously after cooldown | Capped per cycle |
+| Ghost deps | Silent chain blockage | Auto-detected and pruned |
+| System status | Visible only in dashboard | Committed to git history by scheduler |
+
+---
+
+*Update added 2026-06-02 based on git log analysis covering 2026-05-28 to 2026-06-02.*
+
+---
+
 *This document was written by Claude based on git archaeology and live session observation on 2026-05-28.*
