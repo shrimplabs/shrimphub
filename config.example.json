@@ -54,6 +54,9 @@
     "index_path": "~/godot-rag",
     "top_k": 5
   },
+  "scout_provider": "",
+  "scout_loops": {"bug": 15, "feature": 25, "refactor": 20, "polish": 15, "art_pass": 15},
+  "compaction_provider": "",
   "meta_mode_enabled": false,
   "gardener_enabled": false,
   "gardener_schedule": "0 */6 * * *",

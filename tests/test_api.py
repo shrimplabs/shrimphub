@@ -19,6 +19,13 @@ def app(tmp_path):
     (gut_source / "plugin.cfg").write_text("[plugin]\nname=\"GUT\"\n")
     old_source = os.environ.get("SWARM_GUT_SOURCE_DIR")
     os.environ["SWARM_GUT_SOURCE_DIR"] = str(gut_source.parent.parent)
+
+    # Blank out real API keys so any agent processes accidentally spawned during
+    # tests fail fast on their first LLM call instead of running indefinitely
+    # and burning real quota. Tests that need a real key must set it explicitly.
+    _api_key_vars = ("MINIMAX_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "KIMI_API_KEY")
+    _saved_keys = {k: os.environ.pop(k, None) for k in _api_key_vars}
+    os.environ["MINIMAX_API_KEY"] = "test-key-do-not-use"
     db._db_path = None
     db._initialized = False
     db._local = threading.local()
@@ -56,6 +63,27 @@ def app(tmp_path):
         os.environ.pop("SWARM_GUT_SOURCE_DIR", None)
     else:
         os.environ["SWARM_GUT_SOURCE_DIR"] = old_source
+
+    # Kill any agent processes that escaped the test (spawned via real subprocess)
+    import signal, glob
+    data_dir = str(tmp_path / "data")
+    for script in glob.glob(f"{data_dir}/agent_*.py"):
+        pid_file = script.replace(".py", ".pid")
+        try:
+            pid = int(open(pid_file).read().strip()) if os.path.exists(pid_file) else None
+        except Exception:
+            pid = None
+        if pid:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    # Restore real API keys
+    os.environ.pop("MINIMAX_API_KEY", None)
+    for k, v in _saved_keys.items():
+        if v is not None:
+            os.environ[k] = v
 
 
 @pytest.fixture()

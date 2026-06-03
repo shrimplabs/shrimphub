@@ -190,6 +190,25 @@ META_INVESTIGATION_ENABLED: bool = True
 # main agent. Override via config.json: "meta_investigation_provider": "claude"
 META_INVESTIGATION_PROVIDER: str = ""
 
+# Multi-model phase config -- set by wrapper from config.json
+# Scout phase: cheap provider handles read-only recon for N loops before handing
+# off to the main provider for implementation.
+# If SCOUT_PROVIDER is empty or same as LLM_PROVIDER, the phase is a no-op.
+SCOUT_PROVIDER: str = ""       # e.g. "claude-haiku"; empty = disabled
+SCOUT_LOOPS: dict = {}         # task_type -> loop count, e.g. {"bug": 15, "feature": 25}
+
+# Compaction provider: cheap provider for context summarisation calls.
+# If empty or same as LLM_PROVIDER, uses the main provider (existing behaviour).
+COMPACTION_PROVIDER: str = ""  # e.g. "claude-haiku"; empty = disabled
+
+# Write-blocked tools during scout phase -- enforced at dispatch level.
+_SCOUT_BLOCKED_TOOLS: frozenset = frozenset({
+    "write_file", "patch_file", "append_file",
+    "git_commit", "git_push",
+    "create_task", "create_tasks", "create_subtask",
+    "create_tasks_file_aware", "delegate_task_batch",
+})
+
 # Runtime state
 system_prompt: str = ""
 user_prompt: str = ""
@@ -604,6 +623,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     conversation = [{"role": "user", "content": user_prompt}]
     tool_loop_count = 0
 
+    # Scout phase: determine threshold for this task type (0 = no scout phase)
+    _scout_threshold = SCOUT_LOOPS.get(TASK_TYPE, 0) if SCOUT_PROVIDER and SCOUT_PROVIDER != LLM_PROVIDER else 0
+    _scout_active = _scout_threshold > 0
+    _scout_handed_off = False  # True once we've switched to the main provider
+
     # H1-H8 metrics: per-task counters (initialized before loop so they always exist)
     _tool_call_counts: dict = {}
     _session_written_files: set = set()   # H7: files written in this session
@@ -748,8 +772,54 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             conversation.append({"role": "user", "content": wrap_up_msg})
             _wrap_up_injected = True
 
+        # Scout phase: switch to main provider at threshold, compacting scout history
+        if _scout_active and not _scout_handed_off and tool_loop_count >= _scout_threshold:
+            log(f"[Scout] Recon phase complete ({tool_loop_count} loops). Handing off to {LLM_PROVIDER}.")
+            # Compact the scout conversation into a single stable prefix message.
+            # This gives the main provider a cacheable prefix from its very first call
+            # rather than a novel multi-turn history it has never seen.
+            _scout_summary_prompt = (
+                "You are summarising a read-only recon phase performed by a scout AI agent.\n"
+                "The scout explored the codebase to understand the problem. Produce a concise\n"
+                "but complete summary covering:\n"
+                "- The task goal\n"
+                "- Files read and their key contents relevant to the task\n"
+                "- The root cause or problem location identified\n"
+                "- Specific functions, classes, variables, and line numbers found\n"
+                "- Any errors or patterns observed\n"
+                "- A clear recommended implementation approach\n"
+                "Be specific and actionable. This summary is the implementation agent's only\n"
+                "memory of the scout's findings."
+            )
+            _scout_history = "\n\n".join(
+                f"[{m['role'].upper()}]: {m['content'] if isinstance(m['content'], str) else str(m['content'])}"
+                for m in conversation[1:]  # skip initial user prompt
+            )
+            try:
+                _scout_summary, _, _ = call_llm(_scout_summary_prompt, [{"role": "user", "content": _scout_history}], provider=SCOUT_PROVIDER)
+                # Replace conversation with: original prompt + compacted scout findings
+                conversation = [
+                    conversation[0],  # original user prompt
+                    {"role": "user", "content": (
+                        f"[SCOUT RECON SUMMARY — {tool_loop_count} loops of read-only exploration]\n\n"
+                        f"{_scout_summary}\n\n"
+                        "You are now in the implementation phase. Proceed with the changes."
+                    )},
+                    {"role": "assistant", "content": "Understood. I have reviewed the scout's findings and will now implement the solution."},
+                ]
+                log(f"[Scout] Handoff summary: {len(_scout_summary)} chars. Conversation reset to 3 messages.")
+            except Exception as _scout_err:
+                log(f"[Scout] Handoff summary failed ({_scout_err}), continuing with full history.")
+            _scout_handed_off = True
+            _scout_active = False
+
+        # Determine active provider for this loop
+        _active_provider = SCOUT_PROVIDER if (_scout_active and not _scout_handed_off) else None
+
         system_with_budget = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}]\n" + system_prompt
-        response, tokens, thinking_blocks = call_llm(system_with_budget, conversation)
+        if _scout_active and not _scout_handed_off:
+            system_with_budget += "\n\n[SCOUT MODE — read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
+        response, tokens, thinking_blocks = call_llm(system_with_budget, conversation, provider=_active_provider)
         total_input_tokens += tokens.get("input", 0)
         total_output_tokens += tokens.get("output", 0)
         total_cache_read_tokens += tokens.get("cache_read", 0)
@@ -919,7 +989,12 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 if any(op in _cmd for op in ("cp ", "mv ", "rsvg-convert", "inkscape", "ffmpeg", "convert ")):
                     _vision_calls_since_write = 0
 
-            result = execute_tool(tc)
+            # Scout phase: block write tools at dispatch level, not just via prompt
+            if _scout_active and not _scout_handed_off and _tool_name in _SCOUT_BLOCKED_TOOLS:
+                result = {"error": f"Tool '{_tool_name}' is not available during the scout recon phase. Complete your read-only exploration first."}
+                log(f"[Scout] Blocked write tool: {_tool_name}")
+            else:
+                result = execute_tool(tc)
             log(f"Result: {str(result)[:200]}")
             tool_results.append(f"Tool {tc.get('tool', '?')}: {json.dumps(result)}")
 
@@ -1001,7 +1076,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         # Context compaction: when conversation grows large, summarise the middle
         conversation = compact_conversation(
-            conversation, system_prompt, compact_token_threshold, log
+            conversation, system_prompt, compact_token_threshold, log,
+            compaction_provider=COMPACTION_PROVIDER or None,
         )
 
         tool_loop_count += 1

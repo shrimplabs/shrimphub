@@ -494,7 +494,7 @@ def check_agent_status() -> List[threading.Thread]:
             exit_code = data["process"].poll()
             if exit_code is not None:
                 finished.append((agent_id, exit_code, data))
-            elif AGENT_TIMEOUT > 0 and now - data["started"] > AGENT_TIMEOUT:
+            elif AGENT_TIMEOUT > 0 and not data.get("freeze_started") and now - data["started"] > AGENT_TIMEOUT:
                 timed_out.append((agent_id, data))
 
     finish_threads: List[threading.Thread] = []

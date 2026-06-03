@@ -953,6 +953,14 @@ def generate_task_script(task: dict) -> str:
     qa_max_cycles = int(_config.get("qa_max_cycles", 3))
     meta_investigation_enabled = bool(_config.get("meta_investigation", True))
     meta_investigation_provider = str(_config.get("meta_investigation_provider", ""))
+
+    # Multi-model phase config
+    scout_provider = str(_config.get("scout_provider", ""))
+    # Only enable scout phase for implementation task types; read-only types stay on main model
+    _scout_loops_cfg = _config.get("scout_loops", {})
+    _default_scout_loops = {"bug": 15, "feature": 25, "refactor": 20, "polish": 15, "art_pass": 15}
+    scout_loops = {**_default_scout_loops, **_scout_loops_cfg} if scout_provider else {}
+    compaction_provider = str(_config.get("compaction_provider", ""))
     qa_system, qa_user = _load_prompt("qa", **_common, qa_cycle=qa_cycle, qa_max_cycles=qa_max_cycles)
     harness_available = (project_path / "autoload" / "test_harness.gd").exists()
     hybrid_qa_system, hybrid_qa_user = _load_prompt(
@@ -1234,6 +1242,9 @@ rt.QA_CYCLE                 = {repr(qa_cycle)}
 rt.QA_MAX_CYCLES            = {repr(qa_max_cycles)}
 rt.META_INVESTIGATION_ENABLED  = {repr(meta_investigation_enabled)}
 rt.META_INVESTIGATION_PROVIDER = {repr(meta_investigation_provider)}
+rt.SCOUT_PROVIDER       = {repr(scout_provider)}
+rt.SCOUT_LOOPS          = {json.dumps(scout_loops)}
+rt.COMPACTION_PROVIDER  = {repr(compaction_provider)}
 rt.AUDIT_SYSTEM             = {repr(audit_system)}
 rt.AUDIT_USER               = {repr(audit_user)}
 rt.AUDIT_LEARNINGS_SYSTEM   = {repr(audit_learnings_system)}

@@ -313,3 +313,13 @@ Failed tasks now correctly fall through to `else` → `failed_recoveries` → `s
 
 ### Test isolation note
 Test passes in isolation and in single-worker mode. Failure only observed in full suite with xdist. The fix is correct regardless.
+
+---
+## audit_learnings run 2026-06-03 (audit-learnings-1780444996)
+- 111 projects, 494 files scanned by `scan_learnings.py` at project root
+- Output: `data/AUDIT_LEARNINGS_REPORT.md` (gitignored, ephemeral)
+- Largest failure clusters: `hybrid_qa` (100% fail, 6/6), `qa` (17%, 27 failed), `feature` (14%, 50 failed), `project_plan` (11%, 3 failed), `bug` (10%, 36 failed)
+- Pattern density: feature=307, bug=241, harness_qa=184, qa=155, polish=120, research=91, audit=67, art_pass=65
+- Recommendations from report: Godot 4 API gotchas + refactor re-export breakage as pre-flight checklist items; consider daily cron
+- Script `scan_learnings.py` is git-tracked; `data/AUDIT_LEARNINGS_REPORT.md` and `data/audit_learnings_last_run.txt` are .gitignored
+- Mark task completed via `PATCH /api/tasks/<id>` with `{"status":"completed"}` after run
