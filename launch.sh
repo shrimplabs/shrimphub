@@ -41,8 +41,9 @@ elif [ -f "$HEADROOM_VENV/bin/headroom" ]; then
     rm -f "$HEADROOM_PID_FILE"
     echo "→ Starting headroom proxy..."
     nohup "$HEADROOM_VENV/bin/headroom" proxy \
-        --port 8888 --mode cache \
-        --anthropic-api-url https://api.minimax.io/anthropic/v1 \
+        --port 8888 --mode cache --backend anthropic \
+        --anthropic-api-url https://api.minimax.io/anthropic \
+        --intercept-tool-results \
         --no-telemetry \
         --log-file data/headroom.log \
         > data/headroom-server.log 2>&1 &
