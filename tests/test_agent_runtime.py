@@ -1582,7 +1582,7 @@ class TestMainLoop:
         ])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1606,7 +1606,7 @@ class TestMainLoop:
         rt.MAX_TOOL_LOOPS = 3
         call_count = [0]
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             call_count[0] += 1
             return '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}[/TOOL_CALL]', {"input": 0, "output": 0}, []
 
@@ -1622,7 +1622,7 @@ class TestMainLoop:
         rt.ART_PASS_SYSTEM = "Art pass system"
         rt.ART_PASS_USER = "Art pass user"
         rt.MAX_TOOL_LOOPS = 1
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             return '[TOOL_CALL]{"tool": "run_command", "args": {"command": "printf changed > art_note.txt"}}[/TOOL_CALL]', {"input": 0, "output": 0}, []
 
         with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), \
@@ -1647,7 +1647,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "feature"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
@@ -1663,7 +1663,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "bug"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
@@ -1677,7 +1677,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "feature"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
@@ -1691,7 +1691,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "bug"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
@@ -1705,7 +1705,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "polish"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
@@ -1722,7 +1722,7 @@ class TestMainLoop:
         ])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1738,7 +1738,7 @@ class TestMainLoop:
             '[TOOL_CALL]{"tool": "write_file", "args": {"path": "result.txt", "content": "written!"}}[/TOOL_CALL]',
             "TASK_COMPLETE",
         ])
-        with patch("swarm.agent_runtime.call_llm", side_effect=lambda *a: (next(responses), {"input": 0, "output": 0}, [])), \
+        with patch("swarm.agent_runtime.call_llm", side_effect=lambda *a, **kw: (next(responses), {"input": 0, "output": 0}, [])), \
              patch("swarm.runtime_helpers._lock_project_file", return_value={"ok": True}):
             rt.main()
 
@@ -1753,7 +1753,7 @@ class TestMainLoop:
         responses = iter([two_calls, "TASK_COMPLETE"])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1774,7 +1774,7 @@ class TestMainLoop:
         ])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1794,7 +1794,7 @@ class TestMainLoop:
         ])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1820,7 +1820,7 @@ class TestMainLoop:
         ])
         calls = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             calls.append(list(msgs))
             return next(responses), {"input": 0, "output": 0}, []
 
@@ -1848,7 +1848,7 @@ class TestMainLoop:
         rt.TASK_TYPE = "feature"
         captured = []
 
-        def fake_llm(sys_p, msgs):
+        def fake_llm(sys_p, msgs, **kwargs):
             captured.append(sys_p)
             return "TASK_COMPLETE", {"input": 0, "output": 0}, []
 
