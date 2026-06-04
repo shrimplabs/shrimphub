@@ -447,6 +447,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
             headers["X-Loop-Count"] = str(getattr(_rt, "_ROUTING_LOOP", 0))
             headers["X-Has-Commits"] = "true" if getattr(_rt, "_ROUTING_COMMITS", 0) > 0 else "false"
             headers["X-Phase"] = getattr(_rt, "_ROUTING_PHASE", "")
+            log.info(f"[routing] X-Phase={headers['X-Phase']} X-Task-Type={headers.get('X-Task-Type')} provider={provider_name} base_url={base_url}")
         except Exception:
             pass
 
