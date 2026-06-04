@@ -20,7 +20,16 @@ class ValidatePhase(Phase):
 
     def run(self, state: TaskState) -> TaskState:
         from swarm.validation import _post_task_validation_in_worktree
+        from swarm import db
         from pathlib import Path
+
+        # Validation uses the DB — init it if not already done
+        import swarm.agent_runtime as rt
+        data_dir = self.config.get("data_dir") or rt.DATA_DIR
+        try:
+            db.init(data_dir)
+        except Exception:
+            pass  # Already initialised in this process
 
         project_path = Path(state.project_path) if state.project_path else None
 
