@@ -257,3 +257,50 @@ def git_push() -> dict:
     if code != 0:
         return {"ok": False, "error": f"git push failed: {err}"}
     return {"ok": True, "message": "Pushed", "output": out}
+
+
+def run_python(code: str, timeout: int = 30) -> dict:
+    """Write a Python snippet to a temp file and execute it with the venv Python.
+
+    Finds the best available interpreter: project .venv, swarm .venv, then
+    sys.executable as fallback. Returns stdout/stderr combined.
+    """
+    import sys as _sys
+    import swarm.tools.core as _core
+
+    # Find best Python interpreter
+    candidates = []
+    proj_root = _project_root()
+    if proj_root:
+        candidates.append(proj_root / ".venv" / "bin" / "python")
+    # Swarm controller's own venv
+    swarm_root = Path(__file__).parent.parent.parent
+    candidates.append(swarm_root / ".venv" / "bin" / "python")
+    # Current interpreter as last resort
+    candidates.append(Path(_sys.executable))
+
+    python_bin = None
+    for c in candidates:
+        if c.exists():
+            python_bin = c
+            break
+
+    if python_bin is None:
+        return {"ok": False, "error": "No Python interpreter found"}
+
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False, encoding="utf-8") as f:
+        f.write(code)
+        tmp_path = f.name
+
+    try:
+        cwd = _project_root() or Path(".")
+        code_rc, out, err = run(f"{python_bin} {tmp_path}", cwd=cwd, timeout=timeout)
+        combined = (out + ("\n" + err if err.strip() else "")).strip()
+        if code_rc != 0:
+            return {"ok": False, "returncode": code_rc, "output": combined}
+        return {"ok": True, "output": combined}
+    finally:
+        try:
+            Path(tmp_path).unlink()
+        except Exception:
+            pass

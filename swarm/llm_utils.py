@@ -462,7 +462,17 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     _jitter_max  = float(os.environ.get("LLM_JITTER_MAX", "6.0"))
     time.sleep(_random.uniform(_jitter_base, _jitter_max))
 
-    log(f"[LLM] provider={provider_name} model={model}")
+    _routing_phase = ""
+    if is_loopback_provider:
+        try:
+            import swarm.agent_runtime as _rt2
+            _routing_phase = getattr(_rt2, "_ROUTING_PHASE", "")
+        except Exception:
+            pass
+    if _routing_phase:
+        log(f"[LLM] provider={provider_name} model={model} X-Phase={_routing_phase}")
+    else:
+        log(f"[LLM] provider={provider_name} model={model}")
 
     def _parse_sse_stream(resp):
         """Parse an Anthropic SSE stream, returning (text, tokens, thinking_blocks).
@@ -480,6 +490,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         tokens = {"input": 0, "output": 0}
         cache_read = cache_write = 0
         stream_complete = False
+        _routed_model_logged = False
 
         for raw_line in resp.iter_lines(chunk_size=8192):
             if not raw_line:
@@ -498,6 +509,25 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 continue
             ev_type = ev.get("type", "")
 
+            # OpenAI streaming chunk (from shrimp-router translating opencode backends)
+            if "choices" in ev and ev_type in ("", "chat.completion.chunk", None):
+                _resp_model = ev.get("model", "")
+                if _resp_model and _resp_model != model and not _routed_model_logged:
+                    log(f"[LLM] routed to model={_resp_model}")
+                    _routed_model_logged = True
+                for choice in ev.get("choices", []):
+                    delta = choice.get("delta", {})
+                    chunk_text = delta.get("content") or ""
+                    if chunk_text:
+                        text_parts.append(chunk_text)
+                _usage = ev.get("usage") or {}
+                if _usage:
+                    tokens["input"] = _usage.get("prompt_tokens", tokens.get("input", 0))
+                    tokens["output"] = _usage.get("completion_tokens", tokens.get("output", 0))
+                    if ev.get("choices") and ev["choices"][-1].get("finish_reason"):
+                        stream_complete = True
+                continue
+
             if ev_type == "message_start":
                 _msg_start = ev.get("message", {})
                 usage = _msg_start.get("usage", {})
@@ -505,8 +535,9 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 cache_read = usage.get("cache_read_input_tokens", 0)
                 cache_write = usage.get("cache_creation_input_tokens", 0)
                 _resp_model = _msg_start.get("model", "")
-                if _resp_model and _resp_model != model:
+                if _resp_model and _resp_model != model and not _routed_model_logged:
                     log(f"[LLM] routed to model={_resp_model}")
+                    _routed_model_logged = True
 
             elif ev_type == "content_block_start":
                 idx = ev.get("index", -1)
@@ -535,7 +566,12 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
             elif ev_type == "message_stop":
                 stream_complete = True
 
-        if not stream_complete:
+        # If we got no Anthropic events but have text parts, it was an OpenAI stream
+        # that happened to use data: lines — that's handled below.
+        # But if we got nothing at all, try to detect OpenAI streaming format by
+        # checking if text_parts came from OpenAI chunks (handled in loop above via
+        # the choices[].delta.content path which we add here):
+        if not stream_complete and not text_parts:
             return "Error: stream truncated before completion", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
         if cache_read or cache_write:
             log(f"[LLM] cache read={cache_read} write={cache_write}")

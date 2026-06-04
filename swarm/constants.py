@@ -32,3 +32,8 @@ IGNORE_EXTENSIONS: set = {
 }
 
 MINIMAX_MODEL: str = "MiniMax-M3"
+
+# Pipeline feature constants
+# Marks the structured phase-pipeline (plan -> scout -> work -> validate) as shipped.
+# Bump when the pipeline contract in swarm/pipeline.py changes in a non-backwards-compatible way.
+PIPELINE_VERSION: str = "1.0"

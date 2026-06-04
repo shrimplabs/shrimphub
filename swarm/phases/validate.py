@@ -27,7 +27,7 @@ class ValidatePhase(Phase):
         import swarm.agent_runtime as rt
         data_dir = self.config.get("data_dir") or rt.DATA_DIR
         try:
-            db.init(data_dir)
+            db.init(Path(data_dir) / "swarm.db")
         except Exception:
             pass  # Already initialised in this process
 
