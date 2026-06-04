@@ -90,7 +90,8 @@ elif [ -f "$HEADROOM_VENV/bin/headroom" ] && [ -n "$OPENCODE_API_KEY" ]; then
     rm -f "$HEADROOM_OPENCODE_PID_FILE"
     echo "→ Starting headroom proxy (OpenCode)..."
     nohup "$HEADROOM_VENV/bin/headroom" proxy \
-        --port 8886 --mode cache --backend openai \
+        --port 8886 --mode token \
+        --backend anyllm --anyllm-provider openai \
         --openai-api-url https://opencode.ai/zen/go/v1 \
         --no-telemetry \
         --log-file data/headroom-opencode.log \
