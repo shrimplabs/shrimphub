@@ -18,6 +18,7 @@ LLM_PROVIDER: str = "minimax"
 FALLBACK_PROVIDERS: list = []
 
 # Agent runtime constants
+# Maximum number of tool-use iterations allowed per agent task before forcing termination
 MAX_TOOL_LOOPS: int = 200
 API_PORT: int = 5001
 QA_MAX_CYCLES: int = 3
