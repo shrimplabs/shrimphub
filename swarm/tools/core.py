@@ -13,7 +13,7 @@ from datetime import datetime
 import urllib.request as _ur
 from pathlib import Path
 
-from swarm.tools.shell import run, run_command, git_commit, git_push, _safe_cwd  # noqa: F401
+from swarm.tools.shell import run, run_command, run_python, git_commit, git_push, _safe_cwd  # noqa: F401
 from swarm.tools._shared import _project_root, log, _sanitize_text  # noqa: F401
 from swarm.tools.path_guard import _resolve_project_path
 from swarm.tools.files import (  # noqa: F401

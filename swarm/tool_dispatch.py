@@ -54,7 +54,7 @@ class ToolSpec:
 # Tool function imports — these are safe at module level (no circular imports)
 from swarm.tools.core import (
     log, _project_root, _safe_cwd, run,
-    run_command, git_commit, git_push,
+    run_command, run_python, git_commit, git_push,
     mcp_call_tool, mcp_list_tools,
     rag_query, web_search, fetch_url,
     broadcast_read, broadcast_write, delegate_helper,
@@ -473,6 +473,7 @@ def _populate_registry():
 
     # --- Shell / git ---
     _reg("run_command",     lambda a, ws, p: run_command(a.get("command", ""), a.get("timeout", 60)),                       ["command"])
+    _reg("run_python",      lambda a, ws, p: run_python(a.get("code", ""), a.get("timeout", 30)),                           ["code"])
     _reg("git_commit",      lambda a, ws, p: git_commit(a.get("message", "Agent commit"), a.get("files")))
     _reg("git_push",        lambda a, ws, p: git_push())
 
