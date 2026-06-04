@@ -961,6 +961,8 @@ def generate_task_script(task: dict) -> str:
     _default_scout_loops = {"bug": 15, "feature": 25, "refactor": 20, "polish": 15, "art_pass": 15}
     scout_loops = {**_default_scout_loops, **_scout_loops_cfg} if scout_provider else {}
     compaction_provider = str(_config.get("compaction_provider", ""))
+    plan_provider = str(_config.get("plan_provider", ""))
+    work_provider = str(_config.get("work_provider", ""))
     # Pipeline: resolve phase list for this task type from config "pipelines" key
     _pipelines_cfg = _config.get("pipelines", {})
     pipeline = _pipelines_cfg.get(task_type, [])
@@ -1248,6 +1250,8 @@ rt.META_INVESTIGATION_PROVIDER = {repr(meta_investigation_provider)}
 rt.SCOUT_PROVIDER       = {repr(scout_provider)}
 rt.SCOUT_LOOPS          = {json.dumps(scout_loops)}
 rt.COMPACTION_PROVIDER  = {repr(compaction_provider)}
+rt.PLAN_PROVIDER        = {repr(plan_provider)}
+rt.WORK_PROVIDER        = {repr(work_provider)}
 rt.PIPELINE             = {json.dumps(pipeline)}
 rt.AUDIT_SYSTEM             = {repr(audit_system)}
 rt.AUDIT_USER               = {repr(audit_user)}

@@ -110,7 +110,7 @@ class ScoutPhase(Phase):
 
         for loop in range(1, _MAX_SCOUT_LOOPS + 1):
             self.log(f"Scout loop {loop}/{_MAX_SCOUT_LOOPS}")
-            text, _tokens = call_llm(_SCOUT_SYSTEM, messages, provider=provider)
+            text, _tokens, _thinking = call_llm(_SCOUT_SYSTEM, messages, provider=provider)
             messages.append({"role": "assistant", "content": text})
 
             # Check for completion
@@ -130,6 +130,8 @@ class ScoutPhase(Phase):
                 continue
 
             tool_results = []
+            tool_names = [tc.get("tool", "") for tc in tool_calls]
+            self.log(f"Tools: {', '.join(tool_names)}")
             for tc in tool_calls:
                 tool_name = tc.get("tool", "")
                 if tool_name in _BLOCKED_TOOLS:
