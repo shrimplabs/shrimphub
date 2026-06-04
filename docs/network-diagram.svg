@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 900 620" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, 'SF Mono', monospace" font-size="12">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b5cf6"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" fill="#0f172a" rx="12"/>
+
+  <!-- Title -->
+  <text x="450" y="36" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="bold">Paraxenia Swarm — Network Architecture</text>
+
+  <!-- ── SWARM CONTROLLER ── -->
+  <rect x="300" y="60" width="300" height="80" rx="8" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="450" y="83" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="bold">SWARM CONTROLLER</text>
+  <text x="450" y="100" text-anchor="middle" fill="#cbd5e1" font-size="11">localhost:5001</text>
+  <text x="450" y="117" text-anchor="middle" fill="#64748b" font-size="10">provider: minimax → :8090</text>
+  <text x="450" y="131" text-anchor="middle" fill="#64748b" font-size="10">X-Phase header per pipeline phase</text>
+
+  <!-- Arrow: swarm → shrimp-router -->
+  <line x1="450" y1="140" x2="450" y2="185" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="458" y="167" fill="#3b82f6" font-size="10">Anthropic fmt</text>
+
+  <!-- ── SHRIMP-ROUTER ── -->
+  <rect x="270" y="188" width="360" height="100" rx="8" fill="#1a2e1a" stroke="#10b981" stroke-width="1.5"/>
+  <text x="450" y="210" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="bold">SHRIMP-ROUTER</text>
+  <text x="450" y="227" text-anchor="middle" fill="#cbd5e1" font-size="11">localhost:8090</text>
+  <text x="450" y="248" text-anchor="middle" fill="#64748b" font-size="10">X-Phase: plan/legacy  → minimax backend</text>
+  <text x="450" y="263" text-anchor="middle" fill="#64748b" font-size="10">X-Phase: scout        → minimax-fast</text>
+  <text x="450" y="278" text-anchor="middle" fill="#64748b" font-size="10">X-Phase: work         → opencode-fast (fallback: minimax-fast)</text>
+
+  <!-- Arrows from shrimp-router to headrooms -->
+  <!-- → headroom:8888 -->
+  <line x1="360" y1="288" x2="195" y2="355" stroke="#10b981" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <!-- → headroom:8886 -->
+  <line x1="540" y1="288" x2="700" y2="355" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <!-- → VLM cluster -->
+  <line x1="450" y1="288" x2="450" y2="430" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+
+  <text x="245" y="335" text-anchor="middle" fill="#10b981" font-size="10">Anthropic fmt</text>
+  <text x="660" y="335" text-anchor="middle" fill="#f59e0b" font-size="10">→ OpenAI fmt</text>
+  <text x="490" y="370" fill="#8b5cf6" font-size="10">vision reqs</text>
+
+  <!-- ── HEADROOM :8888 ── -->
+  <rect x="60" y="358" width="260" height="90" rx="8" fill="#2d1b1b" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="190" y="380" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="bold">HEADROOM</text>
+  <text x="190" y="397" text-anchor="middle" fill="#cbd5e1" font-size="11">localhost:8888  mode: cache</text>
+  <text x="190" y="416" text-anchor="middle" fill="#94a3b8" font-size="10">MiniMax M3    (plan, legacy)</text>
+  <text x="190" y="431" text-anchor="middle" fill="#94a3b8" font-size="10">MiniMax M2.7  (scout fallback)</text>
+  <text x="190" y="446" text-anchor="middle" fill="#64748b" font-size="10">→ api.minimax.io</text>
+
+  <!-- ── HEADROOM :8886 ── -->
+  <rect x="578" y="358" width="260" height="90" rx="8" fill="#2d2010" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="708" y="380" text-anchor="middle" fill="#fde68a" font-size="11" font-weight="bold">HEADROOM (OpenCode)</text>
+  <text x="708" y="397" text-anchor="middle" fill="#cbd5e1" font-size="11">localhost:8886  mode: cache</text>
+  <text x="708" y="416" text-anchor="middle" fill="#94a3b8" font-size="10">opencode-fast:  Mimo, Qwen3.5+</text>
+  <text x="708" y="431" text-anchor="middle" fill="#94a3b8" font-size="10">opencode-strong: Kimi-k2, DeepSeek</text>
+  <text x="708" y="446" text-anchor="middle" fill="#64748b" font-size="10">→ opencode.ai/zen/go/v1</text>
+
+  <!-- ── VLM CLUSTER ── -->
+  <rect x="310" y="432" width="280" height="130" rx="8" fill="#1a1a2e" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="450" y="454" text-anchor="middle" fill="#c4b5fd" font-size="11" font-weight="bold">VLM CLUSTER  (Qwen3-VL-8B)</text>
+  <text x="450" y="472" text-anchor="middle" fill="#64748b" font-size="10">round-robin weighted load balancing</text>
+
+  <rect x="322" y="480" width="118" height="34" rx="4" fill="#252540" stroke="#6d28d9" stroke-width="1"/>
+  <text x="381" y="496" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-local</text>
+  <text x="381" y="509" text-anchor="middle" fill="#64748b" font-size="9">localhost:8080</text>
+
+  <rect x="450" y="480" width="118" height="34" rx="4" fill="#252540" stroke="#6d28d9" stroke-width="1"/>
+  <text x="509" y="496" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-artemis</text>
+  <text x="509" y="509" text-anchor="middle" fill="#64748b" font-size="9">artemis.local:8081</text>
+
+  <rect x="322" y="522" width="118" height="34" rx="4" fill="#252540" stroke="#6d28d9" stroke-width="1"/>
+  <text x="381" y="538" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-apollo</text>
+  <text x="381" y="551" text-anchor="middle" fill="#64748b" font-size="9">apollo.local:8081</text>
+
+  <rect x="450" y="522" width="118" height="34" rx="4" fill="#252540" stroke="#6d28d9" stroke-width="1"/>
+  <text x="509" y="538" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-hephaestus</text>
+  <text x="509" y="551" text-anchor="middle" fill="#64748b" font-size="9">hephaestus.local:8090</text>
+
+  <!-- Legend -->
+  <rect x="60" y="500" width="220" height="105" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="170" y="518" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">LEGEND</text>
+  <line x1="76" y1="530" x2="106" y2="530" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="112" y="534" fill="#94a3b8" font-size="10">Anthropic format</text>
+  <line x1="76" y1="548" x2="106" y2="548" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <text x="112" y="552" fill="#94a3b8" font-size="10">→ OpenAI translation</text>
+  <line x1="76" y1="566" x2="106" y2="566" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+  <text x="112" y="570" fill="#94a3b8" font-size="10">Vision requests only</text>
+  <line x1="76" y1="584" x2="106" y2="584" stroke="#10b981" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="112" y="588" fill="#94a3b8" font-size="10">Phase-routed</text>
+  <text x="170" y="600" text-anchor="middle" fill="#475569" font-size="9">All text traffic: Anthropic wire format</text>
+</svg>

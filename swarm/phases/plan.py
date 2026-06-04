@@ -62,7 +62,7 @@ class PlanPhase(Phase):
 
         self.log(f"Calling {provider} to frame task...")
         messages = [{"role": "user", "content": user_msg}]
-        text, tokens = call_llm(_PLAN_SYSTEM, messages, provider=provider)
+        text, tokens, _thinking = call_llm(_PLAN_SYSTEM, messages, provider=provider)
 
         try:
             plan = _extract_json(text)

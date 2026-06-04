@@ -86,7 +86,7 @@ class WorkPhase(Phase):
 
         for loop in range(1, _MAX_WORK_LOOPS + 1):
             self.log(f"Work loop {loop}/{_MAX_WORK_LOOPS}")
-            text, _tokens = call_llm(_WORK_SYSTEM, messages, provider=provider)
+            text, _tokens, _thinking = call_llm(_WORK_SYSTEM, messages, provider=provider)
             messages.append({"role": "assistant", "content": text})
 
             if "WORK_COMPLETE" in text:
@@ -103,6 +103,8 @@ class WorkPhase(Phase):
                 continue
 
             tool_results = []
+            tool_names = [tc.get("tool", "") for tc in tool_calls]
+            self.log(f"Tools: {', '.join(tool_names)}")
             for tc in tool_calls:
                 tool_name = tc.get("tool", "")
                 err = validate_tool_call(tc)
@@ -113,6 +115,7 @@ class WorkPhase(Phase):
                 # Track commit sha if git_commit ran
                 if tool_name == "git_commit" and isinstance(result, dict):
                     commit_sha = result.get("sha") or result.get("commit_sha")
+                    self.log(f"Committed: {commit_sha}")
                 result_str = json.dumps(result) if isinstance(result, dict) else str(result)
                 tool_results.append(f"[{tool_name}]\n{result_str[:4000]}")
 
