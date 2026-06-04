@@ -122,11 +122,23 @@ class ScoutPhase(Phase):
             # Execute tool calls
             tool_calls = parse_tool_calls(text)
             if not tool_calls:
-                self.log("No tool calls and no SCOUT_COMPLETE — nudging scout")
-                messages.append({
-                    "role": "user",
-                    "content": "Continue investigating. Output SCOUT_COMPLETE + JSON report when done.",
-                })
+                _consecutive_stalls = getattr(self, "_consecutive_stalls", 0) + 1
+                self._consecutive_stalls = _consecutive_stalls
+                self.log(f"No tool calls and no SCOUT_COMPLETE — nudging scout (stall {_consecutive_stalls})")
+                if _consecutive_stalls >= 2:
+                    # Force completion — model is drifting, enough info collected
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You have enough information. Stop investigating and output your report NOW.\n"
+                            "Output SCOUT_COMPLETE followed immediately by the JSON object. No other text."
+                        ),
+                    })
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": "Continue investigating. Output SCOUT_COMPLETE + JSON report when done.",
+                    })
                 continue
 
             tool_results = []
