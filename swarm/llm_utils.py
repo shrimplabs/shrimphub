@@ -499,10 +499,14 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
             ev_type = ev.get("type", "")
 
             if ev_type == "message_start":
-                usage = ev.get("message", {}).get("usage", {})
+                _msg_start = ev.get("message", {})
+                usage = _msg_start.get("usage", {})
                 tokens["input"] = usage.get("input_tokens", 0)
                 cache_read = usage.get("cache_read_input_tokens", 0)
                 cache_write = usage.get("cache_creation_input_tokens", 0)
+                _resp_model = _msg_start.get("model", "")
+                if _resp_model and _resp_model != model:
+                    log(f"[LLM] routed to model={_resp_model}")
 
             elif ev_type == "content_block_start":
                 idx = ev.get("index", -1)
@@ -565,6 +569,9 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         }
         if cached:
             log(f"[LLM] cache read={cached}")
+        resp_model = result.get("model", "")
+        if resp_model and resp_model != model:
+            log(f"[LLM] routed to model={resp_model}")
         _msg = result.get("choices", [{}])[0].get("message", {})
         text = _msg.get("content") or _msg.get("reasoning") or "No response"
         return text, tokens, []
