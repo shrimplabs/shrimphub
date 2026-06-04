@@ -830,6 +830,10 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         "error_log_excerpt": failure_excerpt,
     }
 
+    # Chain research feeder to project HEAD so it appears in the DAG history
+    from swarm.task_chains import chain_to_project_head
+    head_deps = chain_to_project_head(db, project, ensure_head=False)
+
     db.task_upsert({
         "id": research_id,
         "project": project,
@@ -839,7 +843,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         "status": "pending",
         "attempts": 0,
         "max_attempts": 2,
-        "dependencies": [],  # runs immediately
+        "dependencies": head_deps,
         "metadata": research_meta,
         "created": datetime.now().isoformat(),
     })
