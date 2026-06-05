@@ -67,10 +67,11 @@ Output format — output ONLY the JSON, no other text:
   "confidence": 0.85
 }
 
-Task types: bug (80), feature (50), refactor (100), research (60), polish (40)
+Task types: bug (80), feature (50), refactor (100), polish (40)
+DO NOT propose research tasks — the output must be actionable implementation tasks only.
 depends_on: list of integer indices into proposed_tasks (0-based)
 Keep descriptions specific and actionable — an agent will execute them without further context.
-Do not create more than 15 tasks. Focus on the highest-value work first.
+Do not propose more than 8 tasks. Consolidate micro-steps. Focus on the highest-value work only.
 """
 
 

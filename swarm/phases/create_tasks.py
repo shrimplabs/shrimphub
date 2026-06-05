@@ -53,7 +53,10 @@ Available tools:
 - list_dir(path) — list directory contents
 - search_files(query, path) — search code
 
-Task types: bug (80), feature (50), refactor (100), research (60), polish (40)
+Task types: bug (80), feature (50), refactor (100), polish (40)
+DO NOT create research tasks — research pipelines must produce actionable implementation tasks only.
+DO NOT create more than 8 tasks total. Consolidate micro-steps into broader actionable tasks.
+Each task description must be executable by a single agent without further research.
 
 Use create_tasks() (plural) for 2+ tasks — it handles dependency indices correctly.
 Use depends_on with integer indices into the tasks array, not task IDs.
