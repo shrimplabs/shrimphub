@@ -110,7 +110,22 @@ if [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRIMP_PID_FILE)" 2>/dev/null; t
     echo "✓ Shrimp router already running (PID $(cat $SHRIMP_PID_FILE))"
 elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
     echo "✓ Shrimp router already responding on port 8090"
-elif [ -d "$SHRIMP_DIR" ]; then
+else
+    echo "→ shrimp-router not found at $SHRIMP_DIR — cloning..."
+    git clone https://github.com/shrimplabs/shrimp-router.git "$SHRIMP_DIR" 2>&1
+    if [ -d "$SHRIMP_DIR" ]; then
+        echo "→ Installing shrimp-router..."
+        python3 -m venv "$SHRIMP_DIR/.venv"
+        "$SHRIMP_DIR/.venv/bin/pip" install -e "$SHRIMP_DIR" -q
+        echo "✓ shrimp-router installed"
+    fi
+fi
+
+if [ -d "$SHRIMP_DIR" ] && ! { [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRIMP_PID_FILE)" 2>/dev/null; } && ! curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
+    if [ ! -f "$SHRIMP_DIR/config.yaml" ]; then
+        cp "$SHRIMP_DIR/config.example.yaml" "$SHRIMP_DIR/config.yaml"
+        echo "  Created $SHRIMP_DIR/config.yaml from example — edit with your API keys"
+    fi
     rm -f "$SHRIMP_PID_FILE"
     echo "→ Starting shrimp-router..."
     nohup env SHRIMP_ROUTER_CONFIG="$SHRIMP_DIR/config.yaml" \
@@ -121,8 +136,6 @@ elif [ -d "$SHRIMP_DIR" ]; then
         "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
     echo $! > "$SHRIMP_PID_FILE"
     echo "✓ Shrimp router started (PID $(cat $SHRIMP_PID_FILE))"
-else
-    echo "  Shrimp router not found at $SHRIMP_DIR — skipping"
 fi
 
 # ── Wait for swarm to be ready, then open browser ───────────────────────────
