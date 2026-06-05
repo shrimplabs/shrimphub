@@ -621,6 +621,75 @@ def _phase_post_completion_pipeline(
 
 
 # ---------------------------------------------------------------------------
+# Experiment metrics
+# ---------------------------------------------------------------------------
+
+def _write_experiment_metrics(
+    task_id: str,
+    project: str,
+    task_snapshot: Optional[dict],
+    success: bool,
+    loop_count: int,
+    diff_stat: str,
+) -> None:
+    """Append one line to data/experiment_metrics.jsonl for A/B pipeline analysis.
+
+    Only writes when a pipeline_variant is present in task metadata — i.e. only
+    for tasks that ran under an explicit pipeline configuration. Tasks without a
+    pipeline_variant are skipped to keep the metrics file clean.
+    """
+    al = _al()
+    if not task_snapshot:
+        return
+    metadata = task_snapshot.get("metadata") or {}
+    pipeline_variant = metadata.get("pipeline_variant")
+    if not pipeline_variant:
+        return  # not an experiment task
+
+    # Parse diff stat for insertions/deletions.
+    insertions = 0
+    deletions = 0
+    if diff_stat:
+        ins_m = re.search(r"(\d+) insertion", diff_stat)
+        del_m = re.search(r"(\d+) deletion", diff_stat)
+        if ins_m:
+            insertions = int(ins_m.group(1))
+        if del_m:
+            deletions = int(del_m.group(1))
+
+    # Detect whether a validation bug task was spawned (written into log by _spawn_validation_bug_task).
+    bug_spawned = False
+    try:
+        log_path_candidate = al.DATA_DIR / f"agent_{task_id}.log"
+        if log_path_candidate.exists():
+            log_text = log_path_candidate.read_text(encoding="utf-8", errors="replace")
+            bug_spawned = "[Swarm] Spawning validation bug task" in log_text
+    except Exception:
+        pass
+
+    record = {
+        "task_id": task_id,
+        "project": project,
+        "task_type": task_snapshot.get("type", ""),
+        "pipeline_variant": pipeline_variant,
+        "work_loops": loop_count,
+        "validation_passed": success,
+        "bug_spawned": bug_spawned,
+        "attempts": task_snapshot.get("attempts", 1),
+        "diff_insertions": insertions,
+        "diff_deletions": deletions,
+        "completed_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    try:
+        metrics_path = al.DATA_DIR / "experiment_metrics.jsonl"
+        with open(metrics_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception as e:
+        print(f"[Swarm] WARNING: failed to write experiment metrics: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Main completion handler
 # ---------------------------------------------------------------------------
 
@@ -741,6 +810,17 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
     print(f"[Swarm] Agent {agent_id[:8]} finished (exit {exit_code})"
           + (f" diff: {diff_stat.splitlines()[-1]}" if diff_stat else ""))
+
+    # Phase 6b -- experiment metrics collection.
+    if task_id and project:
+        _write_experiment_metrics(
+            task_id=task_id,
+            project=project,
+            task_snapshot=task_snapshot_early,
+            success=success,
+            loop_count=loop_count,
+            diff_stat=diff_stat,
+        )
 
     # Phase 7 -- post-completion pipeline (only for successful tasks).
     if success and task_id and project:

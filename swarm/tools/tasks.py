@@ -126,7 +126,7 @@ def create_subtask(description: str, task_type: str = 'feature',
     # Depth enforcement
     if max_depth > 0:
         try:
-            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=30) as resp:
                 all_tasks = json.loads(resp.read()).get("tasks", [])
             parent = next((t for t in all_tasks if t.get("id") == _tid), None)
             parent_meta = dict(parent.get("metadata", {})) if parent else {}
@@ -148,7 +148,7 @@ def create_subtask(description: str, task_type: str = 'feature',
     files = [f.strip() for f in (files_touched or []) if isinstance(f, str) and f.strip()]
     if files:
         try:
-            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=30) as resp:
                 all_tasks = json.loads(resp.read()).get("tasks", [])
         except Exception as e:
             return {"ok": False, "error": f"Failed to fetch tasks for conflict check: {str(e)}"}
@@ -199,7 +199,7 @@ def create_subtask(description: str, task_type: str = 'feature',
             data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with _ur.urlopen(req, timeout=10) as resp:
+        with _ur.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
         task_id = result.get("task", {}).get("id", generated_id)
         _log(f"[create_subtask] Created {task_type} sub-task {task_id}: {description[:60]}")
@@ -240,7 +240,7 @@ def create_task(description: str, task_type: str = "feature", priority: int = 50
     task_metadata = dict(metadata) if metadata else {}
     if parent_task_id:
         try:
-            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=30) as resp:
                 all_tasks = json.loads(resp.read()).get("tasks", [])
             parent = next((t for t in all_tasks if t.get("id") == parent_task_id), None)
             if not parent:
@@ -267,7 +267,7 @@ def create_task(description: str, task_type: str = "feature", priority: int = 50
 
     if dependencies:
         try:
-            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+            with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=30) as resp:
                 data = json.loads(resp.read())
             existing_ids = {t["id"] for t in data.get("tasks", []) if t.get("project") == proj}
             missing = [d for d in dependencies if d not in existing_ids]
@@ -297,7 +297,7 @@ def create_task(description: str, task_type: str = "feature", priority: int = 50
             data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with _ur.urlopen(req, timeout=10) as resp:
+        with _ur.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
         task_id = result.get("task", {}).get("id", generated_id)
         _log(f"[create_task] Created {task_type} task {task_id}: {description[:60]}")
@@ -726,26 +726,32 @@ def create_tasks(tasks: list, project: str = None) -> dict:
 
 def list_tasks(project: str = None) -> dict:
     """List all tasks for the current (or specified) project."""
+    import time as _time
     import urllib.request as _ur
+    import urllib.parse as _up
     _proj, _type, _tid, _prio, _port = _read_core()
     target_project = project if project else _proj
-    try:
-        import urllib.parse as _up
-        url = f"http://localhost:{_port}/api/tasks?project={_up.quote(target_project)}&include_completed=false"
-        with _ur.urlopen(url, timeout=10) as resp:
-            data = json.loads(resp.read())
-        tasks = [
-            {
-                "id": t["id"],
-                "type": t.get("type", ""),
-                "status": t.get("status", ""),
-                "description": t.get("description", "")[:80],
-            }
-            for t in data.get("tasks", [])
-        ]
-        return {"ok": True, "tasks": tasks, "project": target_project}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    url = f"http://localhost:{_port}/api/tasks?project={_up.quote(target_project)}&include_completed=false"
+    last_err = None
+    for _attempt in range(3):
+        if _attempt:
+            _time.sleep(2 ** _attempt)  # 2s, 4s backoff
+        try:
+            with _ur.urlopen(url, timeout=30) as resp:
+                data = json.loads(resp.read())
+            tasks = [
+                {
+                    "id": t["id"],
+                    "type": t.get("type", ""),
+                    "status": t.get("status", ""),
+                    "description": t.get("description", "")[:80],
+                }
+                for t in data.get("tasks", [])
+            ]
+            return {"ok": True, "tasks": tasks, "project": target_project}
+        except Exception as e:
+            last_err = str(e)
+    return {"ok": False, "error": last_err}
 
 
 def list_subtasks(parent_task_id: str = None) -> dict:
@@ -755,7 +761,7 @@ def list_subtasks(parent_task_id: str = None) -> dict:
     _proj, _type, _tid, _prio, _port = _read_core()
     target = parent_task_id if parent_task_id else _tid
     try:
-        with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=10) as resp:
+        with _ur.urlopen(f"http://localhost:{_port}/api/tasks", timeout=30) as resp:
             data = json.loads(resp.read())
         subtasks = [
             {
@@ -798,7 +804,7 @@ def _fetch_all_project_tasks(proj: str):
     from swarm.tools import core as _c
     try:
         url = f"http://localhost:{_c.API_PORT}/api/tasks?project={proj}&include_completed=true"
-        with _ur.urlopen(url, timeout=10) as resp:
+        with _ur.urlopen(url, timeout=30) as resp:
             data = json.loads(resp.read())
         return data.get("tasks", []), ""
     except Exception as e:

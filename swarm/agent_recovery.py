@@ -786,6 +786,21 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         print(f"[Swarm] Research feeder {existing_id} already exists for {failed_id[:8]} (status={live_feeders[0].get('status')}) — skipping duplicate")
         return existing_id
 
+    # Per-project cap: only one research feeder may be pending/in_progress per project
+    # at a time. Multiple concurrent failures often share the same root cause — letting
+    # them each spawn a feeder produces duplicate diagnosis chains and conflicting fix tasks.
+    # The blocked tasks will be unblocked after the single feeder resolves.
+    project_live_feeders = [
+        t for t in all_tasks
+        if t.get("project") == project
+        and (t.get("metadata") or {}).get("is_research_feeder")
+        and t.get("status") in ("pending", "in_progress")
+    ]
+    if project_live_feeders:
+        existing_id = project_live_feeders[0]["id"]
+        print(f"[Swarm] Research feeder {existing_id} already running for project {project} — holding {failed_id[:8]} until it completes")
+        return None
+
     # Accumulate attempt history in metadata (survives the attempts=0 reset)
     attempt_history = list(failed_meta.get("attempt_history") or [])
     failure_excerpt, output_chars = _bounded_failure_excerpt(last_output)

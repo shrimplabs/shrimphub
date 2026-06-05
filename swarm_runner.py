@@ -964,10 +964,13 @@ def generate_task_script(task: dict) -> str:
     plan_provider = str(_config.get("plan_provider", ""))
     work_provider = str(_config.get("work_provider", ""))
     synthesize_provider = str(_config.get("synthesize_provider", ""))
-    # Pipeline: per-task override wins; falls back to config "pipelines" key
+    # Pipeline resolution (priority: per-task > project-level > global config)
     _pipelines_cfg = _config.get("pipelines", {})
+    _project_pipelines_cfg = _config.get("project_pipelines", {})
     _pipeline_from_metadata = metadata.get("pipeline")  # set at task creation for A/B testing
-    pipeline = _pipeline_from_metadata or _pipelines_cfg.get(task_type, [])
+    _project_pipeline_override = _project_pipelines_cfg.get(project, {}).get(task_type) \
+        or _project_pipelines_cfg.get(project, {}).get("*")
+    pipeline = _pipeline_from_metadata or _project_pipeline_override or _pipelines_cfg.get(task_type, [])
     # Record the resolved pipeline in task metadata so it's queryable after the fact
     if pipeline and not metadata.get("pipeline_variant"):
         try:

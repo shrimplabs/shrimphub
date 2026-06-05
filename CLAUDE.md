@@ -56,6 +56,18 @@ echo "MINIMAX_API_KEY=your_key" > .env
 .venv/bin/pytest tests/test_dashboard.py
 ```
 
+## Interactive Task Work (Claude Code)
+
+You can pick up and complete swarm tasks yourself instead of delegating to background agents. Use the `/swarm-task` skill (symlinked from `skills/swarm-task/SKILL.md` into `~/.claude/skills/`):
+
+```
+/swarm-task                        # pick highest-priority ready task
+/swarm-task shrimp-router          # filter to a project
+/swarm-task bug-668875300-0152     # claim a specific task by ID
+```
+
+The skill handles claiming (PATCH status→in_progress), doing the work, running tests, and marking complete. It follows the same rules as background agents: no service restarts, one file at a time, fail fast if blocked.
+
 ## Issue Tracking
 
 This repo uses **bd** (beads) for issue tracking -- not TodoWrite or markdown TODO lists.
