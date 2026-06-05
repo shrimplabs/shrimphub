@@ -83,7 +83,7 @@ class TestHandleTaskFailure:
         assert feeders[0]["type"] == "research"
 
     def test_cancels_qa_type_after_max_attempts(self):
-        # qa tasks with on_exhaust=cancel stay failed (no research feeder spawned)
+        # qa tasks with on_exhaust=cancel are cancelled (not failed) — no research feeder spawned
         db.task_upsert({
             "id": "t1", "project": "proj", "type": "qa", "description": "x",
             "priority": 50, "status": "in_progress", "dependencies": [], "metadata": {},
@@ -91,7 +91,7 @@ class TestHandleTaskFailure:
         })
         orchestrator._handle_task_failure("t1", "proj", "still failing")
         t = db.task_get("t1")
-        assert t["status"] == "failed"
+        assert t["status"] == "cancelled"
         all_tasks = db.task_get_all()
         feeders = [x for x in all_tasks if (x.get("metadata") or {}).get("feeds_into_task_id") == "t1"]
         assert len(feeders) == 0

@@ -794,7 +794,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         t for t in all_tasks
         if t.get("project") == project
         and (t.get("metadata") or {}).get("is_research_feeder")
-        and t.get("status") in ("pending", "in_progress")
+        and t.get("status") in ("pending", "in_progress", "failed")
     ]
     if project_live_feeders:
         existing_id = project_live_feeders[0]["id"]
@@ -948,16 +948,19 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
             f"Task has gone through research→retry {cycles} times without resolving. "
             f"Needs human diagnosis."
         )
+        # Snooze 24h so it doesn't burn cycles immediately, but keep it pending
+        # so a human can un-snooze it via the dashboard rather than it being lost.
         run_after = (datetime.now() + timedelta(hours=24)).isoformat()
         db_ref.task_update(original_task_id, {
-            "status": "failed",
+            "status": "pending",
+            "attempts": 0,
             "dependencies": orig_deps,
             "metadata": orig_meta,
             "run_after": run_after,
         })
         print(
             f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_CYCLES}) reached for "
-            f"{original_task_id[:12]} — cancelling instead of resetting (cycle {cycles})"
+            f"{original_task_id[:12]} — snoozed 24h with needs_human_review flag (cycle {cycles})"
         )
         return
 
@@ -1067,7 +1070,8 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             _spawn_research_feeder(task, attempts, agent_output)
         elif project and on_exhaust == "cancel":
             # QA/research/plan types: cancel cleanly, don't recurse
-            print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelling per escalation policy")
+            db.task_update(task_id, {"status": "cancelled"})
+            print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled per escalation policy")
         elif project:
             # Fallback to legacy recovery for unknown types
             _spawn_review_task(task, attempts, agent_output)
