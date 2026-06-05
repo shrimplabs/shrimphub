@@ -143,3 +143,109 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
                 pass
         files.sort(key=lambda f: f["project"])
         return jsonify({"files": files})
+
+    @app.route("/api/experiment/results", methods=["GET"])
+    def get_experiment_results():
+        """Aggregate pipeline A/B experiment metrics from experiment_metrics.jsonl.
+
+        Groups completed tasks by pipeline_variant and computes:
+        - count, mean/median work_loops, validation_pass_rate, bug_spawn_rate
+        - Mann-Whitney U p-value for loops vs control (if scipy available)
+        - Fisher's exact p-value for pass rates vs control (if scipy available)
+        """
+        import json as _json
+        import math
+        from collections import defaultdict
+
+        metrics_path = os.path.join(data_dir, "experiment_metrics.jsonl")
+        records = []
+        if os.path.exists(metrics_path):
+            with open(metrics_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        records.append(_json.loads(line))
+                    except Exception:
+                        pass
+
+        # Group by pipeline_variant (serialize list → string key)
+        groups = defaultdict(list)
+        for r in records:
+            variant = r.get("pipeline_variant")
+            if not variant:
+                continue
+            key = "→".join(variant) if isinstance(variant, list) else str(variant)
+            groups[key].append(r)
+
+        def _mean(vals):
+            return round(sum(vals) / len(vals), 2) if vals else None
+
+        def _median(vals):
+            if not vals:
+                return None
+            s = sorted(vals)
+            n = len(s)
+            mid = n // 2
+            return s[mid] if n % 2 else round((s[mid - 1] + s[mid]) / 2, 2)
+
+        def _stddev(vals):
+            if len(vals) < 2:
+                return None
+            m = sum(vals) / len(vals)
+            variance = sum((v - m) ** 2 for v in vals) / (len(vals) - 1)
+            return round(math.sqrt(variance), 2)
+
+        summary = {}
+        for variant_key, rows in groups.items():
+            loops = [r["work_loops"] for r in rows if "work_loops" in r]
+            passed = [r for r in rows if r.get("validation_passed")]
+            bugged = [r for r in rows if r.get("bug_spawned")]
+            insertions = [r.get("diff_insertions", 0) for r in rows]
+            deletions = [r.get("diff_deletions", 0) for r in rows]
+            summary[variant_key] = {
+                "n": len(rows),
+                "pipeline": rows[0].get("pipeline_variant") if rows else [],
+                "work_loops_mean": _mean(loops),
+                "work_loops_median": _median(loops),
+                "work_loops_stddev": _stddev(loops),
+                "validation_pass_rate": round(len(passed) / len(rows), 3) if rows else None,
+                "bug_spawn_rate": round(len(bugged) / len(rows), 3) if rows else None,
+                "diff_insertions_mean": _mean(insertions),
+                "diff_deletions_mean": _mean(deletions),
+            }
+
+        # Statistical significance vs control (plan→scout→work→validate)
+        control_key = "plan→scout→work→validate"
+        control_rows = groups.get(control_key, [])
+        if control_rows:
+            try:
+                from scipy import stats as _stats
+                control_loops = [r["work_loops"] for r in control_rows if "work_loops" in r]
+                ctrl_pass = len([r for r in control_rows if r.get("validation_passed")])
+                ctrl_fail = len(control_rows) - ctrl_pass
+
+                for variant_key, stat in summary.items():
+                    if variant_key == control_key:
+                        continue
+                    variant_rows = groups[variant_key]
+                    v_loops = [r["work_loops"] for r in variant_rows if "work_loops" in r]
+                    v_pass = len([r for r in variant_rows if r.get("validation_passed")])
+                    v_fail = len(variant_rows) - v_pass
+
+                    if len(v_loops) >= 3 and len(control_loops) >= 3:
+                        _, p_loops = _stats.mannwhitneyu(v_loops, control_loops, alternative="two-sided")
+                        stat["loops_vs_control_p"] = round(float(p_loops), 4)
+
+                    if v_pass + v_fail > 0 and ctrl_pass + ctrl_fail > 0:
+                        _, p_pass = _stats.fisher_exact([[v_pass, v_fail], [ctrl_pass, ctrl_fail]])
+                        stat["pass_rate_vs_control_p"] = round(float(p_pass), 4)
+            except ImportError:
+                pass  # scipy optional
+
+        return jsonify({
+            "total_records": len(records),
+            "variants": summary,
+            "metrics_file": metrics_path,
+        })

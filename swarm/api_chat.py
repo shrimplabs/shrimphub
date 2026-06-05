@@ -235,6 +235,7 @@ def _execute_chat_actions(action_blocks, db, config, config_file, _config_write_
                 auto_mode_state["enabled"] = enabled
                 if not enabled:
                     auto_mode_state["suspended_for_quota"] = False
+            print(f"[Auto] Mode {'enabled' if enabled else 'disabled'} via chat manager action (session={session_id})")
             results.append(f"set_auto_mode: auto mode {'enabled' if enabled else 'disabled'}")
 
         elif atype == "restart_server":

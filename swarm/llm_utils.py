@@ -311,7 +311,7 @@ def _record_rate_limit_event(provider_name: str):
 def _quota_sleep_if_needed(log_fn=None):
     """Check MiniMax quota via the local API and poll-sleep until quota clears.
 
-    Reads QUOTA_SLEEP_THRESHOLD env var (default 88) — slightly below the
+    Reads QUOTA_SLEEP_THRESHOLD env var (default 88) -- slightly below the
     swarm's quota_limit_percent (90) so agents pause before the orchestrator
     suspends spawning. Polls every 60s so agents wake up immediately when the
     interval resets rather than sleeping for the full remaining window.
@@ -338,7 +338,7 @@ def _quota_sleep_if_needed(log_fn=None):
                 if pct >= threshold:
                     over = True
                     if log_fn and not logged:
-                        log_fn(f"[LLM] Quota at {pct:.1f}% (threshold {threshold}%) — polling every {poll_interval}s until interval resets")
+                        log_fn(f"[LLM] Quota at {pct:.1f}% (threshold {threshold}%) -- polling every {poll_interval}s until interval resets")
                         logged = True
                 break
             if not over:
@@ -383,7 +383,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
 
     is_loopback_provider = _is_loopback_base_url(base_url)
 
-    # Local providers don't need a real API key — use a placeholder.
+    # Local providers don't need a real API key -- use a placeholder.
     if not api_key and is_loopback_provider:
         api_key = "local"
     elif not api_key:
@@ -478,7 +478,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         """Parse an Anthropic SSE stream, returning (text, tokens, thinking_blocks).
 
         thinking_blocks is a list of {"type": "thinking", "thinking": ..., "signature": ...}
-        dicts — one per thinking block in the response. Empty list if no thinking occurred.
+        dicts -- one per thinking block in the response. Empty list if no thinking occurred.
         Callers that want to preserve reasoning across turns should include these in the
         next assistant message content alongside the text block.
         """
@@ -567,11 +567,14 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 stream_complete = True
 
         # If we got no Anthropic events but have text parts, it was an OpenAI stream
-        # that happened to use data: lines — that's handled below.
+        # that happened to use data: lines -- that's handled below.
         # But if we got nothing at all, try to detect OpenAI streaming format by
         # checking if text_parts came from OpenAI chunks (handled in loop above via
         # the choices[].delta.content path which we add here):
-        if not stream_complete and not text_parts:
+        # stream was cut off before message_stop arrived.  Returning partial content
+        # in this case is dangerous -- the caller may believe the task is done when
+        # in fact the model was mid-sentence.  We must report an error instead.
+        if not stream_complete:
             return "Error: stream truncated before completion", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
         if cache_read or cache_write:
             log(f"[LLM] cache read={cache_read} write={cache_write}")
@@ -584,7 +587,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
             thinking = "".join(tb["parts"])
             if thinking:
                 snippet = thinking[:200].replace("\n", " ")
-                log(f"[LLM] thinking: {snippet}{'…' if len(thinking) > 200 else ''}")
+                log(f"[LLM] thinking: {snippet}{'...' if len(thinking) > 200 else ''}")
                 thinking_blocks.append({
                     "type": "thinking",
                     "thinking": thinking,
@@ -626,7 +629,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     return _parse_sse_stream(resp)
                 elif resp.status_code in (429, 529):
                     wait = backoff[min(attempt, len(backoff) - 1)]
-                    log(f"Rate limited ({resp.status_code}) — waiting {wait}s (attempt {attempt+1}/7)")
+                    log(f"Rate limited ({resp.status_code}) -- waiting {wait}s (attempt {attempt+1}/7)")
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
@@ -634,7 +637,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     log(f"API error {resp.status_code} (stream): {body_text}")
                     if resp.status_code == 500 and ("999" in body_text or "unknown error" in body_text.lower()):
                         wait = backoff[min(attempt, len(backoff) - 1)]
-                        log(f"MiniMax 999/1000 error — retrying in {wait}s (attempt {attempt+1}/7)")
+                        log(f"MiniMax 999/1000 error -- retrying in {wait}s (attempt {attempt+1}/7)")
                         time.sleep(wait)
                         continue
                     return f"API error {resp.status_code}: {body_text}", {"input": 0, "output": 0}, []
@@ -644,7 +647,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     return _parse_response(resp.json())
                 elif resp.status_code in (429, 529):
                     wait = backoff[min(attempt, len(backoff) - 1)]
-                    log(f"Rate limited ({resp.status_code}) — waiting {wait}s (attempt {attempt+1}/7)")
+                    log(f"Rate limited ({resp.status_code}) -- waiting {wait}s (attempt {attempt+1}/7)")
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
                 else:
@@ -652,24 +655,24 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     log(f"API error {resp.status_code}: {body_text}")
                     if resp.status_code == 500 and ("999" in body_text or "unknown error" in body_text.lower()):
                         wait = backoff[min(attempt, len(backoff) - 1)]
-                        log(f"MiniMax 999/1000 error — retrying in {wait}s (attempt {attempt+1}/7)")
+                        log(f"MiniMax 999/1000 error -- retrying in {wait}s (attempt {attempt+1}/7)")
                         time.sleep(wait)
                         continue
                     return f"API error {resp.status_code}: {body_text}", {"input": 0, "output": 0}, []
         except Exception as e:
             wait = backoff[min(attempt, len(backoff) - 1)]
             if attempt < 6:
-                log(f"API error ({e}) — retrying in {wait}s (attempt {attempt+1}/7)")
+                log(f"API error ({e}) -- retrying in {wait}s (attempt {attempt+1}/7)")
                 time.sleep(wait)
             else:
                 return f"Error: {e}", {"input": 0, "output": 0}, []
 
-    # All retries exhausted on 429 — signal orchestrator to rotate provider / cooldown spawn
+    # All retries exhausted on 429 -- signal orchestrator to rotate provider / cooldown spawn
     try:
         flag_dir = Path(__file__).parent.parent / "data"
         flag_dir.mkdir(exist_ok=True)
         (flag_dir / f"rate_limited_{provider_name}.flag").touch()
-        log(f"Rate limit exhausted for {provider_name} — wrote flag for provider rotation")
+        log(f"Rate limit exhausted for {provider_name} -- wrote flag for provider rotation")
     except Exception:
         pass
     return f"Error: {provider_name} rate limited after 7 attempts", {"input": 0, "output": 0}, []

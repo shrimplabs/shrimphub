@@ -143,6 +143,61 @@ and QA passes.
 5. Clone + seed + run
 6. Analyze after 50+ completions per variant
 
+## Literature Review
+
+Literature review conducted 2026-06-04. Key finding: **no published research
+covers controlled ablations of dynamic phase ordering for LLM agent pipelines
+on real software tasks.** This experiment is genuinely novel.
+
+### What exists
+
+**AutoCodeRover** (Zhang et al., ISSTA 2024 / arXiv 2404.05427) is the closest
+structural analog. It uses a two-stage pipeline: a *context retrieval* phase
+(iterative AST-based code search, up to 3 retries) followed by a *patch
+generation* phase (up to 3 retries with test feedback). This is the earliest
+published system to decompose software agent work into distinct phases with
+per-phase retry budgets. Achieves 30.67% on SWE-bench Lite at <$0.70/task.
+The paper does not ablate phase ordering or composition.
+
+- Paper: https://arxiv.org/abs/2404.05427
+- Code: https://github.com/AutoCodeRoverSG/auto-code-rover
+
+**SWE-agent** (Yang et al., NeurIPS 2024) uses a flat ReAct loop — no phase
+structure. Average trajectory: ~40 steps / 48.4K tokens per issue on SWE-bench
+Verified. Up to 50 LLM calls and 49 tool calls per task. Serves as the
+unstructured baseline for comparison.
+
+- Paper: https://proceedings.neurips.cc/paper_files/paper/2024/file/5a7c947568c1b1328ccc5230172e1e7c-Paper-Conference.pdf
+
+**AgentDiet** (arXiv 2509.23586, 2025) studies trajectory *compression* rather
+than phase ordering — it reduces input tokens by 39.9–59.7% by pruning
+redundant trajectory content mid-run, without harming pass rate (-1% to +2%).
+This is evidence that most trajectory content is waste, not signal — which
+motivates the hypothesis that better phase structure could eliminate waste
+upfront rather than pruning it after the fact.
+
+- Paper: https://arxiv.org/html/2509.23586v2
+
+**OpenHands** supports multiple agent modes and is evaluated at up to 100
+iterations per instance. No published ablation of phase ordering.
+
+- Blog: https://openhands.dev/blog/evaluation-of-llms-as-coding-agents-on-swe-bench-at-30x-speed
+
+### What is not known
+
+Nobody has published a controlled experiment varying:
+- Phase composition (which phases to include)
+- Phase ordering (plan→scout vs scout→plan vs scout-only, etc.)
+- Whether front-loading exploration reduces work loop count on implementation tasks
+
+The AutoCodeRover data (retrieval-then-patch, ~6 total LLM calls) vs SWE-agent
+(flat ~40 steps) suggests structured phases reduce iteration count, but this has
+never been isolated — the systems differ in model, tools, and task distribution,
+not just phase structure.
+
+Our experiment will be the first direct comparison of pipeline variants on
+identical tasks, identical projects, identical models.
+
 ## Open Questions
 
 - Should variants be fully random (any valid ordering) or fixed per project?

@@ -73,7 +73,7 @@ def _read_lines_with_fallback(path: str | Path) -> tuple[list[str], str]:
 
 
 
-def _api_request(method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
+def _api_request(method: str, path: str, payload: dict | None = None, timeout: int = 30) -> dict:
     body = None
     headers = {}
     if payload is not None:

@@ -91,11 +91,13 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
                     pass
             cfg["auto_mode_enabled"] = enabled
             config_file.write_text(json.dumps(cfg, indent=2) + "\n")
+        caller = request.remote_addr or "unknown"
+        ua = request.headers.get("User-Agent", "")[:60]
         if enabled and generate_task_script is not None:
             spawned_ids, _ = orchestrator.fill_slots(generate_task_script)
-            print(f"[Auto] Mode enabled — spawned {len(spawned_ids)} agent(s)")
+            print(f"[Auto] Mode enabled via HTTP — spawned {len(spawned_ids)} agent(s) | caller={caller} ua={ua}")
             return jsonify({"enabled": True, "spawned": len(spawned_ids)})
-        print("[Auto] Mode disabled")
+        print(f"[Auto] Mode disabled via HTTP | caller={caller} ua={ua}")
         return jsonify({"enabled": auto_mode_state["enabled"]})
 # ---------- Auto-scale ----------
     @app.route("/api/auto-scale", methods=["GET"])

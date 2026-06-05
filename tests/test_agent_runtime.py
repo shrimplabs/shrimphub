@@ -6,7 +6,7 @@ Covers:
   - execute_tool(): dispatch table completeness and error handling
   - Individual tool functions: read_file, write_file, list_files, run_command
   - call_llm(): provider format selection, missing key, 429 retry, error handling
-  - main(): full conversation loop with mocked LLM — the complete agent loop
+  - main(): full conversation loop with mocked LLM -- the complete agent loop
 """
 import json
 import os
@@ -78,7 +78,7 @@ def reset_rt(tmp_path):
     rt.mcp_client = None
     rt._ROUTING_LOOP = 0
     rt._ROUTING_COMMITS = 0
-    rt.API_PORT = 19999   # nothing listens here — prevents tests leaking tasks to live server
+    rt.API_PORT = 19999   # nothing listens here -- prevents tests leaking tasks to live server
     rt.MANAGED_PROJECTS = ["real-proj"]  # non-empty + excludes test-proj → unmanaged guard skips continuation spawning
     rt.TASK_METADATA = {}
     rt.RUN_BROADCAST_WRITE_COUNT = 0
@@ -153,13 +153,13 @@ class TestParseToolCalls:
         assert rt.parse_tool_calls("Hello! I will now help you with the task.") == []
 
     def test_truncated_response_missing_close_tag_skipped(self):
-        # No [/TOOL_CALL] — incomplete, should not be returned
+        # No [/TOOL_CALL] -- incomplete, should not be returned
         text = '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}'
         calls = rt.parse_tool_calls(text)
         assert calls == []
 
     def test_malformed_json_missing_one_brace_is_recovered(self):
-        # Missing final } — _try_parse should recover by appending one
+        # Missing final } -- _try_parse should recover by appending one
         text = '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}[/TOOL_CALL]'
         calls = rt.parse_tool_calls(text)
         assert len(calls) == 1
@@ -1482,7 +1482,7 @@ class TestCallLlm:
         truncated_lines = [
             f"data: {json.dumps({'type': 'message_start', 'message': {'usage': {'input_tokens': 10}}})}",
             f"data: {json.dumps({'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': 'partial'}})}",
-            # connection dropped here — no message_stop
+            # connection dropped here -- no message_stop
         ]
         m = MagicMock()
         m.status_code = 200
@@ -1491,7 +1491,7 @@ class TestCallLlm:
             with patch("requests.post", return_value=m):
                 text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
         assert "truncated" in text.lower()
-        assert tokens == {"input": 0, "output": 0}
+        assert tokens == {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
 
     def test_minimax_provider_uses_minimax_url(self):
         captured = []
@@ -1564,7 +1564,7 @@ class TestCallLlm:
 
 
 # ---------------------------------------------------------------------------
-# main() — full agent loop
+# main() -- full agent loop
 # ---------------------------------------------------------------------------
 
 class TestMainLoop:
@@ -1815,7 +1815,7 @@ class TestMainLoop:
             # Tool call whose args contain the string "TASK_COMPLETE"
             '[TOOL_CALL]{"tool": "run_command", "args": {"command": "grep -n \\"TASK_COMPLETE\\" main.py"}}[/TOOL_CALL]',
             "TASK_COMPLETE",
-            # Reflection loop fires after TASK_COMPLETE — let it complete cleanly
+            # Reflection loop fires after TASK_COMPLETE -- let it complete cleanly
             "REFLECTION_COMPLETE",
         ])
         calls = []
