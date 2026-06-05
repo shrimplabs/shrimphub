@@ -964,9 +964,17 @@ def generate_task_script(task: dict) -> str:
     plan_provider = str(_config.get("plan_provider", ""))
     work_provider = str(_config.get("work_provider", ""))
     synthesize_provider = str(_config.get("synthesize_provider", ""))
-    # Pipeline: resolve phase list for this task type from config "pipelines" key
+    # Pipeline: per-task override wins; falls back to config "pipelines" key
     _pipelines_cfg = _config.get("pipelines", {})
-    pipeline = _pipelines_cfg.get(task_type, [])
+    _pipeline_from_metadata = metadata.get("pipeline")  # set at task creation for A/B testing
+    pipeline = _pipeline_from_metadata or _pipelines_cfg.get(task_type, [])
+    # Record the resolved pipeline in task metadata so it's queryable after the fact
+    if pipeline and not metadata.get("pipeline_variant"):
+        try:
+            from swarm import db as _db
+            _db.task_update(task_id, {"metadata": {**metadata, "pipeline_variant": pipeline}})
+        except Exception:
+            pass
     qa_system, qa_user = _load_prompt("qa", **_common, qa_cycle=qa_cycle, qa_max_cycles=qa_max_cycles)
     harness_available = (project_path / "autoload" / "test_harness.gd").exists()
     hybrid_qa_system, hybrid_qa_user = _load_prompt(
