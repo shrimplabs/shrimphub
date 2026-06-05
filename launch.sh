@@ -89,6 +89,7 @@ elif curl -s --max-time 1 http://localhost:8886/livez >/dev/null 2>&1; then
 elif [ -f "$HEADROOM_VENV/bin/headroom" ] && [ -n "$OPENCODE_API_KEY" ]; then
     rm -f "$HEADROOM_OPENCODE_PID_FILE"
     echo "→ Starting headroom proxy (OpenCode)..."
+    OPENAI_API_KEY="$OPENCODE_API_KEY" \
     nohup "$HEADROOM_VENV/bin/headroom" proxy \
         --port 8886 --mode token \
         --backend anyllm --anyllm-provider openai \
@@ -112,7 +113,12 @@ elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
 elif [ -d "$SHRIMP_DIR" ]; then
     rm -f "$SHRIMP_PID_FILE"
     echo "→ Starting shrimp-router..."
-    nohup env SHRIMP_ROUTER_CONFIG="$SHRIMP_DIR/config.yaml" "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
+    nohup env SHRIMP_ROUTER_CONFIG="$SHRIMP_DIR/config.yaml" \
+        MINIMAX_API_KEY="$MINIMAX_API_KEY" \
+        OPENCODE_API_KEY="$OPENCODE_API_KEY" \
+        OPENAI_API_KEY="$OPENCODE_API_KEY" \
+        KIMI_API_KEY="$KIMI_API_KEY" \
+        "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
     echo $! > "$SHRIMP_PID_FILE"
     echo "✓ Shrimp router started (PID $(cat $SHRIMP_PID_FILE))"
 else
