@@ -48,6 +48,14 @@ class TaskState:
     scout_report: dict = field(default_factory=dict)
     # {files_inspected, findings, hypotheses, recommended_actions, confidence}
 
+    # --- Synthesize phase output (research pipeline) ---
+    synthesis: dict = field(default_factory=dict)
+    # {summary, key_conclusions, proposed_tasks, confidence}
+
+    # --- Create tasks phase output (research pipeline) ---
+    tasks_created: list = field(default_factory=list)
+    # list of task IDs created
+
     # --- Work phase output ---
     work_report: dict = field(default_factory=dict)
     # {patches_applied, test_output, commit_sha}
@@ -75,6 +83,11 @@ class TaskState:
         if self.scout_report:
             n = len(self.scout_report.get('files_inspected', []))
             lines.append(f"  Scout: {n} files inspected, {len(self.scout_report.get('findings', []))} findings")
+        if self.synthesis:
+            n = len(self.synthesis.get('proposed_tasks', []))
+            lines.append(f"  Synthesis: {n} tasks proposed, confidence={self.synthesis.get('confidence', '?')}")
+        if self.tasks_created:
+            lines.append(f"  Tasks created: {len(self.tasks_created)} ({self.tasks_created[:5]})")
         if self.work_report:
             lines.append(f"  Work: commit={self.work_report.get('commit_sha', 'none')}")
         if self.validation:
@@ -125,7 +138,7 @@ def _ensure_phases_loaded() -> None:
     """Import phase modules so they self-register."""
     if PHASE_REGISTRY:
         return
-    from swarm.phases import plan, scout, work, validate  # noqa: F401
+    from swarm.phases import plan, scout, work, validate, synthesize, create_tasks  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
