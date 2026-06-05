@@ -137,6 +137,22 @@ On Windows, set the Godot path explicitly in `config.json` using the `_console.e
 
 Settings can be updated live via the API without restarting — changes persist to `config.json` automatically.
 
+### Auto-discovery with `.swarmproject`
+
+Any directory in your workspace that contains a `.swarmproject` file is automatically registered in the dashboard when the swarm starts — no `config.json` edits required.
+
+```yaml
+# .swarmproject
+name: my-tool        # project name (defaults to directory name)
+type: python         # python | godot | typescript
+managed: false       # false = visible in dashboard, no agents assigned
+                     # true  = agents may be assigned work automatically
+```
+
+Set `managed: false` (the default) for infrastructure projects like `shrimp-router` that you want visible but protected from accidental agent edits. Flip to `true` via the dashboard toggle or by editing the file when you're ready.
+
+`shrimp-router` ships a `.swarmproject` file, so it appears in your dashboard automatically after `launch.sh` clones it — no manual registration needed.
+
 ### Escalation policy
 
 Controls how the system handles tasks that exhaust their retry budget:
