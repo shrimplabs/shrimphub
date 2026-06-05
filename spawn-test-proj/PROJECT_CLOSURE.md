@@ -9,12 +9,15 @@
 ## Boot
 
 - ready_check.type: `command`
-- ready_check.command: `python3 -c "print('boot check placeholder')"`
+- ready_check.command: `cd spawn-test-proj && python3 service.py 18080 127.0.0.1 &
+sleep 2
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18080/health`
 
 ## Verification
 
 - smoke_checks:
   - `service-smoke` (command)
+  - service-smoke.command: `curl -s http://127.0.0.1:18080/ping`
 
 ## Critical Flows
 
@@ -22,8 +25,8 @@
 
 ## Gates
 
-- boot_ok: `False`
-- tests_ok: `False`
+- boot_ok: `True`
+- tests_ok: `True`
 - critical_flow_count: `1`
 - max_open_regressions: `0`
 
