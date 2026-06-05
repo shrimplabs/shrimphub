@@ -1210,6 +1210,33 @@ def create_app(
         if _p and not getattr(_p, "managed", True):
             project_registry.set_managed(_proj, True)
 
+    # Auto-discover projects with a .swarmproject marker file in the workspace.
+    # These appear in the dashboard but are NOT added to managed_projects (no agents)
+    # unless the marker file explicitly sets managed: true.
+    import yaml as _yaml
+    for _candidate in (orchestrator.WORKSPACE.iterdir() if orchestrator.WORKSPACE.exists() else []):
+        _marker = _candidate / ".swarmproject"
+        if not _marker.exists() or not _candidate.is_dir():
+            continue
+        _proj_name = _candidate.name
+        try:
+            _marker_cfg = _yaml.safe_load(_marker.read_text()) or {}
+        except Exception:
+            _marker_cfg = {}
+        _marker_name = _marker_cfg.get("name", _proj_name)
+        _marker_managed = bool(_marker_cfg.get("managed", False))
+        if not project_registry.get(_marker_name):
+            try:
+                project_registry.add_project(_marker_name, managed=_marker_managed)
+                _files = project_registry.scan_project_files(_marker_name, _startup_exts, _startup_ignore)
+                project_registry.update_file_counts(_marker_name, _files)
+                print(f"[Startup] Auto-discovered project: {_marker_name} (managed={_marker_managed})")
+            except Exception as _e:
+                print(f"[Startup] Could not register discovered project {_marker_name}: {_e}")
+        if _marker_managed and _marker_name not in config.get("managed_projects", []):
+            config.setdefault("managed_projects", []).append(_marker_name)
+            print(f"[Startup] Auto-discovered project {_marker_name} added to managed list")
+
     orchestrator.MANAGED_PROJECTS = _managed_projects_from_registry()
     # Merge: keep anything in config.json that failed to register (don't drop it)
     config_managed = set(config.get("managed_projects", []))
