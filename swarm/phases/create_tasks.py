@@ -1,23 +1,104 @@
 """
 Create Tasks Phase
 
-Takes the synthesis output and creates tasks in the swarm via the API.
-Uses the batch endpoint with integer depends_on indices for reliable DAG wiring.
+LLM tool loop (smart model, 15 loops max) that reads the synthesis output
+and creates tasks via the swarm API tools.
 
-This phase is intentionally simple — it reads state.synthesis and calls the
-swarm API. No LLM needed; the synthesis phase already did the reasoning.
+The synthesize phase already did the hard reasoning. This phase gives the
+LLM a focused loop to turn that into actual API calls — it can refine task
+descriptions, adjust priorities, wire dependencies correctly, and verify
+the DAG makes sense before committing.
 
-If the synthesis has no proposed tasks, the phase logs and exits cleanly
-(the research agent may have concluded no work is needed).
+Available tools: create_task, create_tasks, list_tasks (read-only search).
+Write tools are blocked — the deliverable is tasks, not code.
 """
 
 from __future__ import annotations
 
 import json
-import urllib.request
-import urllib.error
 
 from swarm.pipeline import Phase, TaskState, register_phase
+from swarm.tool_dispatch import execute_tool, validate_tool_call
+from swarm.llm_utils import call_llm, parse_tool_calls
+
+
+_MAX_CREATE_LOOPS = 15
+
+# Only task-creation and read tools — no writes
+_ALLOWED_TOOLS = frozenset({
+    "create_task",
+    "create_tasks",
+    "create_tasks_file_aware",
+    "list_tasks",
+    "read_file",
+    "list_dir",
+    "search_files",
+})
+
+_CREATE_SYSTEM = """\
+You are a project manager creating a task plan in a software development swarm.
+
+You have been given a synthesis of research findings. Your job is to create
+the appropriate tasks using the available tools, then output TASKS_CREATED.
+
+To call a tool, output EXACTLY this format:
+[TOOL_CALL]{"tool": "create_tasks", "args": {...}}[/TOOL_CALL]
+
+Available tools:
+- create_tasks(tasks, project) — create multiple tasks with DAG wiring in one call (preferred)
+  tasks is a list of {type, description, priority, depends_on (integer indices), metadata}
+- create_task(description, task_type, priority, dependencies, project) — create a single task
+- list_tasks(project, status) — check what tasks already exist to avoid duplicates
+- read_file(path) — read a file if you need more context
+- list_dir(path) — list directory contents
+- search_files(query, path) — search code
+
+Task types: bug (80), feature (50), refactor (100), research (60), polish (40)
+
+Use create_tasks() (plural) for 2+ tasks — it handles dependency indices correctly.
+Use depends_on with integer indices into the tasks array, not task IDs.
+
+When done creating tasks, output: TASKS_CREATED
+"""
+
+
+def _build_create_prompt(state: TaskState) -> str:
+    synthesis = state.synthesis or {}
+    plan = state.plan or {}
+
+    lines = [
+        f"Project: {state.project}",
+        f"Path: {state.project_path}",
+        f"",
+        f"ORIGINAL GOAL: {plan.get('goal', state.description)}",
+        f"",
+    ]
+
+    if synthesis.get("summary"):
+        lines.append(f"SYNTHESIS SUMMARY:")
+        lines.append(f"  {synthesis['summary']}")
+        lines.append("")
+
+    if synthesis.get("key_conclusions"):
+        lines.append("KEY CONCLUSIONS:")
+        for c in synthesis.get("key_conclusions", []):
+            lines.append(f"  - {c}")
+        lines.append("")
+
+    proposed = synthesis.get("proposed_tasks", [])
+    if proposed:
+        lines.append(f"PROPOSED TASKS (from synthesis — {len(proposed)} tasks):")
+        for i, t in enumerate(proposed):
+            dep_str = f", depends_on={t.get('depends_on', [])}" if t.get("depends_on") else ""
+            lines.append(f"  [{i}] {t.get('type', 'feature')} (priority {t.get('priority', 50)}){dep_str}: {t.get('description', '')}")
+            if t.get("rationale"):
+                lines.append(f"       rationale: {t['rationale']}")
+        lines.append("")
+
+    lines.append(f"Create these tasks for project '{state.project}' using create_tasks().")
+    lines.append("Check list_tasks() first if you want to avoid duplicating existing work.")
+    lines.append("When done, output: TASKS_CREATED")
+    return "\n".join(lines)
 
 
 @register_phase
@@ -25,75 +106,88 @@ class CreateTasksPhase(Phase):
     name = "create_tasks"
 
     def run(self, state: TaskState) -> TaskState:
-        synthesis = getattr(state, "synthesis", None) or {}
-        proposed = synthesis.get("proposed_tasks", [])
+        import swarm.agent_runtime as rt
 
-        if not proposed:
+        synthesis = getattr(state, "synthesis", None) or {}
+        if not synthesis.get("proposed_tasks"):
             self.log("No tasks proposed by synthesis — nothing to create")
             state.tasks_created = []
+            state.work_report = {"completed": True, "loops_used": 0, "commit_sha": None, "patches_applied": False}
             return state
 
-        self.log(f"Creating {len(proposed)} tasks for project '{state.project}'")
+        # Use the same smart model as synthesize — it knows the context
+        provider = (
+            self.config.get("synthesize_provider")
+            or getattr(rt, "SYNTHESIZE_PROVIDER", "")
+            or rt.LLM_PROVIDER
+        )
+        rt._ROUTING_PHASE = "synthesize"  # same phase backend as synthesize
+        self.log(f"Using provider: {provider}")
 
-        # Build batch payload — proposed_tasks already use integer depends_on indices
-        batch_tasks = []
-        for t in proposed:
-            batch_tasks.append({
-                "type": t.get("type", "feature"),
-                "description": t.get("description", ""),
-                "priority": t.get("priority", 50),
-                "depends_on": t.get("depends_on", []),
-                "metadata": {
-                    "rationale": t.get("rationale", ""),
-                    "files_likely_touched": t.get("files_likely_touched", []),
-                    "source": "research_pipeline",
-                },
-            })
+        messages = [{"role": "user", "content": _build_create_prompt(state)}]
+        completed = False
+        all_created_ids: list[str] = []
 
-        payload = json.dumps({
-            "project": state.project,
-            "tasks": batch_tasks,
-        }).encode()
+        for loop in range(1, _MAX_CREATE_LOOPS + 1):
+            self.log(f"Create-tasks loop {loop}/{_MAX_CREATE_LOOPS}")
+            text, _tokens, _thinking = call_llm(_CREATE_SYSTEM, messages, provider=provider)
+            messages.append({"role": "assistant", "content": text})
 
-        swarm_url = self.config.get("swarm_url", "http://localhost:5001")
-        url = f"{swarm_url}/api/tasks/batch"
+            if "TASKS_CREATED" in text:
+                self.log(f"Tasks created at loop {loop}")
+                completed = True
+                break
 
-        try:
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read())
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            self.log(f"HTTP error creating tasks: {e.code} — {body[:300]}")
-            state.errors.append(f"create_tasks: HTTP {e.code}: {body[:200]}")
-            state.tasks_created = []
-            return state
-        except Exception as exc:
-            self.log(f"Error creating tasks: {exc}")
-            state.errors.append(f"create_tasks: {exc}")
-            state.tasks_created = []
-            return state
+            tool_calls = parse_tool_calls(text)
+            if not tool_calls:
+                messages.append({
+                    "role": "user",
+                    "content": "Create the tasks using create_tasks() then output TASKS_CREATED.",
+                })
+                continue
 
-        ids = result.get("ids", [])
-        id_map = result.get("id_map", {})
-        self.log(f"Created {len(ids)} tasks: {ids}")
+            tool_results = []
+            tool_names = [tc.get("tool", "") for tc in tool_calls]
+            self.log(f"Tools: {', '.join(tool_names)}")
 
-        # Log summary
-        if synthesis.get("summary"):
-            self.log(f"Synthesis summary: {synthesis['summary'][:200]}")
+            for tc in tool_calls:
+                tool_name = tc.get("tool", "")
 
-        state.tasks_created = ids
+                if tool_name not in _ALLOWED_TOOLS:
+                    tool_results.append(f"[{tool_name}] BLOCKED: only task-creation and read tools available")
+                    continue
+
+                err = validate_tool_call(tc)
+                if err:
+                    tool_results.append(f"[{tool_name}] Validation error: {err}")
+                    continue
+
+                result = execute_tool(tc)
+
+                # Collect created task IDs
+                if tool_name in ("create_task", "create_tasks", "create_tasks_file_aware"):
+                    if isinstance(result, dict):
+                        if "task_id" in result:
+                            all_created_ids.append(result["task_id"])
+                        elif "ids" in result:
+                            all_created_ids.extend(result["ids"])
+
+                result_str = json.dumps(result) if isinstance(result, dict) else str(result)
+                tool_results.append(f"[{tool_name}]\n{result_str[:3000]}")
+
+            messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+
+        if not completed:
+            self.log("Create-tasks hit loop limit without TASKS_CREATED")
+            state.errors.append("create_tasks: hit loop limit without TASKS_CREATED")
+
+        self.log(f"Total tasks created: {len(all_created_ids)} — {all_created_ids[:10]}")
+        state.tasks_created = all_created_ids
         state.work_report = {
-            "completed": True,
-            "loops_used": 1,
+            "completed": completed,
+            "loops_used": loop,
             "commit_sha": None,
             "patches_applied": False,
-            "tasks_created": ids,
-            "id_map": id_map,
+            "tasks_created": all_created_ids,
         }
         return state
