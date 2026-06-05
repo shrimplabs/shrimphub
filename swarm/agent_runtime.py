@@ -206,8 +206,9 @@ COMPACTION_PROVIDER: str = ""  # e.g. "claude-haiku"; empty = disabled
 # Example: ["plan", "scout", "work", "validate"]
 PIPELINE: list = []
 _ROUTING_PHASE: str = ""  # set by pipeline phases so shrimp-router picks the right backend
-PLAN_PROVIDER: str = ""   # provider for plan phase; empty = use LLM_PROVIDER
-WORK_PROVIDER: str = ""   # provider for work phase; empty = use LLM_PROVIDER
+PLAN_PROVIDER: str = ""        # provider for plan phase; empty = use LLM_PROVIDER
+WORK_PROVIDER: str = ""        # provider for work phase; empty = use LLM_PROVIDER
+SYNTHESIZE_PROVIDER: str = ""  # provider for synthesize phase (research pipeline); empty = use LLM_PROVIDER
 
 # Write-blocked tools during scout phase -- enforced at dispatch level.
 _SCOUT_BLOCKED_TOOLS: frozenset = frozenset({
@@ -384,6 +385,7 @@ def main() -> int:
                 "plan_provider": PLAN_PROVIDER or LLM_PROVIDER,
                 "scout_provider": SCOUT_PROVIDER or LLM_PROVIDER,
                 "work_provider": WORK_PROVIDER or LLM_PROVIDER,
+                "synthesize_provider": SYNTHESIZE_PROVIDER or LLM_PROVIDER,
                 "validation_timeout": 120,
             }
             _final_state = run_pipeline(PIPELINE, _pipeline_state, config=_pipeline_config, log_fn=log)
