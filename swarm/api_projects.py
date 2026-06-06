@@ -16,6 +16,7 @@ from swarm.maintenance.file_locks import (
 from swarm.task_chains import chain_to_project_head
 from swarm.task_mutations import reset_task_to_pending
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
+from swarm.experiment_metadata import stamp_experiment_metadata
 from swarm.closure.documents import write_project_closure_doc
 from swarm.closure.proposals import propose_project_closure
 from swarm.closure.specs import normalize_project_spec
@@ -290,6 +291,38 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         _write_live_closure_doc(name, profile=closure_proposal["profile"], source=closure_proposal.get("source", "proposal"))
         _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
         return jsonify({"project": project.to_dict(), "closure_proposal": closure_proposal})
+    @app.route("/api/projects/<project_name>", methods=["DELETE"])
+    def delete_project(project_name):
+        """Remove a project from the registry and delete all its tasks.
+
+        Does NOT touch the git repo on disk — that stays untouched.
+        Refuses if any agent is currently running on this project.
+        """
+        active = [a for a in db.agent_get_active() if a.get("project") == project_name]
+        if active:
+            return jsonify({"error": f"{len(active)} agent(s) still running on this project — stop them first"}), 409
+
+        # Delete all tasks for this project
+        conn = db._connect()
+        deleted_tasks = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE project=?", (project_name,)
+        ).fetchone()[0]
+        conn.execute("DELETE FROM tasks WHERE project=?", (project_name,))
+        conn.commit()
+
+        # Remove from registry
+        removed = project_registry.remove_project(project_name)
+
+        # Remove from managed_projects config
+        managed = config.get("managed_projects", [])
+        if project_name in managed:
+            managed.remove(project_name)
+            config["managed_projects"] = managed
+            _sync_managed_projects(config, project_registry, orchestrator, config_file, config_write_lock)
+
+        print(f"[api_projects] Deleted project '{project_name}': {deleted_tasks} tasks removed, registry={removed}")
+        return jsonify({"deleted": project_name, "tasks_deleted": deleted_tasks})
+
     @app.route("/api/projects/<project_name>", methods=["GET"])
     def get_project(project_name):
         project, error = _project_or_404(project_name)
@@ -591,6 +624,24 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             # Create: no existing continuation for this owner
             import uuid as _uuid
             new_id = f"task-{_uuid.uuid4().hex[:12]}"
+            metadata = {
+                "created_by": "lock_conflict_handoff",
+                "blocked_by_task_id": owner_task_id,
+                "lock_conflict_followup_for": blocked_task_id,
+                "blocked_file_path": locked_path,
+                **posted_metadata,
+                **branch_intent_metadata(blocked_task or {
+                    "id": blocked_task_id or posted_metadata.get("branch_intent_root_task_id") or owner_task_id,
+                    "type": posted_metadata.get("branch_intent_type") or task_type,
+                    "description": (
+                        posted_metadata.get("branch_intent_full_description")
+                        or posted_metadata.get("branch_intent_description")
+                        or ""
+                    ),
+                    "metadata": posted_metadata,
+                }),
+            }
+            metadata = stamp_experiment_metadata(project_name, metadata, config=config)
             new_task = {
                 "id": new_id,
                 "project": project_name,
@@ -608,23 +659,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                 ),
                 "max_attempts": 3,
                 "attempts": 0,
-                "metadata": {
-                    "created_by": "lock_conflict_handoff",
-                    "blocked_by_task_id": owner_task_id,
-                    "lock_conflict_followup_for": blocked_task_id,
-                    "blocked_file_path": locked_path,
-                    **posted_metadata,
-                    **branch_intent_metadata(blocked_task or {
-                        "id": blocked_task_id or posted_metadata.get("branch_intent_root_task_id") or owner_task_id,
-                        "type": posted_metadata.get("branch_intent_type") or task_type,
-                        "description": (
-                            posted_metadata.get("branch_intent_full_description")
-                            or posted_metadata.get("branch_intent_description")
-                            or ""
-                        ),
-                        "metadata": posted_metadata,
-                    }),
-                },
+                "metadata": metadata,
             }
             db.task_upsert(new_task)
             return jsonify({"task": new_task, "created": True})

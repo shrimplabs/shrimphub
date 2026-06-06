@@ -3,6 +3,7 @@
 from flask import jsonify, request
 
 import json
+import random
 from datetime import datetime
 from pathlib import Path
 import shutil
@@ -10,10 +11,12 @@ import time
 
 from swarm.task_chains import chain_to_project_head, ensure_project_head
 from swarm.task_mutations import reset_task_to_pending
+from swarm.experiment_metadata import classify_phase_order, stamp_experiment_metadata
 
 
-def register_routes(app, task_source, db, workspace):
+def register_routes(app, task_source, db, workspace, config=None):
     """Register routes on the Flask app."""
+    config = config or {}
 
     _repo_root = Path(__file__).resolve().parent.parent
     _canonical_harness = _repo_root / "templates" / "godot" / "autoload" / "test_harness.gd"
@@ -28,6 +31,29 @@ def register_routes(app, task_source, db, workspace):
     )
 
     _PRIORITY_WORDS = {"low": 25, "normal": 50, "medium": 50, "high": 80, "critical": 100, "urgent": 100}
+    _PIPELINE_PHASES = ["plan", "scout", "work", "validate"]
+
+    def _classify_phase_order(phases):
+        return classify_phase_order(phases)
+
+    def _experiment_defaults_for_project(project_name: str) -> dict:
+        if not project_name:
+            return {}
+        project_cfg = (config.get("project_pipelines") or {}).get(project_name) or {}
+        experiment = project_cfg.get("_experiment")
+        if not isinstance(experiment, dict):
+            return {}
+        return experiment
+
+    def _stamp_experiment_metadata(project_name: str, metadata: dict | None) -> dict:
+        """Apply project-level experiment metadata to newly-created tasks.
+
+        Agents can create new tasks while an experiment graph evolves. For fixed
+        variants, those tasks inherit the project pipeline. For variant D chaos,
+        every new task receives a fresh random phase order so graph growth remains
+        inside the exploratory arm instead of silently falling back to defaults.
+        """
+        return stamp_experiment_metadata(project_name, metadata, config=config)
 
     def _normalize_priority(raw, default=50) -> int:
         """Coerce priority to int. Accepts int, numeric string, or word like 'high'.
@@ -334,7 +360,7 @@ def register_routes(app, task_source, db, workspace):
             status="pending",
             max_attempts=data.get("max_attempts", 3),
             dependencies=deps,
-            metadata=data.get("metadata", {}),
+            metadata=_stamp_experiment_metadata(project_name, data.get("metadata", {})),
             acceptance_test=data.get("acceptance_test")
         )
         try:
@@ -451,7 +477,7 @@ def register_routes(app, task_source, db, workspace):
                 status="pending",
                 max_attempts=item.get("max_attempts", 3),
                 dependencies=deps,
-                metadata=item.get("metadata", {}),
+                metadata=_stamp_experiment_metadata(item.get("project") or default_project, item.get("metadata", {})),
                 acceptance_test=item.get("acceptance_test"),
             )
             try:

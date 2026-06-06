@@ -19,6 +19,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from swarm.experiment_metadata import stamp_experiment_metadata
+
 
 def _al():
     """Return the agent_lifecycle module (lazy, to avoid circular imports)."""
@@ -92,6 +94,7 @@ def auto_spawn_integration_task(
         f"scene tree, UI). Fix any disconnections. "
         f"Do NOT rewrite existing working systems \u2014 only add the missing wiring."
     )
+    metadata = stamp_experiment_metadata(project, {"is_integration_task": True})
     db.task_upsert({
         "id": integ_id,
         "project": project,
@@ -100,7 +103,7 @@ def auto_spawn_integration_task(
         "priority": 85,
         "status": "pending",
         "dependencies": [task_id],
-        "metadata": {"is_integration_task": True},
+        "metadata": metadata,
         "attempts": 0,
         "max_attempts": 2,
     })
@@ -231,7 +234,7 @@ def auto_spawn_qa_task(
             "priority": 60,
             "status": "pending",
             "dependencies": art_deps,
-            "metadata": {"auto_spawned": True},
+            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}),
             "attempts": 0,
             "max_attempts": 2,
         })
@@ -259,7 +262,7 @@ def auto_spawn_qa_task(
             "priority": 60,
             "status": "pending",
             "dependencies": pol_deps,
-            "metadata": {"auto_spawned": True},
+            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}),
             "attempts": 0,
             "max_attempts": 2,
         })
@@ -291,10 +294,9 @@ def auto_spawn_qa_task(
         "priority": 75,
         "status": "pending",
         "dependencies": qa_deps,
-        "metadata": {},
+        "metadata": stamp_experiment_metadata(project, {}),
         "attempts": 0,
         "max_attempts": 2,
     })
     print(f"[Swarm] Auto-spawned {qa_type} task {qa_id} for {project} {qa_reason} (deps: {len(qa_deps)} task(s))")
-
 

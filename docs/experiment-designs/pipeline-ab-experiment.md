@@ -34,23 +34,31 @@ Clone a stable, well-defined source project N times:
 Each clone is a separate git repo, registered with the swarm, seeded with
 an identical task DAG from the same task list.
 
-### Variants (proposed)
+### Variants
 
-| Variant | Pipeline | Hypothesis being tested |
-|---------|----------|------------------------|
-| Control | `plan → scout → work → validate` | Current baseline |
-| A | `plan → work → validate` | Is scout overhead worth it? |
-| B | `plan → scout → synthesize → work → validate` | Does synthesize improve work quality? |
-| C | `scout → work → validate` | Is planning necessary, or does exploration suffice? |
+| Label | Preset key | Pipeline | Hypothesis being tested |
+|-------|------------|----------|------------------------|
+| Control | `control` | `plan → scout → work → validate` | Current structured baseline |
+| Variant A | `variant-a` | `plan → work → validate` | Is scout overhead worth it? |
+| Variant B | `variant-b` | `plan → scout → synthesize → work → validate` | Does synthesize improve work quality? |
+| Variant C | `variant-c` | `scout → work → validate` | Is planning necessary, or does exploration suffice? |
+| Variant D | `variant-d` | random phase ordering per task (from pool: `plan`, `scout`, `work`, `validate`) | Exploratory chaos arm: what does structure beat, and which surprising orders break our assumptions? |
+| Variant F | `variant-f` | `work` only, single model (MiniMax), no phases | Null hypothesis — flat loop baseline, no pipeline overhead |
 
-Additional variants to consider if bandwidth allows:
-- D: `scout → plan → work → validate` (scout first, then frame)
-- E: `plan → work` (no validate — does validate feedback loop matter?)
+**Variant D detail**: at clone time, each task in the project is assigned an independently randomised phase ordering drawn from the full phase pool. The ordering is baked into `task.metadata.pipeline` and recorded in `task.metadata.phase_order` in the experiment metrics. The clone also stores a project-level exploratory experiment config, so any new tasks created later by graph reflection, validation, recovery, or agent task creation receive fresh randomized phase orders instead of falling back to a default pipeline.
+
+Variant D is not interpreted as an optimal valid workflow. It is an exploratory/hypothesis-breaking arm. Analysis should split chaos runs by exact phase order and by `is_valid_order` / `invalidity_reason` before drawing conclusions.
+
+**Variant F detail**: no pipeline is run. The agent uses a single MiniMax model in the legacy continuous work loop — identical to pre-pipeline behaviour. Used to establish whether the pipeline adds value at all.
 
 ### Metrics
 
 Per completed task, record:
+- `experiment_id` — stable run identifier used for durable storage
+- `experiment_arm` — `confirmatory` or `exploratory`
 - `pipeline_variant` — which pipeline ran (already tracked in metadata)
+- `phase_order` — exact order used for this task
+- `phase_random_seed` — reproducibility seed for randomized orders
 - `work_loops_used` — loops consumed in work phase
 - `validation_passed` — did first validate pass?
 - `bug_task_spawned` — did a validation bug task spawn afterward?
@@ -119,6 +127,92 @@ A `GET /api/experiment/results` endpoint or standalone script that:
 - Computes mean/median/stddev for each metric
 - Surfaces statistical significance (basic t-test or Mann-Whitney U)
 - Renders as JSON or markdown table
+
+## Implementation Status (as of 2026-06-05)
+
+All infrastructure is built and operational. The experiment is ready to run.
+
+### What was built
+
+**1. Project snapshot + clone API** (`swarm/api_snapshots.py`)
+- `POST /api/projects/<name>/snapshot` — saves JSON export of all tasks + project row + git tag
+- `POST /api/projects/<name>/clone` — clones snapshot into new project: git-clones repo, re-imports tasks under new name, bakes pipeline variant into every task's metadata
+- `GET /api/projects/<name>/snapshots` — lists available snapshots
+- `POST /api/projects/<name>/restore` — in-place restore (same project)
+- All pipeline presets available via `pipeline` parameter: `"control"`, `"variant-a"` through `"variant-f"`
+- Dashboard: 📸 Snapshots button on every project card
+
+**2. Task identity tracking across clones**
+
+IDs must be unique across the DB (`id TEXT PRIMARY KEY`), so cloned tasks get new IDs. Cross-variant linkage is preserved via metadata:
+```json
+{
+  "source_task_id": "void-patrol-t01-9635",
+  "source_project": "void-patrol"
+}
+```
+Every cloned task carries `source_task_id` and `source_project` so results can be joined across variants for the same underlying task.
+
+**3. Pipeline variant baking**
+
+At clone time, each task's `metadata.pipeline` and `metadata.experiment_variant` are set:
+- Fixed variants (control, A, B, C): same pipeline list on every task
+- Variant D: `random.shuffle(["plan", "scout", "work", "validate"])` per task, independently
+- Variant F: empty pipeline list + `flat_provider: "minimax"` → swarm_runner bypasses phase engine, uses legacy tool loop with MiniMax
+
+**4. Synthesize phase** (`swarm/phases/synthesize.py`)
+- Two modes auto-detected from pipeline config:
+  - **Research mode** (→ `create_tasks`): produces proposed task list
+  - **Implementation mode** (→ `work`): produces file-by-file implementation brief
+- Work phase (`swarm/phases/work.py`) now injects `state.synthesis.implementation_steps` into the work prompt when present
+
+**5. Metrics collection** (`swarm/agent_finish.py`, `data/experiment_metrics.jsonl`)
+
+Records are also mirrored to append-only per-experiment logs:
+
+```text
+data/experiments/<experiment_id>/events.jsonl
+```
+
+The flat `experiment_metrics.jsonl` file is convenient for dashboards. The per-experiment event log is the durable research artifact: labeled, timestamped, and isolated from unrelated swarm metrics.
+
+Per completed task:
+```json
+{
+  "task_id": "...",
+  "source_task_id": "void-patrol-t01-9635",
+  "source_project": "void-patrol",
+  "project": "void-patrol-control",
+  "task_type": "feature",
+  "experiment_id": "pipeline-ab-20260605",
+  "experiment_arm": "confirmatory",
+  "experiment_variant": "control",
+  "pipeline_variant": ["plan", "scout", "work", "validate"],
+  "phase_order": ["plan", "scout", "work", "validate"],
+  "is_valid_order": true,
+  "invalidity_reason": "",
+  "phase_timings": {"plan": 4.2, "scout": 31.8, "work": 92.4, "validate": 10.1},
+  "work_loops": 27,
+  "validation_passed": true,
+  "bug_spawned": false,
+  "attempts": 1,
+  "diff_insertions": 142,
+  "diff_deletions": 38,
+  "completed_at": "2026-06-05T..."
+}
+```
+
+**6. Analysis endpoint** (`GET /api/experiment/results`)
+- Groups by `experiment_variant`
+- Per-variant: validation pass rate, bug spawn rate, avg work loops, avg attempts, diff stats, phase_order_counts (variant D)
+- `per_task` array: joins on `source_task_id` to compare all variants on the same underlying task side by side
+- Filter: `?project=void-patrol-control` or `?source_project=void-patrol`
+
+### Source project
+
+**void-patrol** — purpose-built vertical scroller (Godot 4, GDScript). 8 tasks (US-001 through US-008), clean dependency chain, clear acceptance criteria. Snapshot tagged `v0.0.0-scaffold` on the git repo and saved as `data/snapshots/void-patrol__<tag>.json`.
+
+First test clone: **void-patrol-test** (cloned 2026-06-05, no pipeline variant set — used to verify clone correctness before experiment clones).
 
 ## Source Project Requirements
 

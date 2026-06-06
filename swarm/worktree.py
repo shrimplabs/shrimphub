@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 from swarm import db
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
+from swarm.experiment_metadata import stamp_experiment_metadata
 
 MAX_WORKTREE_AGE_SECONDS: int = 21600  # 6 hours
 
@@ -146,7 +147,7 @@ def _merge_worktree_branch(project_path: Path, branch: str, agent_id: str,
                     "description": description,
                     "status": "pending",
                     "dependencies": merge_deps,
-                    "metadata": {
+                    "metadata": stamp_experiment_metadata(project_name, {
                         "branch": branch,
                         "agent_id": agent_id,
                         "parent_task": task_id,
@@ -155,7 +156,7 @@ def _merge_worktree_branch(project_path: Path, branch: str, agent_id: str,
                         "worktree_inherited": True,
                         "conflict_resolution": True,
                         **branch_intent_metadata(original_task),
-                    },
+                    }),
                 }
                 db.task_upsert(conflict_task)
                 print(f"[Swarm] Created merge conflict task {conflict_task_id} (deps: {tail})")
@@ -173,7 +174,7 @@ def _merge_worktree_branch(project_path: Path, branch: str, agent_id: str,
                 ),
                 "status": "pending",
                 "dependencies": [task_id],
-                "metadata": {"branch": branch, "agent_id": agent_id, "parent_task": task_id},
+                "metadata": stamp_experiment_metadata(project_name, {"branch": branch, "agent_id": agent_id, "parent_task": task_id}),
             }
             db.task_upsert(conflict_task)
             print(f"[Swarm] Created merge conflict task bug-merge-{agent_id[:8]} (no worktree)")

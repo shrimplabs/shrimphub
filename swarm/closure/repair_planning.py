@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from swarm import db
+from swarm.experiment_metadata import stamp_experiment_metadata
 from swarm.task_chains import append_project_head
 
 
@@ -158,6 +159,7 @@ def _build_repair_task(
         "closure_results": results,
         "closure_artifacts": artifacts,
     }
+    metadata = stamp_experiment_metadata(project, metadata)
     return {
         "id": task_id,
         "project": project,
@@ -310,6 +312,7 @@ Before completing, append a brief note to PROJECT_CLOSURE.md explaining:
         "repair_budget_exhausted": True,
         "prior_repair_rounds": len(prior_history),
     }
+    metadata = stamp_experiment_metadata(project, metadata)
     return {
         "id": task_id,
         "project": project,

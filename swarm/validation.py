@@ -14,6 +14,7 @@ from swarm import db
 from swarm.closure.regressions import upsert_regressions_for_run, resolve_regressions_for_passing_run
 from swarm.closure.repair_planning import plan_repair_tasks_for_run
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
+from swarm.experiment_metadata import stamp_experiment_metadata
 from swarm.closure.runs import (
     complete_verification_run,
     create_verification_run,
@@ -1339,10 +1340,12 @@ def _spawn_validation_bug_task(
         # forever with no recovery. Instead, exhaust its attempts so _spawn_review_task fires and
         # reparents dependents to a recovery task.
         try:
+            import swarm.agent_lifecycle as _al
             orig = db.task_get(original_task_id) or {}
             max_att = orig.get("max_attempts", 3)
             meta = dict(orig.get("metadata") or {})
-            meta["needs_human_review"] = True
+            if getattr(_al, "HUMAN_REVIEW_FLAG_ENABLED", False):
+                meta["needs_human_review"] = True
             meta["deep_chain_depth"] = chain_depth
             meta["deep_chain_stopped_at"] = bug_task_id
             meta["last_failure"] = error_output[:2000]
@@ -1378,6 +1381,7 @@ def _spawn_validation_bug_task(
         "research_feeder_cycles": parent_cycles,
         **branch_intent_metadata(original_task),
     }
+    metadata = stamp_experiment_metadata(project, metadata)
     if worktree_path is not None:
         metadata["worktree_path"] = str(worktree_path)
         metadata["worktree_branch"] = worktree_branch
@@ -1456,15 +1460,14 @@ def _spawn_validation_bug_task(
             "3. Re-run validation and close the branch only when the original goal still holds.\n"
         )
 
-    # Only depend on the original task if it still exists in the active table.
-    # If it was already completed and pruned, inheriting it creates a ghost dep
-    # that will permanently block the bug task.
-    completed_ids = db.task_get_completed_ids()
+    # Depend on the original task if it still exists in the tasks table (completed or not).
+    # Completed tasks are valid deps — they're immediately satisfied and preserve chain history.
+    # Only fall back to chain_to_project_head if the original has been pruned from the table entirely.
     active_ids = {t["id"] for t in db.task_get_all()}
-    if original_task_id in active_ids and original_task_id not in completed_ids:
+    if original_task_id in active_ids:
         bug_task_deps = [original_task_id]
     else:
-        # Original task is gone -- chain to project head so the bug task
+        # Original task has been pruned from the table -- chain to project head so the bug task
         # is never a free-floating node in the dependency graph.
         from swarm.task_chains import chain_to_project_head
         bug_task_deps = chain_to_project_head(db, project, task_id=bug_task_id, ensure_head=True)

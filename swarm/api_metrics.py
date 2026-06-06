@@ -170,13 +170,24 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
                     except Exception:
                         pass
 
-        # Group by pipeline_variant (serialize list → string key)
+        project_filter = request.args.get("project")
+        if project_filter:
+            records = [r for r in records if r.get("project") == project_filter]
+        source_filter = request.args.get("source_project")
+        if source_filter:
+            records = [r for r in records if r.get("source_project") == source_filter]
+
+        # Group by experiment_variant label first; fall back to pipeline_variant phases
         groups = defaultdict(list)
         for r in records:
+            exp_label = r.get("experiment_variant", "")
             variant = r.get("pipeline_variant")
-            if not variant:
+            if exp_label:
+                key = exp_label
+            elif variant:
+                key = "→".join(variant) if isinstance(variant, list) else str(variant)
+            else:
                 continue
-            key = "→".join(variant) if isinstance(variant, list) else str(variant)
             groups[key].append(r)
 
         def _mean(vals):
@@ -204,9 +215,19 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
             bugged = [r for r in rows if r.get("bug_spawned")]
             insertions = [r.get("diff_insertions", 0) for r in rows]
             deletions = [r.get("diff_deletions", 0) for r in rows]
+            # For variant D: tally phase orderings used
+            phase_order_counts: dict = {}
+            for r in rows:
+                po = r.get("phase_order")
+                if po and isinstance(po, list):
+                    pk = "→".join(po)
+                    phase_order_counts[pk] = phase_order_counts.get(pk, 0) + 1
+
             summary[variant_key] = {
                 "n": len(rows),
                 "pipeline": rows[0].get("pipeline_variant") if rows else [],
+                "experiment_variant": rows[0].get("experiment_variant", "") if rows else "",
+                "experiment_arm": rows[0].get("experiment_arm", "") if rows else "",
                 "work_loops_mean": _mean(loops),
                 "work_loops_median": _median(loops),
                 "work_loops_stddev": _stddev(loops),
@@ -214,10 +235,13 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
                 "bug_spawn_rate": round(len(bugged) / len(rows), 3) if rows else None,
                 "diff_insertions_mean": _mean(insertions),
                 "diff_deletions_mean": _mean(deletions),
+                "phase_order_counts": phase_order_counts or None,
+                "valid_order_count": len([r for r in rows if r.get("is_valid_order") is True]),
+                "invalid_order_count": len([r for r in rows if r.get("is_valid_order") is False]),
             }
 
         # Statistical significance vs control (plan→scout→work→validate)
-        control_key = "plan→scout→work→validate"
+        control_key = "control" if "control" in groups else "plan→scout→work→validate"
         control_rows = groups.get(control_key, [])
         if control_rows:
             try:
@@ -244,8 +268,42 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
             except ImportError:
                 pass  # scipy optional
 
+        # Per-task comparison: group by source_task_id, show each variant's result side by side
+        per_task: dict = {}
+        for r in records:
+            stid = r.get("source_task_id")
+            if not stid:
+                continue
+            if source_filter and r.get("source_project") != source_filter:
+                continue
+            if stid not in per_task:
+                per_task[stid] = {
+                    "source_task_id": stid,
+                    "source_project": r.get("source_project", ""),
+                    "task_type": r.get("task_type", ""),
+                    "variants": {},
+                }
+            exp = r.get("experiment_variant") or (
+                "→".join(r["pipeline_variant"]) if isinstance(r.get("pipeline_variant"), list) else str(r.get("pipeline_variant", ""))
+            )
+            per_task[stid]["variants"][exp] = {
+                "project": r.get("project"),
+                "task_id": r.get("task_id"),
+                "work_loops": r.get("work_loops"),
+                "validation_passed": r.get("validation_passed"),
+                "bug_spawned": r.get("bug_spawned"),
+                "attempts": r.get("attempts"),
+                "diff_insertions": r.get("diff_insertions"),
+                "diff_deletions": r.get("diff_deletions"),
+                "phase_order": r.get("phase_order"),
+                "is_valid_order": r.get("is_valid_order"),
+                "invalidity_reason": r.get("invalidity_reason"),
+                "completed_at": r.get("completed_at"),
+            }
+
         return jsonify({
             "total_records": len(records),
             "variants": summary,
+            "per_task": list(per_task.values()),
             "metrics_file": metrics_path,
         })

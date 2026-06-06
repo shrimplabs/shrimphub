@@ -30,6 +30,7 @@ syncQaMaxCycles();
 syncProviders();
 syncStrategy();
 loadThinking();
+loadHumanReviewFlag();
 loadAutoReplan();
 loadMetrics();
 loadWebhook();

@@ -146,6 +146,73 @@ class TestProjects:
         assert r.json["project"]["closure_mode"] == "ship"
         assert r.json["project"]["closure_spec"]["critical_flows"][0]["id"] == "exact"
 
+    def test_variant_d_clone_randomizes_future_graph_tasks(self, client, app):
+        """Variant D projects keep randomizing tasks created after clone time."""
+        workspace = Path(app.config["WORKSPACE_ROOT"])
+        source = workspace / "source-game"
+        source.mkdir(parents=True)
+        (source / "README.md").write_text("source\n")
+        os.system(f"git -C {source} init -q")
+        os.system(f"git -C {source} config user.email test@example.invalid")
+        os.system(f"git -C {source} config user.name Test")
+        os.system(f"git -C {source} add README.md")
+        os.system(f"git -C {source} commit -q -m init")
+
+        r = client.post("/api/projects", json={"name": "source-game", "managed": True}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/tasks", json={
+            "id": "source-game-task-1",
+            "project": "source-game",
+            "type": "feature",
+            "description": "Add a thing",
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        r = client.post("/api/projects/source-game/snapshot", json={"tag": "base"}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/projects/source-game/clone", json={
+            "tag": "base",
+            "new_name": "source-game-chaos",
+            "pipeline": "variant-d",
+            "experiment_id": "exp-test",
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        tasks = client.get("/api/tasks?project=source-game-chaos&include_completed=true").json["tasks"]
+        cloned = [t for t in tasks if t["id"] != "source-game-chaos-genesis"]
+        assert cloned
+        for task in cloned:
+            meta = task["metadata"]
+            assert meta["experiment_id"] == "exp-test"
+            assert meta["experiment_variant"] == "variant-d"
+            assert meta["experiment_arm"] == "exploratory"
+            assert sorted(meta["pipeline"]) == ["plan", "scout", "validate", "work"]
+            assert meta["pipeline_variant"] == meta["pipeline"]
+            assert meta["phase_order"] == meta["pipeline"]
+            assert isinstance(meta["phase_random_seed"], int)
+            assert "is_valid_order" in meta
+
+        r = client.post("/api/tasks", json={
+            "id": "source-game-chaos-followup",
+            "project": "source-game-chaos",
+            "type": "feature",
+            "description": "Follow-up created by graph reflection",
+        }, content_type="application/json")
+        assert r.status_code == 200
+        meta = r.json["task"]["metadata"]
+        assert meta["experiment_id"] == "exp-test"
+        assert meta["experiment_variant"] == "variant-d"
+        assert meta["experiment_arm"] == "exploratory"
+        assert sorted(meta["pipeline"]) == ["plan", "scout", "validate", "work"]
+        assert meta["pipeline_variant"] == meta["pipeline"]
+        assert meta["phase_order"] == meta["pipeline"]
+        assert isinstance(meta["phase_random_seed"], int)
+
+        cfg = json.loads(Path(app.config["CONFIG_FILE"]).read_text())
+        exp = cfg["project_pipelines"]["source-game-chaos"]["_experiment"]
+        assert exp["experiment_id"] == "exp-test"
+        assert exp["pipeline_mode"] == "random"
+
     def test_add_project_missing_name(self, client):
         r = client.post("/api/projects", json={}, content_type="application/json")
         assert r.status_code == 400

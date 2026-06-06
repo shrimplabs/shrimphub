@@ -256,6 +256,31 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             config_file.write_text(json.dumps(cfg, indent=2) + "\n")
         print(f"[Config] qa_max_cycles set to {value}")
         return jsonify({"qa_max_cycles": value})
+
+# ---------- Human Review Flag ----------
+    @app.route("/api/human-review-flag", methods=["GET"])
+    def get_human_review_flag():
+        return jsonify({"enabled": config.get("human_review_flag_enabled", False)})
+
+    @app.route("/api/human-review-flag", methods=["POST"])
+    def set_human_review_flag():
+        import swarm.agent_lifecycle as _al
+        data = request.json or {}
+        enabled = bool(data.get("enabled", False))
+        config["human_review_flag_enabled"] = enabled
+        _al.HUMAN_REVIEW_FLAG_ENABLED = enabled
+        with _config_write_lock:
+            cfg = {}
+            if config_file.exists():
+                try:
+                    cfg = json.loads(config_file.read_text())
+                except Exception:
+                    pass
+            cfg["human_review_flag_enabled"] = enabled
+            config_file.write_text(json.dumps(cfg, indent=2) + "\n")
+        print(f"[Config] human_review_flag_enabled set to {enabled}")
+        return jsonify({"enabled": enabled})
+
 # ---------- Worktrees ----------
     @app.route("/api/worktrees", methods=["GET"])
     def get_worktrees():

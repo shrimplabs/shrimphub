@@ -528,6 +528,54 @@
     </div>
 
     <!-- Project Wizard Modal -->
+    <!-- ===== Snapshot Modal ===== -->
+    <div class="modal" id="snapshotModal" onclick="if(event.target===this)closeSnapshotModal()">
+        <div class="modal-content" style="max-width:560px">
+            <div class="modal-header">
+                <h3>📸 Snapshots — <span id="snapshotModalProject"></span></h3>
+                <button class="modal-close" onclick="closeSnapshotModal()">×</button>
+            </div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+                <!-- Save new snapshot -->
+                <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
+                    <div style="font-size:12px;color:#8b949e;margin-bottom:8px;font-weight:600">SAVE SNAPSHOT</div>
+                    <div style="display:flex;gap:8px">
+                        <input id="snapshotTagInput" placeholder="tag name (e.g. us001-done)"
+                            style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
+                        <button onclick="saveSnapshot()"
+                            style="background:#238636;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:13px">Save</button>
+                    </div>
+                </div>
+                <!-- Snapshot list -->
+                <div id="snapshotList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto"></div>
+                <!-- Clone-as section -->
+                <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
+                    <div style="font-size:12px;color:#8b949e;margin-bottom:8px;font-weight:600">CLONE SNAPSHOT AS NEW PROJECT</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                        <select id="cloneSnapshotTag" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
+                            <option value="">— pick snapshot —</option>
+                        </select>
+                        <input id="cloneNewName" placeholder="new-project-name"
+                            style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <select id="clonePipeline" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
+                            <option value="">— no pipeline override —</option>
+                            <option value="control">Control: plan → scout → work → validate</option>
+                            <option value="variant-a">Variant A: plan → work → validate</option>
+                            <option value="variant-b">Variant B: plan → scout → synthesize → work → validate</option>
+                            <option value="variant-c">Variant C: scout → work → validate</option>
+                            <option value="variant-d">Variant D: random order per task</option>
+                            <option value="variant-f">Variant F: flat loop, single model</option>
+                        </select>
+                        <button onclick="cloneSnapshot()"
+                            style="background:#1f6feb;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:13px">Clone</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="wizardModal" onclick="if(event.target===this)closeWizard()">
         <div class="modal-content" style="max-width:640px">
             <div class="modal-header">
@@ -699,6 +747,10 @@
                 <div class="settings-row">
                     <span class="settings-label">Thinking</span>
                     <button id="thinkingToggle" onclick="toggleThinking()" class="settings-toggle-btn">Off</button>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Human Review Flag</span>
+                    <button id="humanReviewFlagToggle" onclick="toggleHumanReviewFlag()" class="settings-toggle-btn">Off</button>
                 </div>
                 <div class="settings-row">
                     <span class="settings-label">Strategy</span>
