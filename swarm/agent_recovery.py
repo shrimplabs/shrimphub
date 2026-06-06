@@ -19,6 +19,7 @@ import threading
 from collections import defaultdict
 
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
+from swarm.experiment_metadata import stamp_experiment_metadata
 
 # Per-branch-root lock: serialises the check-then-create in _spawn_review_task
 # so concurrent daemon threads can't all race past the canonical_recovery guard.
@@ -451,6 +452,7 @@ def _spawn_terminal_recovery_continuation(failed_task: dict, attempts: int, last
         "error_log_chars": output_chars,
         **branch_intent_metadata(failed_task),
     }
+    metadata = stamp_experiment_metadata(project, metadata)
     continuation_deps = _replacement_task_dependencies(
         failed_task,
         new_task_id=continuation_id,
@@ -689,6 +691,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
             "dependent_count": len(dependents),
             **branch_intent_metadata(failed_task),
         }
+        recovery_meta = stamp_experiment_metadata(project, recovery_meta)
         if not escalate_to_research and failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
             wt_p = Path(failed_meta["worktree_path"])
             if wt_p.exists():
@@ -844,6 +847,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         "failure_attempts": attempts,
         "error_log_excerpt": failure_excerpt,
     }
+    research_meta = stamp_experiment_metadata(project, research_meta)
 
     # Chain research feeder to project HEAD so it appears in the DAG history
     from swarm.task_chains import chain_to_project_head
@@ -941,16 +945,19 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
     cycles = orig_meta.get("research_feeder_cycles", 0) + 1
     orig_meta["research_feeder_cycles"] = cycles
 
+    _human_review_enabled = getattr(_lc(), "HUMAN_REVIEW_FLAG_ENABLED", False)
+
     if not needs_human_review and cycles > MAX_RESEARCH_CYCLES:
-        orig_meta["needs_human_review"] = True
-        orig_meta["human_review_reason"] = (
-            f"Research feeder cycle cap reached ({cycles} cycles). "
-            f"Task has gone through research→retry {cycles} times without resolving. "
-            f"Needs human diagnosis."
-        )
         # Snooze 24h so it doesn't burn cycles immediately, but keep it pending
         # so a human can un-snooze it via the dashboard rather than it being lost.
         run_after = (datetime.now() + timedelta(hours=24)).isoformat()
+        if _human_review_enabled:
+            orig_meta["needs_human_review"] = True
+            orig_meta["human_review_reason"] = (
+                f"Research feeder cycle cap reached ({cycles} cycles). "
+                f"Task has gone through research→retry {cycles} times without resolving. "
+                f"Needs human diagnosis."
+            )
         db_ref.task_update(original_task_id, {
             "status": "pending",
             "attempts": 0,
@@ -960,7 +967,9 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
         })
         print(
             f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_CYCLES}) reached for "
-            f"{original_task_id[:12]} — snoozed 24h with needs_human_review flag (cycle {cycles})"
+            f"{original_task_id[:12]} — snoozed 24h"
+            + (" with needs_human_review flag" if _human_review_enabled else "")
+            + f" (cycle {cycles})"
         )
         return
 
@@ -972,17 +981,19 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
     }
 
     if needs_human_review:
-        orig_meta["needs_human_review"] = True
-        orig_meta["human_review_reason"] = (
-            f"Research feeder {research_task_id[:12]} exhausted all attempts without resolving. "
-            f"Agent and research both failed — needs human diagnosis."
-        )
+        if _human_review_enabled:
+            orig_meta["needs_human_review"] = True
+            orig_meta["human_review_reason"] = (
+                f"Research feeder {research_task_id[:12]} exhausted all attempts without resolving. "
+                f"Agent and research both failed — needs human diagnosis."
+            )
         # Snooze for 24h so it doesn't immediately re-enter the queue
         run_after = (datetime.now() + timedelta(hours=24)).isoformat()
         update["run_after"] = run_after
         print(
             f"[Swarm] Research feeder {research_task_id[:8]} exhausted — "
-            f"flagged {original_task_id[:12]} needs_human_review, snoozed 24h"
+            + ("flagged " + original_task_id[:12] + " needs_human_review, " if _human_review_enabled else "")
+            + "snoozed 24h"
         )
     else:
         print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} — task reset to pending with research context")

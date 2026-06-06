@@ -784,6 +784,14 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         style="background:transparent;color:${isAutoReplan ? '#a371f7' : '#8b949e'};border:1px solid ${isAutoReplan ? '#a371f7' : '#30363d'};border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
         title="${isAutoReplan ? 'Auto re-plan ON — will spawn new plan when tasks run out' : 'Auto re-plan OFF'}">♻ Auto</button>`;
 
+    const snapshotBtn = `<button onclick="openSnapshotModal(event,'${escapeHtml(name)}')"
+        style="background:transparent;color:#79c0ff;border:1px solid #79c0ff;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
+        title="Save, restore, or clone a snapshot of this project">📸 Snapshots</button>`;
+
+    const removeProjectBtn = `<button onclick="removeProject(event,'${escapeHtml(name)}')"
+        style="background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
+        title="Remove project from swarm (does not delete the git repo)">✕ Remove</button>`;
+
     const projectTokens = _projectTokenMap[name] || 0;
     const projectTokensHtml = projectTokens > 0
         ? `<span style="font-size:11px;color:#8b949e;margin-left:8px">${(projectTokens/1000).toFixed(1)}k tok</span>`
@@ -808,6 +816,8 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     ${replanBtn}
                     ${artSprintBtn}
                     ${autoReplanBtn}
+                    ${snapshotBtn}
+                    ${removeProjectBtn}
                     <span class="status ${data.status}" style="margin-left:4px">${data.status}</span>
                 </div>
             </div>

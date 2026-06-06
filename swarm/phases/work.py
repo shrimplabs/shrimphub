@@ -79,6 +79,24 @@ def _build_work_prompt(state: TaskState) -> str:
             lines.append(f"  {f}")
         lines.append("")
 
+    synthesis = state.synthesis
+    if synthesis and synthesis.get("implementation_steps"):
+        lines.append("IMPLEMENTATION BRIEF (from synthesize phase):")
+        lines.append(f"  {synthesis.get('summary', '')}")
+        lines.append("")
+        lines.append("STEPS:")
+        for step in synthesis.get("implementation_steps", []):
+            lines.append(f"  [{step.get('action','modify').upper()}] {step.get('file','')}")
+            lines.append(f"    {step.get('description','')}")
+            if step.get("code_hint"):
+                lines.append(f"    Hint: {step['code_hint'][:200]}")
+        if synthesis.get("risks"):
+            lines.append("")
+            lines.append("RISKS:")
+            for r in synthesis.get("risks", []):
+                lines.append(f"  ⚠ {r}")
+        lines.append("")
+
     lines.append("Implement the change, commit, then output WORK_COMPLETE.")
     return "\n".join(lines)
 

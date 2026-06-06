@@ -127,6 +127,7 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
         max_active_agents=config.get("max_active_agents", 3),
         agent_timeout=config.get("agent_timeout", AGENT_TIMEOUT),
         project_registry=project_registry,
+        human_review_flag_enabled=config.get("human_review_flag_enabled", False),
     )
 
     try:
@@ -239,6 +240,7 @@ def create_app(
     app = Flask(__name__)
     app.config["WORKSPACE_ROOT"] = str(workspace)
     app.config["DATA_DIR"] = str(data_dir)
+    app.config["CONFIG_FILE"] = str(config_file)
 
     # Import modules after app creation to avoid circular imports
     from swarm import db
@@ -932,6 +934,7 @@ def create_app(
         task_source=task_source,
         db=db,
         workspace=workspace,
+        config=config,
     )
 
     _reg_agents(
@@ -969,6 +972,18 @@ def create_app(
     )
 
     # ---------- Gardener ----------
+
+    from swarm.api_snapshots import register_routes as _reg_snapshots
+    _reg_snapshots(
+        app,
+        project_registry=project_registry,
+        workspace=workspace,
+        db=db,
+        config=config,
+        data_dir=data_dir,
+        orchestrator=orchestrator,
+        config_file=config_file,
+    )
 
     from swarm.api_gardener import register_routes as _reg_gardener
     _reg_gardener(

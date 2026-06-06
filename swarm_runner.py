@@ -970,7 +970,23 @@ def generate_task_script(task: dict) -> str:
     _pipeline_from_metadata = metadata.get("pipeline")  # set at task creation for A/B testing
     _project_pipeline_override = _project_pipelines_cfg.get(project, {}).get(task_type) \
         or _project_pipelines_cfg.get(project, {}).get("*")
-    pipeline = _pipeline_from_metadata or _project_pipeline_override or _pipelines_cfg.get(task_type, [])
+    # Variant F: if metadata marks flat (empty list explicitly set), skip pipeline
+    _meta_pipeline_is_set = "pipeline" in metadata
+    _effective_llm_provider = LLM_PROVIDER  # may be overridden for variant F
+    if _meta_pipeline_is_set and isinstance(_pipeline_from_metadata, list) and len(_pipeline_from_metadata) == 0:
+        pipeline = []  # variant F — flat loop
+        # Override provider if flat_provider specified in task metadata
+        _flat_provider = metadata.get("flat_provider", "") or \
+            _project_pipelines_cfg.get(project, {}).get("_flat_provider", "")
+        if _flat_provider:
+            _effective_llm_provider = _flat_provider
+    else:
+        pipeline = _pipeline_from_metadata or _project_pipeline_override or _pipelines_cfg.get(task_type, [])
+        if pipeline == "random":
+            # Project-level random pipelines are materialized onto task metadata
+            # at creation time. If an old task reaches runtime without that stamp,
+            # do not pass the sentinel string into agent_runtime.
+            pipeline = []
     # Record the resolved pipeline in task metadata so it's queryable after the fact
     if pipeline and not metadata.get("pipeline_variant"):
         try:
@@ -1222,7 +1238,7 @@ rt.IGNORE_DIRS      = {repr(IGNORE_DIRS)}
 rt.IGNORE_EXTENSIONS = {repr(IGNORE_EXTENSIONS)}
 rt.MCP_SERVERS      = {json.dumps(MCP_SERVERS)}
 rt.GODOT_PATH       = {repr(_godot_bin if godot_binary_available(_godot_bin) else "")}
-rt.LLM_PROVIDER     = {repr(LLM_PROVIDER)}
+rt.LLM_PROVIDER     = {repr(_effective_llm_provider)}
 rt.LLM_PROVIDERS    = {json.dumps(effective_llm_providers)}
 rt.READONLY         = {repr(bool(metadata.get("readonly", False)))}
 rt.MANAGED_PROJECTS = {json.dumps(_config.get("managed_projects", []))}

@@ -516,6 +516,168 @@ async function toggleThinking() {
     } catch(e) { showToast('Error toggling thinking', '#f85149'); }
 }
 
+// ---- Human Review Flag Toggle ----
+async function loadHumanReviewFlag() {
+    try {
+        const data = await fetch(API + '/api/human-review-flag').then(r => r.json());
+        const btn = document.getElementById('humanReviewFlagToggle');
+        if (!btn) return;
+        btn.textContent = data.enabled ? 'On' : 'Off';
+        btn.style.color = data.enabled ? '#3fb950' : '#8b949e';
+        btn.style.borderColor = data.enabled ? '#3fb950' : '#30363d';
+    } catch(e) {}
+}
+async function toggleHumanReviewFlag() {
+    try {
+        const current = await fetch(API + '/api/human-review-flag').then(r => r.json());
+        const newEnabled = !current.enabled;
+        await fetch(API + '/api/human-review-flag', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: newEnabled}),
+        });
+        await loadHumanReviewFlag();
+        showToast(`Human review flag ${newEnabled ? 'enabled' : 'disabled'}`, newEnabled ? '#3fb950' : '#8b949e');
+    } catch(e) { showToast('Error toggling human review flag', '#f85149'); }
+}
+
+// ---- Remove Project ----
+async function removeProject(event, name) {
+    event.stopPropagation();
+    if (!confirm(`Remove project "${name}" from the swarm?\n\nThis will delete all its tasks from the database. The git repo on disk is NOT deleted.\n\nThis cannot be undone.`)) return;
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '…';
+    try {
+        const res = await fetch(`${API}/api/projects/${encodeURIComponent(name)}`, {method: 'DELETE'});
+        const data = await res.json();
+        if (data.error) {
+            showToast(data.error, '#f85149');
+            btn.disabled = false; btn.textContent = '✕ Remove';
+            return;
+        }
+        showToast(`"${name}" removed (${data.tasks_deleted} tasks deleted)`, '#8b949e');
+        loadData();
+    } catch(e) { showToast('Remove failed', '#f85149'); btn.disabled = false; btn.textContent = '✕ Remove'; }
+}
+
+// ---- Snapshot Modal ----
+let _snapshotProject = '';
+
+async function openSnapshotModal(event, name) {
+    event.stopPropagation();
+    _snapshotProject = name;
+    document.getElementById('snapshotModalProject').textContent = name;
+    document.getElementById('snapshotTagInput').value = '';
+    document.getElementById('cloneNewName').value = '';
+    document.getElementById('snapshotModal').style.display = 'flex';
+    await _refreshSnapshotList();
+}
+
+function closeSnapshotModal() {
+    document.getElementById('snapshotModal').style.display = 'none';
+}
+
+async function _refreshSnapshotList() {
+    const listEl = document.getElementById('snapshotList');
+    const cloneSel = document.getElementById('cloneSnapshotTag');
+    // Only show loading state if fetch takes more than 150ms
+    const loadingTimer = setTimeout(() => {
+        listEl.innerHTML = '<span style="color:#8b949e;font-size:12px">Loading…</span>';
+    }, 150);
+    try {
+        const data = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/snapshots`).then(r => r.json());
+        clearTimeout(loadingTimer);
+        const snaps = data.snapshots || [];
+        cloneSel.innerHTML = '<option value="">— pick snapshot —</option>' +
+            snaps.map(s => `<option value="${escapeHtml(s.tag)}">${escapeHtml(s.tag)} (${new Date(s.created_at).toLocaleString()})</option>`).join('');
+        if (!snaps.length) {
+            listEl.innerHTML = '<span style="color:#8b949e;font-size:12px">No snapshots yet.</span>';
+            return;
+        }
+        listEl.innerHTML = snaps.map(s => `
+            <div style="display:flex;align-items:center;gap:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px 10px">
+                <div style="flex:1">
+                    <span style="color:#e6edf3;font-size:13px;font-weight:600">${escapeHtml(s.tag)}</span>
+                    <span style="color:#8b949e;font-size:11px;margin-left:8px">${new Date(s.created_at).toLocaleString()}</span>
+                </div>
+                <button onclick="restoreSnapshot('${escapeHtml(s.tag)}')"
+                    style="background:transparent;color:#f0883e;border:1px solid #f0883e;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">Restore</button>
+                <button onclick="deleteSnapshotEntry('${escapeHtml(s.tag)}')"
+                    style="background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">✕</button>
+            </div>`).join('');
+    } catch(e) {
+        clearTimeout(loadingTimer);
+        listEl.innerHTML = '<span style="color:#f85149;font-size:12px">Failed to load snapshots.</span>';
+    }
+}
+
+async function saveSnapshot() {
+    const tag = document.getElementById('snapshotTagInput').value.trim();
+    if (!tag) { showToast('Enter a tag name', '#f85149'); return; }
+    try {
+        const res = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/snapshot`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tag}),
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, '#f85149'); return; }
+        showToast(`Snapshot '${tag}' saved (${data.tasks} tasks)`, '#3fb950');
+        document.getElementById('snapshotTagInput').value = '';
+        await _refreshSnapshotList();
+    } catch(e) { showToast('Save failed', '#f85149'); }
+}
+
+async function restoreSnapshot(tag) {
+    if (!confirm(`Restore snapshot '${tag}' to ${_snapshotProject}?\n\nThis will delete all current tasks and reset the git repo. There is no undo.`)) return;
+    try {
+        const res = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/restore`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tag}),
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, '#f85149'); return; }
+        showToast(`Restored '${tag}' — ${data.tasks_restored} tasks reset to pending`, '#3fb950');
+        closeSnapshotModal();
+        loadData();
+    } catch(e) { showToast('Restore failed', '#f85149'); }
+}
+
+async function deleteSnapshotEntry(tag) {
+    if (!confirm(`Delete snapshot '${tag}'?`)) return;
+    try {
+        const res = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/snapshots/${encodeURIComponent(tag)}`, {method: 'DELETE'});
+        const data = await res.json();
+        if (data.error) { showToast(data.error, '#f85149'); return; }
+        showToast(`Snapshot '${tag}' deleted`, '#8b949e');
+        await _refreshSnapshotList();
+    } catch(e) { showToast('Delete failed', '#f85149'); }
+}
+
+async function cloneSnapshot() {
+    const tag = document.getElementById('cloneSnapshotTag').value.trim();
+    const newName = document.getElementById('cloneNewName').value.trim();
+    const pipeline = document.getElementById('clonePipeline').value.trim();
+    if (!tag) { showToast('Pick a snapshot to clone', '#f85149'); return; }
+    if (!newName) { showToast('Enter a name for the new project', '#f85149'); return; }
+    try {
+        const body = {tag, new_name: newName};
+        if (pipeline) body.pipeline = pipeline;
+        const res = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/clone`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, '#f85149'); return; }
+        showToast(`Cloned '${tag}' → ${newName} (${data.tasks} tasks)`, '#3fb950');
+        document.getElementById('cloneNewName').value = '';
+        closeSnapshotModal();
+        loadData();
+    } catch(e) { showToast('Clone failed', '#f85149'); }
+}
+
 // ---- Project Wizard ----
 let _wzTasks = [];  // current task list in step 2
 

@@ -387,8 +387,49 @@ def main() -> int:
                 "work_provider": WORK_PROVIDER or LLM_PROVIDER,
                 "synthesize_provider": SYNTHESIZE_PROVIDER or LLM_PROVIDER,
                 "validation_timeout": 120,
+                "pipeline": PIPELINE,
+                "data_dir": DATA_DIR,
             }
             _final_state = run_pipeline(PIPELINE, _pipeline_state, config=_pipeline_config, log_fn=log)
+            _pipeline_completed = not _final_state.failed
+            _pipeline_work_loops = int((_final_state.work_report or {}).get("loops_used", 0) or 0)
+            _append_history_record(
+                DATA_DIR, TASK_ID, PROJECT, TASK_TYPE,
+                _pipeline_work_loops, {},
+                0, _pipeline_completed, "pipeline_complete" if _pipeline_completed else "pipeline_failed",
+            )
+            try:
+                _state_record = {
+                    "task_id": TASK_ID,
+                    "project": PROJECT,
+                    "task_type": TASK_TYPE,
+                    "pipeline": list(PIPELINE),
+                    "phases_completed": list(_final_state.phases_completed),
+                    "phase_timings": dict(_final_state.phase_timings),
+                    "plan": _final_state.plan,
+                    "scout_report": _final_state.scout_report,
+                    "synthesis": _final_state.synthesis,
+                    "work_report": _final_state.work_report,
+                    "validation": _final_state.validation,
+                    "errors": list(_final_state.errors),
+                    "failed": bool(_final_state.failed),
+                }
+                _pipeline_file = Path(DATA_DIR) / f"agent_{TASK_ID}_pipeline.json"
+                _pipeline_file.write_text(json.dumps(_state_record), encoding="utf-8")
+                _token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
+                _token_file.write_text(json.dumps({
+                    "input": 0,
+                    "output": 0,
+                    "cache_read": 0,
+                    "cache_write": 0,
+                    "total": 0,
+                    "loop_count": _pipeline_work_loops,
+                    "provider": WORK_PROVIDER or LLM_PROVIDER,
+                    "model": "",
+                    "pipeline_state_path": str(_pipeline_file),
+                }), encoding="utf-8")
+            except Exception as _pipe_write_exc:
+                log(f"WARNING: failed to write pipeline metrics files: {_pipe_write_exc}")
             return 1 if _final_state.failed else 0
         except Exception as _pipe_exc:
             log(f"[Pipeline] ERROR: {_pipe_exc} — falling back to legacy loop")

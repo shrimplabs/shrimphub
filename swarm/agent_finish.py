@@ -643,8 +643,17 @@ def _write_experiment_metrics(
         return
     metadata = task_snapshot.get("metadata") or {}
     pipeline_variant = metadata.get("pipeline_variant")
-    if not pipeline_variant:
+    experiment_variant = metadata.get("experiment_variant", "")
+    if pipeline_variant is None and not experiment_variant:
         return  # not an experiment task
+
+    pipeline_state = {}
+    pipeline_state_path = al.DATA_DIR / f"agent_{task_id}_pipeline.json"
+    if pipeline_state_path.exists():
+        try:
+            pipeline_state = json.loads(pipeline_state_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            pipeline_state = {}
 
     # Parse diff stat for insertions/deletions.
     insertions = 0
@@ -667,24 +676,46 @@ def _write_experiment_metrics(
     except Exception:
         pass
 
+    completed_at = datetime.utcnow().isoformat() + "Z"
     record = {
+        "timestamp": completed_at,
+        "experiment_id": metadata.get("experiment_id", ""),
+        "experiment_arm": metadata.get("experiment_arm", ""),
         "task_id": task_id,
+        "source_task_id": metadata.get("source_task_id", ""),
+        "source_project": metadata.get("source_project", ""),
         "project": project,
         "task_type": task_snapshot.get("type", ""),
+        "experiment_variant": experiment_variant,
         "pipeline_variant": pipeline_variant,
+        "phase_order": metadata.get("phase_order") or (pipeline_variant if isinstance(pipeline_variant, list) else None),
+        "is_valid_order": metadata.get("is_valid_order"),
+        "invalidity_reason": metadata.get("invalidity_reason", ""),
+        "phase_random_seed": metadata.get("phase_random_seed"),
+        "phases_completed": pipeline_state.get("phases_completed", []),
+        "phase_timings": pipeline_state.get("phase_timings", {}),
         "work_loops": loop_count,
         "validation_passed": success,
+        "pipeline_validation_passed": (pipeline_state.get("validation") or {}).get("passed"),
         "bug_spawned": bug_spawned,
         "attempts": task_snapshot.get("attempts", 1),
         "diff_insertions": insertions,
         "diff_deletions": deletions,
-        "completed_at": datetime.utcnow().isoformat() + "Z",
+        "started_at": task_snapshot.get("started"),
+        "completed_at": completed_at,
+        "pipeline_state_path": str(pipeline_state_path) if pipeline_state else "",
     }
 
     try:
         metrics_path = al.DATA_DIR / "experiment_metrics.jsonl"
         with open(metrics_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
+        experiment_id = record.get("experiment_id") or "unlabeled"
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", experiment_id)
+        event_dir = al.DATA_DIR / "experiments" / safe_id
+        event_dir.mkdir(parents=True, exist_ok=True)
+        with open(event_dir / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"event": "task_completed", **record}) + "\n")
     except Exception as e:
         print(f"[Swarm] WARNING: failed to write experiment metrics: {e}")
 
