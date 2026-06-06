@@ -39,11 +39,28 @@ Plans and creates task lists for swarm agents.
 
 ---
 
-### 3. swarm-manager
+### 3. swarm-task
+
+Pick up and complete a ready task from the swarm task graph.
+
+**Location:** `docs/agent-ops/skills/swarm-task.md`
+
+**Triggers:** "do a task", "pick up task", "work on task", "/swarm-task"
+
+**What it does:**
+- Finds highest-priority ready task from the dependency graph
+- Claims the task, completes the work, marks it done
+- Runs tests before marking complete
+
+---
+
+### 4. swarm-manager
 
 Manages the swarm controller runtime.
 
+
 **Location:** `docs/agent-ops/skills/swarm-manager.md`
+
 
 **Triggers:** "start swarm", "check agents", "configure swarm", "switch provider", "kill agent"
 
