@@ -340,3 +340,13 @@ Test passes in isolation and in single-worker mode. Failure only observed in ful
 - Top failure clusters: `hybrid_qa` (100%, 6 failed), `qa` (17%, 27 failed), `feature` (14%, 50 failed), `phase_gate` (50%, 1/2), `project_plan` (11%, 3 failed), `bug` (10%, 36 failed), `audit` (8%, 6 failed), `plan` (6%, 1 failed)
 - Pattern density: feature (306), bug (241), harness_qa (185), qa (158), polish (120), research (94), audit (67), art_pass (65), refactor (45)
 - Marked completed via `PATCH /api/tasks/audit-learnings-1780617830` with `{"status":"completed"}`
+
+---
+## audit_learnings run 2026-06-07 (audit-learnings-1780790637)
+- 132 projects, 538 learning files scanned by `scan_learnings.py` at project root
+- Output: `data/AUDIT_LEARNINGS_REPORT.md` (gitignored, 292 lines)
+- Top failure clusters: `hybrid_qa` (100%, 6/6), `qa` (17%, 27 failed), `feature` (13%, 50 failed), `project_plan` (11%, 3 failed), `phase_gate` (50%, 1/2), `bug` (9%, 36 failed), `audit` (8%, 6 failed), `plan` (6%, 1 failed), `refactor` (2%, 1 failed), `polish` (0%, 1 failed), `art_pass` (1%, 2 failed), `research` (2%, 2 failed), `harness_qa` (1%, 2 failed), `audit_learnings` (0%, 0 failed)
+- Pattern density: feature=307, bug=247, harness_qa=185, qa=158, polish=121, research=92, audit=67, art_pass=65, refactor=45, project_plan=26, plan=19, hybrid_qa=2, audit_learnings=0
+- Trends vs 2026-06-05 (116 projects / 508 files): +16 projects / +30 files. hybrid_qa still 100% failing (chronic). qa stable at 27 failed. feature steady at 50. bug steady at 36. Stable signal across the board.
+- Marked completed via `PATCH /api/tasks/audit-learnings-1780790637` with `{"status":"completed"}`
+- Working tree has 20+ unrelated modifications from sibling work (dashboard, swarm modules, tests) — NOT touched by this task; no commit required

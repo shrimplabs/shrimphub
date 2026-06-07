@@ -71,6 +71,17 @@ class TestEmbeddedConfig:
         source = _gen(_make_task(task_id="my-task-42"), workspace=tmp_path)
         assert "my-task-42" in source
 
+    def test_task_metadata_embedded(self, tmp_path):
+        source = _gen(
+            _make_task(metadata={"experiment_id": "exp-123", "pipeline": [], "is_valid_order": True}),
+            workspace=tmp_path,
+        )
+        compile(source, "<generated>", "exec")
+        assert (
+            "rt.TASK_METADATA    = {'experiment_id': 'exp-123', "
+            "'pipeline': [], 'is_valid_order': True}"
+        ) in source
+
     def test_project_name_embedded(self, tmp_path):
         source = _gen(_make_task(project="space-game"), workspace=tmp_path)
         assert "space-game" in source

@@ -462,8 +462,8 @@ def _populate_registry():
 
     # --- File tools ---
     _reg("read_file",       lambda a, ws, p: read_file(a.get("path", ""), a.get("offset", 0), a.get("limit", 0)),         ["path"])
-    _reg("list_files",      lambda a, ws, p: list_files(a.get("path", ".")))
-    _reg("search_code",     lambda a, ws, p: search_code(a.get("query", "")),                                              ["query"])
+    _reg("list_files",      lambda a, ws, p: list_files(a.get("path", ".")), aliases=["list_dir"])
+    _reg("search_code",     lambda a, ws, p: search_code(a.get("query", "")),                                              ["query"], aliases=["search_files"])
     _reg("get_file_stats",  lambda a, ws, p: get_file_stats(a.get("path", ".")),                                           ["path"])
     _reg("get_file_outline",lambda a, ws, p: get_file_outline(a.get("path", "")),                                          ["path"])
     _reg("read_file_range", lambda a, ws, p: read_file_range(a.get("path", ""), a.get("start_line", 1), a.get("end_line", 100)), ["path", "start_line", "end_line"])

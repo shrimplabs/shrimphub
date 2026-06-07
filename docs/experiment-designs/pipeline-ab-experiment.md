@@ -43,11 +43,14 @@ an identical task DAG from the same task list.
 | Variant B | `variant-b` | `plan → scout → synthesize → work → validate` | Does synthesize improve work quality? |
 | Variant C | `variant-c` | `scout → work → validate` | Is planning necessary, or does exploration suffice? |
 | Variant D | `variant-d` | random phase ordering per task (from pool: `plan`, `scout`, `work`, `validate`) | Exploratory chaos arm: what does structure beat, and which surprising orders break our assumptions? |
+| Variant E | `variant-e` | `scout → plan → work → validate` | Does reconnaissance before planning produce more grounded plans without synthesize overhead? |
 | Variant F | `variant-f` | `work` only, single model (MiniMax), no phases | Null hypothesis — flat loop baseline, no pipeline overhead |
 
 **Variant D detail**: at clone time, each task in the project is assigned an independently randomised phase ordering drawn from the full phase pool. The ordering is baked into `task.metadata.pipeline` and recorded in `task.metadata.phase_order` in the experiment metrics. The clone also stores a project-level exploratory experiment config, so any new tasks created later by graph reflection, validation, recovery, or agent task creation receive fresh randomized phase orders instead of falling back to a default pipeline.
 
 Variant D is not interpreted as an optimal valid workflow. It is an exploratory/hypothesis-breaking arm. Analysis should split chaos runs by exact phase order and by `is_valid_order` / `invalidity_reason` before drawing conclusions.
+
+**Variant E detail**: scout runs before plan. This tests the hypothesis that a read-only reconnaissance pass can gather project-specific evidence first, then let the planner produce a more grounded implementation plan. It should be compared directly against Control (`plan → scout → work → validate`) and Variant C (`scout → work → validate`) to separate the value of planning from the value of scout ordering.
 
 **Variant F detail**: no pipeline is run. The agent uses a single MiniMax model in the legacy continuous work loop — identical to pre-pipeline behaviour. Used to establish whether the pipeline adds value at all.
 

@@ -130,6 +130,30 @@ def _build_synthesize_prompt(state: TaskState) -> str:
             lines.append(f"  - {sc}")
         lines.append("")
 
+    if plan.get("constraints"):
+        lines.append("CONSTRAINTS:")
+        for c in plan.get("constraints", []):
+            lines.append(f"  - {c}")
+        lines.append("")
+
+    if plan.get("implementation_steps"):
+        lines.append("PLAN IMPLEMENTATION STEPS:")
+        for step in plan.get("implementation_steps", []):
+            lines.append(f"  - {step}")
+        lines.append("")
+
+    if plan.get("likely_files_to_change"):
+        lines.append("PLAN LIKELY FILES:")
+        for f in plan.get("likely_files_to_change", []):
+            lines.append(f"  {f}")
+        lines.append("")
+
+    if plan.get("test_plan"):
+        lines.append("PLAN TESTS:")
+        for t in plan.get("test_plan", []):
+            lines.append(f"  - {t}")
+        lines.append("")
+
     if scout.get("findings"):
         lines.append("SCOUT FINDINGS:")
         for f in scout.get("findings", []):

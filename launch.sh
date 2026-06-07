@@ -1,6 +1,18 @@
 #!/bin/bash
-# Launch swarm: start both servers and open the dashboard in your browser.
+# Launch swarm: start all services and open the dashboard in your browser.
 # Run this once in the morning; use stop.sh / stop-vlm.sh to shut down.
+#
+# Service chain (all sourced from .env):
+#   .env                   → provides MINIMAX_API_KEY, KIMI_API_KEY, OPENCODE_API_KEY etc.
+#   headroom :8888         → MiniMax caching proxy (Anthropic-format → api.minimax.io/anthropic)
+#                            needs ANTHROPIC_API_KEY=$MINIMAX_API_KEY in its own environment
+#   headroom :8877         → Codex token proxy
+#   headroom :8886         → OpenCode proxy (needs OPENCODE_API_KEY)
+#   shrimp-router :8090    → LLM router; routes minimax-fast → headroom :8888
+#   swarm API :5001        → Main controller + dashboard
+#
+# If any service shows 401 errors: run stop.sh then re-run this script.
+# headroom must always be restarted with .env in scope (do not start it manually).
 set -e
 cd "$(dirname "$0")"
 
@@ -47,6 +59,9 @@ elif curl -s --max-time 1 http://localhost:8888/livez >/dev/null 2>&1; then
 elif [ -f "$HEADROOM_VENV/bin/headroom" ]; then
     rm -f "$HEADROOM_PID_FILE"
     echo "→ Starting headroom proxy..."
+    # headroom --backend anthropic reads ANTHROPIC_API_KEY from its own env.
+    # MiniMax uses the same Anthropic-compatible API, so we pass MINIMAX_API_KEY as ANTHROPIC_API_KEY.
+    ANTHROPIC_API_KEY="$MINIMAX_API_KEY" \
     nohup "$HEADROOM_VENV/bin/headroom" proxy \
         --port 8888 --mode cache --backend anthropic \
         --anthropic-api-url https://api.minimax.io/anthropic \
@@ -94,6 +109,7 @@ elif [ -f "$HEADROOM_VENV/bin/headroom" ] && [ -n "$OPENCODE_API_KEY" ]; then
         --port 8886 --mode token \
         --backend anyllm --anyllm-provider openai \
         --openai-api-url https://opencode.ai/zen/go/v1 \
+        --workers 4 \
         --no-telemetry \
         --log-file data/headroom-opencode.log \
         > data/headroom-opencode-server.log 2>&1 &
@@ -110,7 +126,7 @@ if [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRIMP_PID_FILE)" 2>/dev/null; t
     echo "✓ Shrimp router already running (PID $(cat $SHRIMP_PID_FILE))"
 elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
     echo "✓ Shrimp router already responding on port 8090"
-else
+elif [ ! -d "$SHRIMP_DIR" ]; then
     echo "→ shrimp-router not found at $SHRIMP_DIR — cloning..."
     git clone https://github.com/shrimplabs/shrimp-router.git "$SHRIMP_DIR" 2>&1
     if [ -d "$SHRIMP_DIR" ]; then
@@ -119,6 +135,11 @@ else
         "$SHRIMP_DIR/.venv/bin/pip" install -e "$SHRIMP_DIR" -q
         echo "✓ shrimp-router installed"
     fi
+elif [ ! -f "$SHRIMP_DIR/.venv/bin/shrimp-router" ]; then
+    echo "→ shrimp-router dir exists but not installed — installing..."
+    python3 -m venv "$SHRIMP_DIR/.venv"
+    "$SHRIMP_DIR/.venv/bin/pip" install -e "$SHRIMP_DIR" -q
+    echo "✓ shrimp-router installed"
 fi
 
 if [ -d "$SHRIMP_DIR" ] && ! { [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRIMP_PID_FILE)" 2>/dev/null; } && ! curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
@@ -136,6 +157,16 @@ if [ -d "$SHRIMP_DIR" ] && ! { [ -f "$SHRIMP_PID_FILE" ] && kill -0 "$(cat $SHRI
         "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
     echo $! > "$SHRIMP_PID_FILE"
     echo "✓ Shrimp router started (PID $(cat $SHRIMP_PID_FILE))"
+fi
+
+# ── Headroom watchdog ────────────────────────────────────────────────────────
+WATCHDOG_PID_FILE=".watchdog.pid"
+if [ -f "$WATCHDOG_PID_FILE" ] && kill -0 "$(cat $WATCHDOG_PID_FILE)" 2>/dev/null; then
+    echo "✓ Watchdog already running (PID $(cat $WATCHDOG_PID_FILE))"
+else
+    rm -f "$WATCHDOG_PID_FILE"
+    bash watchdog.sh &
+    echo "✓ Watchdog started (PID $(cat $WATCHDOG_PID_FILE 2>/dev/null || echo '?'))"
 fi
 
 # ── Wait for swarm to be ready, then open browser ───────────────────────────

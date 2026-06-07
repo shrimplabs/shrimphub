@@ -29,6 +29,7 @@ PIPELINE_PRESETS: dict[str, list] = {
     "variant-b": ["plan", "scout", "synthesize", "work", "validate"],
     "variant-c": ["scout", "work", "validate"],
     "variant-d": "random",   # resolved per-task at clone time
+    "variant-e": ["scout", "plan", "work", "validate"],
     "variant-f": [],          # flat loop, no pipeline
 }
 
@@ -241,6 +242,45 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             return str(e)
         return None
 
+    def _isolate_clone_remote(target_project: str) -> Optional[str]:
+        """Give a cloned project its own local bare origin.
+
+        Snapshot clones are independent experiment/project branches. They may still
+        need normal git pull/push semantics for agent worktrees, but their origin
+        must not keep pointing at the source project repo or a later pull can
+        fast-forward the clone to unrelated source-project history.
+        """
+        repo = workspace / target_project
+        remote_root = workspace / "_remotes"
+        bare = remote_root / f"{target_project}.git"
+        if not repo.exists():
+            return "project directory not found"
+        try:
+            remote_root.mkdir(parents=True, exist_ok=True)
+            if bare.exists():
+                shutil.rmtree(bare)
+            r = subprocess.run(
+                ["git", "init", "--bare", str(bare)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode != 0:
+                return r.stderr.strip() or "git init --bare failed"
+            commands = [
+                ["git", "remote", "set-url", "origin", str(bare)],
+                ["git", "checkout", "-B", "main"],
+                ["git", "push", "-u", "origin", "main"],
+            ]
+            for cmd in commands:
+                r = subprocess.run(
+                    cmd,
+                    cwd=str(repo), capture_output=True, text=True, timeout=60,
+                )
+                if r.returncode != 0:
+                    return r.stderr.strip() or f"{' '.join(cmd)} failed"
+        except Exception as e:
+            return str(e)
+        return None
+
     # ------------------------------------------------------------------ routes
 
     @app.route("/api/projects/<project_name>/snapshot", methods=["POST"])
@@ -395,6 +435,12 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         # Checkout the snapshot tag in the clone
         git_err2 = _git_checkout_tag(new_name, tag)
         git_note = f"Git checkout tag failed: {git_err2}" if git_err2 else None
+
+        # Rewire the clone to an arm-specific local origin so worktrees can
+        # pull/push without ever syncing from the source project after birth.
+        git_err3 = _isolate_clone_remote(new_name)
+        if git_err3:
+            git_note = "Git remote isolation failed: " + git_err3
 
         # Import DB state under new project name (tasks reset to pending)
         project_registry.add_project(new_name, managed=True)

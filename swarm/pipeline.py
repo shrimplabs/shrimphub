@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -136,9 +137,46 @@ def register_phase(cls: type[Phase]) -> type[Phase]:
 
 def _ensure_phases_loaded() -> None:
     """Import phase modules so they self-register."""
-    if PHASE_REGISTRY:
-        return
     from swarm.phases import plan, scout, work, validate, synthesize, create_tasks  # noqa: F401
+
+
+def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None, log_fn=print) -> None:
+    """Persist completed phase output immediately for live observability."""
+    if not state.task_id:
+        return
+    data_dir = Path((config or {}).get("data_dir") or "data")
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, Any] = {
+            "task_id": state.task_id,
+            "project": state.project,
+            "task_type": state.task_type,
+            "phase": phase_name,
+            "phases_completed": list(state.phases_completed),
+            "phase_timings": dict(state.phase_timings),
+            "errors": list(state.errors),
+            "failed": bool(state.failed),
+        }
+        if phase_name == "plan":
+            payload["plan"] = state.plan
+        elif phase_name == "scout":
+            payload["plan"] = state.plan
+            payload["scout_report"] = state.scout_report
+        elif phase_name == "synthesize":
+            payload["plan"] = state.plan
+            payload["scout_report"] = state.scout_report
+            payload["synthesis"] = state.synthesis
+        elif phase_name == "work":
+            payload["work_report"] = state.work_report
+        elif phase_name == "validate":
+            payload["validation"] = state.validation
+        elif phase_name == "create_tasks":
+            payload["tasks_created"] = state.tasks_created
+            payload["work_report"] = state.work_report
+        path = data_dir / f"agent_{state.task_id}_{phase_name}.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception as exc:
+        log_fn(f"[Pipeline] WARNING: failed to write {phase_name} artifact: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +230,7 @@ def run_pipeline(
 
         elapsed = time.monotonic() - t_start
         state.mark_phase_done(phase_name, elapsed)
+        _write_phase_artifact(state, phase_name, config, log_fn=log_fn)
         log_fn(f"  ✓ {phase_name.upper()} complete ({elapsed:.1f}s)")
         log_fn(f"{'='*60}")
 
