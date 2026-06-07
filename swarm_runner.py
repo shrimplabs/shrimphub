@@ -1231,6 +1231,7 @@ rt.TASK_TYPE        = {repr(task_type)}
 rt.TASK_DESC        = {repr(description)}
 rt.TASK_ID          = {repr(task_id)}
 rt.TASK_PRIORITY    = {repr(task.get("priority", 50))}
+rt.TASK_METADATA    = {repr(metadata)}
 rt.API_PORT         = {API_PORT}
 rt.MAX_TOOL_LOOPS   = 200
 rt.MAX_LINES        = {MAX_LINES}

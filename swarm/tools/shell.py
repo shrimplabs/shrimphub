@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import re
 from pathlib import Path
 
 from swarm.platform import kill_process_tree, popen_session_kwargs, shell_quote_command_arg
@@ -41,6 +42,9 @@ _cache_lock = threading.Lock()
 _CACHEABLE_PREFIXES = ("find ", "grep ", "git log", "git show", "git diff",
                        "ls ", "ls\n", "wc ", "cat ", "head ", "tail ",
                        "git status", "git branch")
+
+_EXPERIMENT_PROJECT_RE = re.compile(r"-run\d+$")
+_GIT_SYNC_RE = re.compile(r"(^|[;&|]\s*)git\s+(pull|fetch)\b")
 
 
 def _is_cacheable(cmd: str) -> bool:
@@ -76,6 +80,57 @@ def invalidate_shell_cache(project: str = None):
             evict = list(_cache.keys())
         for k in evict:
             del _cache[k]
+
+
+def _local_origin_repo_name(origin: str) -> str:
+    origin = (origin or "").strip()
+    if not origin or "://" in origin or "@" in origin:
+        return ""
+    name = Path(origin).name
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name
+
+
+def _experiment_git_sync_error(cmd: str) -> str | None:
+    """Block experiment arms from syncing against their source repo.
+
+    Experiment clones still need normal pull/fetch for their own worktrees, but
+    the origin must be the arm's isolated remote. A clone whose origin is still
+    the source project can silently fast-forward to another run's history.
+    """
+    if not _GIT_SYNC_RE.search(cmd or ""):
+        return None
+    try:
+        from swarm.tools import _shared
+        project = getattr(_shared, "PROJECT", "") or ""
+        workspace = Path(getattr(_shared, "WORKSPACE", Path(".")))
+    except Exception:
+        return None
+    if not project or not _EXPERIMENT_PROJECT_RE.search(project):
+        return None
+
+    cwd = _safe_cwd(None)
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=cwd, capture_output=True, text=True, timeout=5,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    origin = proc.stdout.strip()
+    origin_name = _local_origin_repo_name(origin)
+    if not origin_name:
+        return None
+    if origin_name != project:
+        return (
+            f"Command blocked: experiment project '{project}' has origin '{origin}', "
+            f"which resolves to local repo '{origin_name}' instead of this arm. "
+            "Experiment arms may pull/fetch only from their own isolated remote."
+        )
+    return None
 
 
 
@@ -145,6 +200,9 @@ def _godot_runtime_error(stdout: str, stderr: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def run_command(cmd: str, timeout: int = 120) -> dict:
+    experiment_sync_error = _experiment_git_sync_error(cmd)
+    if experiment_sync_error:
+        return {"ok": False, "error": experiment_sync_error, "stdout": "", "stderr": experiment_sync_error}
     catastrophic = _check_catastrophic_command(cmd)
     if catastrophic:
         return {

@@ -31,6 +31,8 @@ _ALLOWED_TOOLS = frozenset({
     "create_tasks_file_aware",
     "list_tasks",
     "read_file",
+    "list_files",
+    "search_code",
     "list_dir",
     "search_files",
 })
@@ -50,8 +52,8 @@ Available tools:
 - create_task(description, task_type, priority, dependencies, project) — create a single task
 - list_tasks(project, status) — check what tasks already exist to avoid duplicates
 - read_file(path) — read a file if you need more context
-- list_dir(path) — list directory contents
-- search_files(query, path) — search code
+- list_files(path) — list directory contents
+- search_code(query) — search code
 
 Task types: bug (80), feature (50), refactor (100), polish (40)
 DO NOT create research tasks — research pipelines must produce actionable implementation tasks only.

@@ -113,6 +113,29 @@ RUN_BROADCAST_WRITE_COUNT: int = 0
 CLAIMED_FILE_PATHS: set[str] = set()
 LOCK_CONFLICT_HANDOFF: dict | None = None
 
+
+def _should_pull_latest() -> bool:
+    """Return whether this agent should fast-forward the project before work."""
+    if PROJECT_PATH_OVERRIDE:
+        return False
+    if TASK_METADATA.get("experiment_id"):
+        return False
+    _skip_pull_types = {
+        "manager",
+        "project_create",
+        "qa",
+        "audit",
+        "triage",
+        "project_plan",
+        "python_plan",
+        "plan",
+        "research",
+        "harness_qa",
+        "hybrid_qa",
+        "scenario_qa",
+    }
+    return TASK_TYPE not in _skip_pull_types
+
 # Task-type prompts -- set by the wrapper
 FEATURE_SYSTEM: str = ""
 FEATURE_USER: str = ""
@@ -576,9 +599,9 @@ def main() -> int:
     log(f"Provider: {LLM_PROVIDER} model={_pconf.get('model', 'unknown')}")
     log(f"Description: {TASK_DESC}")
 
-    # Pull latest (skip for virtual/qa tasks and worktree agents on their own branches)
-    _skip_pull_types = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "python_plan", "plan", "research", "harness_qa", "hybrid_qa", "scenario_qa"}
-    if TASK_TYPE not in _skip_pull_types and not PROJECT_PATH_OVERRIDE:
+    # Pull latest for normal project work, but keep experiment clones pinned to
+    # their sampled baseline so old run state cannot leak across arms.
+    if _should_pull_latest():
         log("Pulling latest...")
         code, out, err = run("git pull origin main --ff-only")
         if code != 0:

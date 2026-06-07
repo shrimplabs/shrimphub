@@ -119,6 +119,29 @@ class TestParseToolCalls:
         assert len(calls) == 1
         assert calls[0]["tool"] == "read_file"
 
+
+class TestPullLatestGuard:
+    def test_normal_feature_tasks_pull_latest(self):
+        rt.TASK_TYPE = "feature"
+        rt.PROJECT_PATH_OVERRIDE = ""
+        rt.TASK_METADATA = {}
+
+        assert rt._should_pull_latest() is True
+
+    def test_experiment_tasks_do_not_pull_latest(self):
+        rt.TASK_TYPE = "feature"
+        rt.PROJECT_PATH_OVERRIDE = ""
+        rt.TASK_METADATA = {"experiment_id": "exp-123", "pipeline": []}
+
+        assert rt._should_pull_latest() is False
+
+    def test_worktree_tasks_do_not_pull_latest(self, tmp_path):
+        rt.TASK_TYPE = "feature"
+        rt.PROJECT_PATH_OVERRIDE = str(tmp_path / "worktree")
+        rt.TASK_METADATA = {}
+
+        assert rt._should_pull_latest() is False
+
     def test_multiple_bracket_calls_in_one_response(self):
         text = (
             '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}[/TOOL_CALL]'

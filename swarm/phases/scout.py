@@ -31,6 +31,7 @@ _BLOCKED_TOOLS = frozenset({
     "create_task", "create_tasks", "create_subtask",
     "create_tasks_file_aware", "delegate_task_batch",
 })
+_ALLOWED_SCOUT_TOOLS = {"read_file", "read_file_range", "list_files", "search_code", "list_dir", "search_files"}
 
 _MAX_SCOUT_LOOPS = 12
 
@@ -42,9 +43,9 @@ You have access to file reading and search tools ONLY. You may NOT write files,
 commit, or create tasks.
 
 To call a tool, output EXACTLY this format:
-[TOOL_CALL]{"tool": "read_file", "args": {"path": "/absolute/path/to/file"}}[/TOOL_CALL]
+[TOOL_CALL]{"tool": "read_file", "args": {"path": "relative/path/to/file"}}[/TOOL_CALL]
 
-Available tools: read_file, read_file_range, list_dir, search_files
+Available tools: read_file, read_file_range, list_files, search_code
 
 You have a limited number of investigation loops. After 8 loops, you MUST
 output your report regardless of whether you feel done.
@@ -80,6 +81,28 @@ def _build_scout_prompt(state: TaskState) -> str:
     for r in plan.get("risk_areas", []):
         lines.append(f"  - {r}")
     lines.append(f"")
+    lines.append("Success criteria to preserve:")
+    for sc in plan.get("success_criteria", []):
+        lines.append(f"  - {sc}")
+    lines.append(f"")
+    lines.append("Hard constraints:")
+    for c in plan.get("constraints", []):
+        lines.append(f"  - {c}")
+    lines.append(f"")
+    lines.append("Files to inspect first:")
+    for f in plan.get("files_to_inspect_first", []):
+        lines.append(f"  - {f}")
+    lines.append(f"")
+    lines.append("Likely files to change:")
+    for f in plan.get("likely_files_to_change", []):
+        lines.append(f"  - {f}")
+    lines.append(f"")
+    lines.append("Implementation steps to validate:")
+    for step in plan.get("implementation_steps", []):
+        lines.append(f"  - {step}")
+    lines.append(f"")
+    lines.append("Use only these canonical tool names: read_file, read_file_range, list_files, search_code.")
+    lines.append(f"")
     lines.append("Investigate, then output SCOUT_COMPLETE + JSON report. You have 12 loops max — report by loop 8.")
     return "\n".join(lines)
 
@@ -97,6 +120,20 @@ def _extract_scout_report(text: str) -> dict | None:
         return None
 
 
+def _extract_paths_from_tool_calls(text: str) -> list[str]:
+    paths: list[str] = []
+    for match in re.finditer(r"\[TOOL_CALL\](.*?)\[/TOOL_CALL\]", text, flags=re.DOTALL):
+        try:
+            call = json.loads(match.group(1))
+        except Exception:
+            continue
+        args = call.get("args") or {}
+        path = args.get("path")
+        if isinstance(path, str) and path and path not in paths:
+            paths.append(path)
+    return paths
+
+
 def _extract_findings_from_history(messages: list[dict]) -> dict:
     """Build a scout report from conversation history when SCOUT_COMPLETE was never output.
 
@@ -109,6 +146,9 @@ def _extract_findings_from_history(messages: list[dict]) -> dict:
         if msg["role"] != "assistant":
             continue
         text = msg.get("content", "")
+        for path in _extract_paths_from_tool_calls(text):
+            if path not in files_seen:
+                files_seen.append(path)
         # Strip tool call blocks — we want the prose
         text = re.sub(r"\[TOOL_CALL\].*?\[/TOOL_CALL\]", "", text, flags=re.DOTALL).strip()
         if text:
@@ -223,6 +263,11 @@ class ScoutPhase(Phase):
                         f"[{tool_name}] BLOCKED: write tools are not available in scout phase"
                     )
                     continue
+                if tool_name not in _ALLOWED_SCOUT_TOOLS:
+                    tool_results.append(
+                        f"[{tool_name}] BLOCKED: scout phase only allows read_file, read_file_range, list_files, and search_code"
+                    )
+                    continue
                 err = validate_tool_call(tc)
                 if err:
                     tool_results.append(f"[{tool_name}] Validation error: {err}")
@@ -236,6 +281,9 @@ class ScoutPhase(Phase):
         if report is None:
             self.log("Scout hit loop limit — extracting findings from conversation history")
             report = _extract_findings_from_history(messages)
+        elif not report.get("files_inspected"):
+            history_report = _extract_findings_from_history(messages)
+            report["files_inspected"] = history_report.get("files_inspected", [])
 
         files_n = len(report.get("files_inspected", []))
         findings_n = len(report.get("findings", []))

@@ -29,8 +29,8 @@ To call a tool, output EXACTLY this format (no markdown, no explanation before/a
 Available tools:
 - read_file(path) — read a file
 - read_file_range(path, start_line, end_line) — read part of a file
-- list_dir(path) — list directory contents
-- search_files(query, path) — search code
+- list_files(path) — list directory contents
+- search_code(query) — search code
 - write_file(path, content) — write/overwrite a file
 - patch_file(path, old, new) — replace a string in a file
 - append_file(path, content) — append to a file
@@ -60,6 +60,24 @@ def _build_work_prompt(state: TaskState) -> str:
     for c in plan.get("constraints", []):
         lines.append(f"  - {c}")
     lines.append("")
+
+    if plan.get("implementation_steps"):
+        lines.append("IMPLEMENTATION PLAN:")
+        for step in plan.get("implementation_steps", []):
+            lines.append(f"  - {step}")
+        lines.append("")
+
+    if plan.get("likely_files_to_change"):
+        lines.append("LIKELY FILES TO CHANGE:")
+        for f in plan.get("likely_files_to_change", []):
+            lines.append(f"  {f}")
+        lines.append("")
+
+    if plan.get("test_plan"):
+        lines.append("TEST PLAN:")
+        for t in plan.get("test_plan", []):
+            lines.append(f"  - {t}")
+        lines.append("")
 
     if scout.get("findings"):
         lines.append("SCOUT FINDINGS:")
