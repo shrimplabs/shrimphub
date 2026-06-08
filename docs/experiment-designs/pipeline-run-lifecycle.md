@@ -336,6 +336,35 @@ curl -fsS -X POST http://localhost:5001/api/auto-mode \
   -d '{"enabled": false}'
 ```
 
+### Recommended Smaller Variant Set
+
+For future runs, prefer a smaller default batch unless there is enough budget
+and capacity to run every historical variant. Run 4 showed enough infra pressure
+that seven arms can spend too much budget on low-signal comparisons.
+
+Default future set:
+
+- `control`: keep the baseline anchor.
+- `variant-a`: keep `plan -> work -> validate` because it is the intuitive
+  structured hypothesis and exposes whether planning is actually useful.
+- `variant-d`: keep the randomized/chaos arm because it has been unexpectedly
+  strong and can reveal assumptions fixed-order variants miss.
+- One rotating challenger: start with `scout -> plan -> work -> validate`.
+  The hypothesis is that scout-first gives the planner real project state before
+  it forms a plan.
+
+Pause or skip the other variants unless they carry a specific hypothesis for
+that run. In later runs, keep `control`, the best structured variant, `variant-d`,
+and one new challenger derived from either chaos successes or observed failure
+modes.
+
+For analysis, treat the core question as:
+
+```text
+Does any fixed phase order beat chaos/randomization, and under what task
+conditions?
+```
+
 Clone each arm from the same source snapshot and give every clone the same new
 experiment id.
 
