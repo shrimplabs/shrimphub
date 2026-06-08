@@ -72,6 +72,19 @@ def _get_recovery_lock(branch_root_id: str) -> threading.Lock:
         return _recovery_locks[branch_root_id]
 
 
+def _live_dependents(db, task_id: str, *, project: str | None = None) -> list[dict]:
+    """Return active tasks whose dependency list still points at task_id."""
+    dependents: list[dict] = []
+    for task in db.task_get_all():
+        if project and task.get("project") != project:
+            continue
+        if task.get("status") not in {"pending", "in_progress"}:
+            continue
+        if task_id in (task.get("dependencies") or []):
+            dependents.append(task)
+    return dependents
+
+
 # ---------------------------------------------------------------------------
 # Lazy accessor helpers
 # ---------------------------------------------------------------------------
@@ -1080,9 +1093,27 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             # New path: spawn research feeder, original task stays in place
             _spawn_research_feeder(task, attempts, agent_output)
         elif project and on_exhaust == "cancel":
-            # QA/research/plan types: cancel cleanly, don't recurse
-            db.task_update(task_id, {"status": "cancelled"})
-            print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled per escalation policy")
+            # QA/research/plan/polish/etc. normally stop on exhaust. If live
+            # work depends on them, preserve branch continuity first so the
+            # cancelled node cannot strand the graph.
+            dependents = _live_dependents(db, task_id, project=project)
+            if dependents:
+                print(
+                    f"[Swarm] Task {task_id} ({task_type}) exhausted with "
+                    f"{len(dependents)} dependent(s) — creating continuity task before cancellation"
+                )
+                _spawn_review_task(task, attempts, agent_output)
+                task = db.task_get(task_id) or task
+                task_meta = dict(task.get("metadata") or {})
+                task_meta["cancel_reason"] = "exhausted_with_dependents"
+                task_meta["cancel_continuity_repaired"] = True
+                task_meta["cancel_continuity_dependent_count"] = len(dependents)
+                db.task_update(task_id, {"status": "cancelled", "metadata": task_meta})
+                print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled after continuity repair")
+            else:
+                # QA/research/plan types with no live dependents can stop cleanly.
+                db.task_update(task_id, {"status": "cancelled"})
+                print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled per escalation policy")
         elif project:
             # Fallback to legacy recovery for unknown types
             _spawn_review_task(task, attempts, agent_output)

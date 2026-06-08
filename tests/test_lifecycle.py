@@ -386,6 +386,48 @@ class TestLifecycleFailure:
         assert updated["attempts"] == 1
         assert recovery_tasks == []
 
+    def test_cancel_exhaust_with_dependents_creates_continuity_task(self, isolated_orc):
+        task = _seed_task(task_id="polish-blocker", max_attempts=1, attempts=0, project="cancel-proj")
+        db.task_update("polish-blocker", {"type": "polish", "status": "in_progress"})
+        db.task_upsert({
+            "id": "qa-downstream",
+            "project": "cancel-proj",
+            "type": "harness_qa",
+            "description": "Run QA after polish",
+            "priority": 50,
+            "status": "pending",
+            "dependencies": ["polish-blocker"],
+            "metadata": {},
+        })
+
+        lifecycle._handle_task_failure("polish-blocker", "cancel-proj", "router timeout")
+
+        cancelled = db.task_get(task["id"])
+        continuity_tasks = [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_recovery_task")
+        ]
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["metadata"]["cancel_continuity_repaired"] is True
+        assert len(continuity_tasks) == 1
+        continuity = continuity_tasks[0]
+        assert continuity["status"] == "pending"
+        assert continuity["type"] == "polish"
+        assert db.task_get("qa-downstream")["dependencies"] == [continuity["id"]]
+
+    def test_cancel_exhaust_without_dependents_still_cancels_cleanly(self, isolated_orc):
+        _seed_task(task_id="qa-alone", max_attempts=1, attempts=0, project="cancel-proj")
+        db.task_update("qa-alone", {"type": "qa", "status": "in_progress"})
+
+        lifecycle._handle_task_failure("qa-alone", "cancel-proj", "qa failed")
+
+        assert db.task_get("qa-alone")["status"] == "cancelled"
+        continuity_tasks = [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_recovery_task")
+        ]
+        assert continuity_tasks == []
+
     def test_watchdog_resets_in_progress_task_with_mismatched_agent_id(self, isolated_orc):
         task = _seed_task(task_id="mismatch-001")
         db.task_update("mismatch-001", {"status": "in_progress", "agent_id": "wrong-agent"})
