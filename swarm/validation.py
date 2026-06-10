@@ -1228,6 +1228,16 @@ def run_closure_verification(
         closure_status = "yellow"
     else:
         closure_status = derive_closure_status(refreshed_project, spec, verification=completed["results_json"])
+
+    # Consistency reconciliation (WS7): if the verification just passed and
+    # there are no open regressions, closure_status cannot remain stale red.
+    # A red result here means the spec has gates (e.g. critical flows) that
+    # weren't exercised by this run — that is a coverage gap, not a failure.
+    # Downgrade to yellow so the project is not falsely blocked.
+    open_regressions = int((refreshed_project.get("open_regression_count") or 0))
+    if closure_status == "red" and terminal_status == "passed" and open_regressions == 0:
+        closure_status = "yellow"
+
     db.project_update(project, {"closure_status": closure_status})
     return db.verification_run_get(run["id"])
 

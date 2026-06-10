@@ -66,6 +66,12 @@ class TaskState:
     validation: dict = field(default_factory=dict)
     # {passed, errors, inherited_errors}
 
+    # --- Normalized handoff dict (WS5) ---
+    # Structured summary produced by each phase for the next phase to consume.
+    # Minimum shape: {goal, facts, files_inspected, files_to_modify,
+    #                 known_failures, constraints, next_actions, unknowns}
+    handoff: dict = field(default_factory=dict)
+
     # --- Execution metadata ---
     phases_completed: list = field(default_factory=list)
     phase_timings: dict = field(default_factory=dict)
@@ -150,7 +156,7 @@ def register_phase(cls: type[Phase]) -> type[Phase]:
 
 def _ensure_phases_loaded() -> None:
     """Import phase modules so they self-register."""
-    from swarm.phases import plan, scout, work, validate, synthesize, create_tasks  # noqa: F401
+    from swarm.phases import plan, scout, work, validate, synthesize, create_tasks, diagnose  # noqa: F401
 
 
 def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None, log_fn=print) -> None:
@@ -175,6 +181,7 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
             "failure_traceback": state.failure_traceback,
             "repair_attempts": state.repair_attempts,
             "max_repair_attempts": state.max_repair_attempts,
+            "handoff": dict(state.handoff),
         }
         if phase_name == "plan":
             payload["plan"] = state.plan
@@ -182,6 +189,10 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
             payload["plan"] = state.plan
             payload["scout_report"] = state.scout_report
         elif phase_name == "synthesize":
+            payload["plan"] = state.plan
+            payload["scout_report"] = state.scout_report
+            payload["synthesis"] = state.synthesis
+        elif phase_name == "diagnose":
             payload["plan"] = state.plan
             payload["scout_report"] = state.scout_report
             payload["synthesis"] = state.synthesis
