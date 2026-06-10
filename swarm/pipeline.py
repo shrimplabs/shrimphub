@@ -80,6 +80,10 @@ class TaskState:
     failure_exception_class: str = ""
     failure_traceback: str = ""
 
+    # --- Validation repair loop (WS1) ---
+    repair_attempts: int = 0          # how many repair cycles have run
+    max_repair_attempts: int = 1      # configurable; default 1
+
     def mark_phase_done(self, phase_name: str, elapsed: float) -> None:
         self.phases_completed.append(phase_name)
         self.phase_timings[phase_name] = round(elapsed, 2)
@@ -169,6 +173,8 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
             "failure_phase": state.failure_phase,
             "failure_exception_class": state.failure_exception_class,
             "failure_traceback": state.failure_traceback,
+            "repair_attempts": state.repair_attempts,
+            "max_repair_attempts": state.max_repair_attempts,
         }
         if phase_name == "plan":
             payload["plan"] = state.plan
@@ -256,6 +262,10 @@ def run_pipeline(
     """
     _ensure_phases_loaded()
 
+    # Allow config to override max_repair_attempts (useful in tests)
+    if "max_repair_attempts" in (config or {}):
+        state.max_repair_attempts = int(config["max_repair_attempts"])
+
     log_fn(f"[Pipeline] Starting: {' → '.join(pipeline)}")
 
     for phase_name in pipeline:
@@ -298,8 +308,70 @@ def run_pipeline(
         log_fn(f"{'='*60}")
 
         if state.failed:
-            log_fn(f"[Pipeline] Stopping — phase {phase_name} signalled failure")
-            break
+            # Validation repair loop (WS1): if validate just failed and we have
+            # repair attempts remaining, re-run work then validate before giving up.
+            _has_work_phase = any(
+                PHASE_REGISTRY.get(p) and getattr(PHASE_REGISTRY[p], "name", p).endswith("work")
+                for p in pipeline
+            )
+            if (PHASE_REGISTRY.get(phase_name) and
+                    getattr(PHASE_REGISTRY[phase_name], "name", phase_name).endswith("validate")
+                    and state.failure_kind != "infrastructure_exception"
+                    and state.repair_attempts < state.max_repair_attempts
+                    and _has_work_phase):
+                state.repair_attempts += 1
+                state.failed = False
+                state.failure_kind = ""
+                state.failure_phase = ""
+                state.failure_exception_class = ""
+                state.failure_traceback = ""
+                log_fn(
+                    f"[Pipeline] Validation failed — starting repair attempt "
+                    f"{state.repair_attempts}/{state.max_repair_attempts}"
+                )
+                _repair_work = next(
+                    (p for p in pipeline
+                     if PHASE_REGISTRY.get(p) and getattr(PHASE_REGISTRY[p], "name", p).endswith("work")),
+                    "work"
+                )
+                _repair_validate = phase_name  # the validate phase that just failed
+                for repair_phase_name in (_repair_work, _repair_validate):
+                    if repair_phase_name not in PHASE_REGISTRY:
+                        log_fn(f"[Pipeline] Repair: phase '{repair_phase_name}' not found, skipping")
+                        continue
+                    phase_cls = PHASE_REGISTRY[repair_phase_name]
+                    phase = phase_cls(config=config)
+                    t_start = time.monotonic()
+                    log_fn(f"[Pipeline] Repair {repair_phase_name.upper()} (attempt {state.repair_attempts})")
+                    try:
+                        state = phase.run(state)
+                    except Exception as exc:
+                        elapsed = time.monotonic() - t_start
+                        tb = traceback.format_exc()
+                        fk = _classify_exception(exc)
+                        log_fn(f"[Pipeline] Repair FAILED {repair_phase_name} after {elapsed:.1f}s: {exc}")
+                        log_fn(f"[Pipeline] failure_kind={fk}")
+                        state.errors.append(f"repair/{repair_phase_name}: {exc}")
+                        state.failed = True
+                        state.failure_kind = fk
+                        state.failure_phase = f"repair/{repair_phase_name}"
+                        state.failure_exception_class = type(exc).__name__
+                        state.failure_traceback = tb
+                        _write_phase_artifact(state, f"repair_{repair_phase_name}", config, log_fn=log_fn)
+                        break
+                    elapsed = time.monotonic() - t_start
+                    state.mark_phase_done(f"repair_{repair_phase_name}", elapsed)
+                    _write_phase_artifact(state, f"repair_{repair_phase_name}", config, log_fn=log_fn)
+                    log_fn(f"  ✓ Repair {repair_phase_name.upper()} complete ({elapsed:.1f}s)")
+                    if state.failed:
+                        log_fn(f"[Pipeline] Repair stopped — {repair_phase_name} signalled failure")
+                        break
+                if not state.failed:
+                    log_fn(f"[Pipeline] Repair attempt {state.repair_attempts} SUCCEEDED")
+                    continue  # resume normal pipeline after validate
+            else:
+                log_fn(f"[Pipeline] Stopping — phase {phase_name} signalled failure")
+                break
 
     log_fn(f"[Pipeline] Done. {'FAILED' if state.failed else 'OK'}")
     log_fn(state.to_summary())
