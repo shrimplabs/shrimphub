@@ -58,8 +58,11 @@ class ValidatePhase(Phase):
             }
             state.errors.append("validate: validation failed")
             state.failed = True
+            # Update normalized handoff with known failures (WS5)
+            state.handoff["known_failures"] = [error_output[:500]]
         else:
             self.log("Validation PASSED")
             state.validation = {"passed": True, "errors": [], "inherited_errors": []}
+            state.handoff["known_failures"] = []
 
         return state

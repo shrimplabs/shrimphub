@@ -981,7 +981,20 @@ def generate_task_script(task: dict) -> str:
         if _flat_provider:
             _effective_llm_provider = _flat_provider
     else:
-        pipeline = _pipeline_from_metadata or _project_pipeline_override or _pipelines_cfg.get(task_type, [])
+        # Default pipelines by task type (WS2): Variant C (scout→work→validate)
+        # is the default for implementation task types. Larger refactor tasks
+        # get an extra plan phase. Explicitly configured pipelines always win.
+        _DEFAULT_PIPELINES: dict = {
+            "feature":  ["scout", "work", "validate"],
+            "bug":      ["scout", "work", "validate"],
+            "polish":   ["scout", "work", "validate"],
+            "art_pass": ["scout", "work", "validate"],
+            "refactor": ["scout", "plan", "work", "validate"],
+        }
+        pipeline = (_pipeline_from_metadata
+                    or _project_pipeline_override
+                    or _pipelines_cfg.get(task_type)
+                    or _DEFAULT_PIPELINES.get(task_type, []))
         if pipeline == "random":
             # Project-level random pipelines are materialized onto task metadata
             # at creation time. If an old task reaches runtime without that stamp,

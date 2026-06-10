@@ -276,9 +276,30 @@ class PlanPhase(Phase):
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
 
         if plan is None:
-            self.log(f"Failed to parse plan JSON after {_MAX_PLAN_LOOPS} loops. Raw: {text[:500]}")
+            # WS2: instead of killing the pipeline, produce a minimal synthetic plan
+            # from the task description so scout→work→validate can still proceed.
             detail = "; ".join(last_plan_errors) if last_plan_errors else "no valid PLAN_COMPLETE JSON"
-            raise RuntimeError(f"plan phase could not produce a concrete plan: {detail}")
+            self.log(
+                f"Plan phase could not produce a concrete plan after {_MAX_PLAN_LOOPS} loops "
+                f"({detail}). Falling back to minimal synthetic plan."
+            )
+            plan = {
+                "goal": state.description[:500],
+                "constraints": [],
+                "success_criteria": [f"Complete: {state.description[:100]}"],
+                "unknowns": [],
+                "risk_areas": [],
+                "scope": "medium",
+                "fast_path": False,
+                "files_to_inspect_first": [],
+                "likely_files_to_change": [],
+                "implementation_steps": [],
+                "test_plan": ["Run available project validation"],
+                "stop_conditions": [],
+                "_plan_parse_failed": True,
+                "_plan_parse_errors": last_plan_errors[:5],
+            }
+            state.errors.append(f"plan: parse failure, using fallback plan — {detail}")
 
         self.log(f"Goal: {plan.get('goal', '?')[:120]}")
         self.log(f"Scope: {plan.get('scope')} | fast_path: {plan.get('fast_path')}")

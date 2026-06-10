@@ -1,9 +1,147 @@
 """Metrics route handlers for the Swarm API."""
 
-from flask import jsonify
+from flask import jsonify, request, Response
 import glob
 import os
 import subprocess
+
+
+def _aggregate_source_tasks(records: list) -> list:
+    """Aggregate raw experiment_metrics rows to source-task level.
+
+    Key: (experiment_id, source_project, source_task_id, experiment_variant)
+
+    Recovery tasks and research feeder rows are counted as metadata against the
+    source task, not as independent completion events. This prevents retry
+    cascades from inflating attempt/loop counts.
+    """
+    from collections import defaultdict
+
+    groups: dict = defaultdict(lambda: {
+        # identity
+        "experiment_id": "",
+        "source_project": "",
+        "source_task_id": "",
+        "experiment_variant": "",
+        "task_type": "",
+        # primary scoring
+        "completed": False,
+        "failed": False,
+        "total_attempts": 0,
+        # secondary scoring
+        "total_work_loops": 0,
+        "total_wall_seconds": 0.0,
+        "diff_insertions": 0,
+        "diff_deletions": 0,
+        "follow_on_task_count": 0,
+        "validation_passes": 0,
+        "validation_runs": 0,
+        # failure breakdown
+        "infrastructure_failures": 0,
+        "repair_loop_count": 0,
+        "feeder_cycles": 0,
+        "recovery_tasks_spawned": 0,
+        "bug_spawned": False,
+        # metadata
+        "final_validation_status": None,
+        "completed_at": None,
+        "rows": 0,
+    })
+
+    for r in records:
+        src_task = r.get("source_task_id") or r.get("task_id", "")
+        key = (
+            r.get("experiment_id", ""),
+            r.get("source_project", ""),
+            src_task,
+            r.get("experiment_variant", ""),
+        )
+        g = groups[key]
+        g["experiment_id"] = key[0]
+        g["source_project"] = key[1]
+        g["source_task_id"] = key[2]
+        g["experiment_variant"] = key[3]
+        if not g["task_type"]:
+            g["task_type"] = r.get("task_type", "")
+        g["rows"] += 1
+
+        # Skip recovery/feeder rows for primary metrics — count them as overhead
+        if r.get("is_recovery_task"):
+            g["recovery_tasks_spawned"] += 1
+            continue
+        if r.get("is_research_feeder"):
+            g["feeder_cycles"] = max(g["feeder_cycles"], int(r.get("research_feeder_cycles") or 1))
+            continue
+
+        # Primary: completion status (latest row wins)
+        status = r.get("status") or ("completed" if r.get("validation_passed") else "")
+        if status == "completed" or r.get("validation_passed"):
+            g["completed"] = True
+            g["failed"] = False
+        elif status == "failed" and not g["completed"]:
+            g["failed"] = True
+
+        attempts = int(r.get("attempts") or 0)
+        g["total_attempts"] = max(g["total_attempts"], attempts)
+
+        # Validation tracking
+        if r.get("validation_passed") is not None:
+            g["validation_runs"] += 1
+            if r.get("validation_passed"):
+                g["validation_passes"] += 1
+        if r.get("pipeline_validation_passed") is not None and r.get("validation_passed") is None:
+            g["validation_runs"] += 1
+            if r.get("pipeline_validation_passed"):
+                g["validation_passes"] += 1
+
+        # Secondary: aggregate continuous metrics
+        g["total_work_loops"] += int(r.get("work_loops") or 0)
+        g["diff_insertions"] += int(r.get("diff_insertions") or 0)
+        g["diff_deletions"] += int(r.get("diff_deletions") or 0)
+        if r.get("bug_spawned"):
+            g["bug_spawned"] = True
+        if r.get("infrastructure_failure"):
+            g["infrastructure_failures"] += 1
+        g["repair_loop_count"] += int(r.get("repair_attempts") or 0)
+        g["feeder_cycles"] = max(g["feeder_cycles"], int(r.get("research_feeder_cycles") or 0))
+
+        # Track latest completion timestamp
+        cat = r.get("completed_at")
+        if cat and (g["completed_at"] is None or cat > g["completed_at"]):
+            g["completed_at"] = cat
+            g["final_validation_status"] = "passed" if r.get("validation_passed") else "failed"
+
+    result = []
+    for g in groups.values():
+        val_rate = round(g["validation_passes"] / g["validation_runs"], 3) if g["validation_runs"] > 0 else None
+        result.append({
+            "experiment_id": g["experiment_id"],
+            "source_project": g["source_project"],
+            "source_task_id": g["source_task_id"],
+            "experiment_variant": g["experiment_variant"],
+            "task_type": g["task_type"],
+            # primary
+            "completed": g["completed"],
+            "failed": g["failed"],
+            "total_attempts": g["total_attempts"],
+            "feeder_cycles": g["feeder_cycles"],
+            "recovery_tasks_spawned": g["recovery_tasks_spawned"],
+            "final_validation_status": g["final_validation_status"],
+            "infrastructure_failure_count": g["infrastructure_failures"],
+            "repair_loop_count": g["repair_loop_count"],
+            # secondary
+            "total_work_loops": g["total_work_loops"],
+            "diff_insertions": g["diff_insertions"],
+            "diff_deletions": g["diff_deletions"],
+            "bug_spawned": g["bug_spawned"],
+            "validation_pass_rate": val_rate,
+            "completed_at": g["completed_at"],
+            "raw_rows": g["rows"],
+        })
+
+    # Sort by source_task_id for stable output
+    result.sort(key=lambda x: (x["experiment_id"], x["source_project"], x["source_task_id"], x["experiment_variant"]))
+    return result
 
 
 def register_routes(app, data_dir, workspace, config, db, agent_tracker):
@@ -305,5 +443,66 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
             "total_records": len(records),
             "variants": summary,
             "per_task": list(per_task.values()),
+            "metrics_file": metrics_path,
+        })
+
+    @app.route("/api/experiment/source-tasks", methods=["GET"])
+    def get_source_task_metrics():
+        """Source-task-level experiment metrics aggregation (WS6).
+
+        Groups raw experiment_metrics rows by (experiment_id, source_project,
+        source_task_id, experiment_variant).  Recovery tasks and research
+        feeder rows are counted as overhead rather than independent events so
+        that retry cascades do not inflate completion scores.
+
+        Optional query params:
+          ?experiment_id=   filter by experiment
+          ?source_project=  filter by source project
+          ?experiment_variant= filter by variant label
+          ?format=csv       return CSV instead of JSON
+        """
+        import json as _json
+
+        metrics_path = os.path.join(data_dir, "experiment_metrics.jsonl")
+        records = []
+        if os.path.exists(metrics_path):
+            with open(metrics_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        records.append(_json.loads(line))
+                    except Exception:
+                        pass
+
+        exp_filter = request.args.get("experiment_id")
+        src_filter = request.args.get("source_project")
+        var_filter = request.args.get("experiment_variant")
+        if exp_filter:
+            records = [r for r in records if r.get("experiment_id") == exp_filter]
+        if src_filter:
+            records = [r for r in records if r.get("source_project") == src_filter]
+        if var_filter:
+            records = [r for r in records if r.get("experiment_variant") == var_filter]
+
+        aggregated = _aggregate_source_tasks(records)
+
+        fmt = request.args.get("format", "json")
+        if fmt == "csv":
+            import io
+            import csv
+            buf = io.StringIO()
+            if aggregated:
+                writer = csv.DictWriter(buf, fieldnames=list(aggregated[0].keys()))
+                writer.writeheader()
+                writer.writerows(aggregated)
+            return Response(buf.getvalue(), mimetype="text/csv",
+                            headers={"Content-Disposition": "attachment; filename=source_tasks.csv"})
+
+        return jsonify({
+            "total_source_tasks": len(aggregated),
+            "raw_records_used": len(records),
+            "source_tasks": aggregated,
             "metrics_file": metrics_path,
         })

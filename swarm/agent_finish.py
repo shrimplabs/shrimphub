@@ -704,6 +704,15 @@ def _write_experiment_metrics(
         "started_at": task_snapshot.get("started"),
         "completed_at": completed_at,
         "pipeline_state_path": str(pipeline_state_path) if pipeline_state else "",
+        # WS4/WS6: failure classification and repair tracking
+        "failure_kind": pipeline_state.get("failure_kind", ""),
+        "failure_phase": pipeline_state.get("failure_phase", ""),
+        "repair_attempts": pipeline_state.get("repair_attempts", 0),
+        "infrastructure_failure": pipeline_state.get("failure_kind") == "infrastructure_exception",
+        # WS6: research feeder cycle and recovery task counts (from task metadata)
+        "research_feeder_cycles": int(metadata.get("research_feeder_cycles") or 0),
+        "is_recovery_task": bool(metadata.get("is_recovery_task")),
+        "is_research_feeder": bool(metadata.get("feeds_into_task_id")),
     }
 
     try:

@@ -86,7 +86,8 @@ def test_plan_phase_can_use_read_only_tool_before_plan(tmp_path):
     assert artifact["plan"]["success_criteria"] == ["context was read"]
 
 
-def test_plan_phase_rejects_generic_fallback_plan(tmp_path):
+def test_plan_phase_falls_back_on_generic_plan(tmp_path):
+    """WS2: plan parse failures produce a synthetic fallback plan instead of killing the pipeline."""
     state = TaskState(
         task_id="task-empty-plan",
         task_type="feature",
@@ -113,9 +114,12 @@ def test_plan_phase_rejects_generic_fallback_plan(tmp_path):
     with patch("swarm.llm_utils.call_llm", return_value=("PLAN_COMPLETE\n" + empty_plan, {}, [])):
         final = run_pipeline(["plan"], state, config={"data_dir": tmp_path}, log_fn=lambda _msg: None)
 
-    assert final.failed is True
-    assert any("could not produce a concrete plan" in error for error in final.errors)
-    assert not (tmp_path / "agent_task-empty-plan_plan.json").exists()
+    # WS2: no longer kills the pipeline on plan failure — uses fallback plan instead
+    assert final.failed is False
+    assert final.plan.get("_plan_parse_failed") is True
+    assert any("fallback" in error for error in final.errors)
+    # Artifact should still be written (fallback plan is still a plan)
+    assert (tmp_path / "agent_task-empty-plan_plan.json").exists()
 
 
 def test_scout_prompt_uses_canonical_tools_and_rich_plan():
@@ -287,6 +291,174 @@ class TestInfrastructureExceptionClassification:
             assert data["failed"] is True
         finally:
             PHASE_REGISTRY.pop("_test_boom_ws4_artifact", None)
+
+
+# ===========================================================================
+# WS3 — Research feeder diagnosis phase
+# ===========================================================================
+
+class TestDiagnosePhaseReadOnly:
+    """DiagnosePhase: write/commit/task tools are blocked; read tools are allowed."""
+
+    def _make_state(self, tmp_path):
+        return TaskState(
+            task_id="task-ws3",
+            task_type="research",
+            project="proj",
+            description="Diagnose failing feature X",
+            project_path=str(tmp_path),
+            workspace=str(tmp_path),
+            plan={
+                "goal": "Fix crash in player.gd",
+                "failure_context": "Attempt 1: NullReferenceException at player.gd:42",
+                "unknowns": [],
+                "risk_areas": ["player.gd"],
+            },
+            scout_report={
+                "findings": ["player.gd exports _velocity which is null"],
+                "hypotheses": ["velocity not initialised in _ready()"],
+                "files_inspected": ["player.gd"],
+                "recommended_actions": ["Initialise _velocity in _ready()"],
+            },
+        )
+
+    def test_diagnose_prompt_includes_failure_context(self, tmp_path):
+        from swarm.phases.diagnose import _build_diagnose_prompt
+        state = self._make_state(tmp_path)
+        prompt = _build_diagnose_prompt(state)
+
+        assert "NullReferenceException" in prompt
+        assert "player.gd exports _velocity" in prompt
+        assert "velocity not initialised in _ready" in prompt
+        assert "DIAGNOSE_COMPLETE" in prompt
+
+    def test_diagnose_prompt_does_not_list_write_tools(self, tmp_path):
+        from swarm.phases.diagnose import _build_diagnose_prompt
+        state = self._make_state(tmp_path)
+        prompt = _build_diagnose_prompt(state)
+
+        for blocked in ("write_file", "patch_file", "git_commit", "create_task"):
+            assert blocked not in prompt, f"Blocked tool '{blocked}' leaked into prompt"
+
+    def test_write_tool_blocked_during_diagnose(self, tmp_path):
+        """DiagnosePhase must not execute write_file even if the model calls it."""
+        from unittest.mock import patch as mock_patch
+        from swarm.phases.diagnose import _build_diagnose_prompt, _BLOCKED_TOOLS
+
+        assert "write_file" in _BLOCKED_TOOLS
+        assert "git_commit" in _BLOCKED_TOOLS
+        assert "create_task" in _BLOCKED_TOOLS
+        assert "run_command" in _BLOCKED_TOOLS
+
+    def test_extract_diagnose_report_parses_json(self):
+        from swarm.phases.diagnose import _extract_diagnose_report
+
+        text = (
+            "After reading player.gd I can confirm the issue.\n\n"
+            "DIAGNOSE_COMPLETE\n"
+            '{"root_cause": "Velocity not initialised", '
+            '"files_inspected": ["player.gd"], '
+            '"exact_failure": "player.gd:42 — NullReferenceException", '
+            '"recommended_fix": "Add _velocity = Vector2.ZERO in _ready()", '
+            '"confidence": 0.9}'
+        )
+        report = _extract_diagnose_report(text)
+
+        assert report is not None
+        assert report["root_cause"] == "Velocity not initialised"
+        assert report["confidence"] == 0.9
+        assert "player.gd" in report["files_inspected"]
+
+    def test_extract_diagnose_report_returns_none_without_marker(self):
+        from swarm.phases.diagnose import _extract_diagnose_report
+
+        text = 'Some analysis {"root_cause": "maybe this"}'
+        assert _extract_diagnose_report(text) is None
+
+    def test_diagnose_phase_stores_output_in_synthesis(self, tmp_path):
+        """DiagnosePhase populates state.synthesis with structured fields."""
+        from unittest.mock import patch as mock_patch
+        from swarm.phases.diagnose import DiagnosePhase
+
+        report_json = (
+            "DIAGNOSE_COMPLETE\n"
+            '{"root_cause": "Missing init", '
+            '"files_inspected": ["player.gd"], '
+            '"exact_failure": "NRE at line 42", '
+            '"recommended_fix": "Add init in _ready", '
+            '"confidence": 0.85}'
+        )
+        state = self._make_state(tmp_path)
+
+        with mock_patch("swarm.phases.diagnose.call_llm", return_value=(report_json, {}, [])):
+            phase = DiagnosePhase(config={"data_dir": str(tmp_path)})
+            result = phase.run(state)
+
+        assert result.synthesis["root_cause"] == "Missing init"
+        assert result.synthesis["confidence"] == 0.85
+        assert "_diagnose_report" in result.synthesis
+
+    def test_diagnose_phase_writes_artifact(self, tmp_path):
+        """Pipeline writes agent_<task_id>_diagnose.json after DiagnosePhase."""
+        from unittest.mock import patch as mock_patch
+        from swarm.pipeline import Phase, register_phase, PHASE_REGISTRY
+
+        report_json = (
+            "DIAGNOSE_COMPLETE\n"
+            '{"root_cause": "Bad init", "files_inspected": [], '
+            '"exact_failure": "NRE", "recommended_fix": "Fix _ready", "confidence": 0.7}'
+        )
+
+        # Use a stub scout phase that sets scout_report directly (avoids real LLM)
+        @register_phase
+        class _StubScout(Phase):
+            name = "_ws3_stub_scout"
+            def run(self, state):
+                state.scout_report = {
+                    "files_inspected": [],
+                    "findings": [],
+                    "hypotheses": [],
+                    "recommended_actions": [],
+                    "confidence": 0.5,
+                }
+                return state
+
+        state = TaskState(
+            task_id="task-ws3-artifact",
+            task_type="research",
+            project="proj",
+            description="Fix crash",
+            project_path=str(tmp_path),
+            workspace=str(tmp_path),
+            plan={
+                "goal": "Fix crash",
+                "failure_context": "NRE at player.gd:42",
+            },
+        )
+
+        try:
+            with mock_patch("swarm.phases.diagnose.call_llm", return_value=(report_json, {}, [])):
+                final = run_pipeline(
+                    ["_ws3_stub_scout", "diagnose"],
+                    state,
+                    config={"data_dir": str(tmp_path)},
+                    log_fn=lambda _msg: None,
+                )
+        finally:
+            PHASE_REGISTRY.pop("_ws3_stub_scout", None)
+
+        artifact = tmp_path / "agent_task-ws3-artifact_diagnose.json"
+        assert artifact.exists(), "Diagnose artifact not written"
+        data = json.loads(artifact.read_text())
+        assert data["phase"] == "diagnose"
+        assert "synthesis" in data
+        assert data["synthesis"]["root_cause"] == "Bad init"
+
+    def test_research_feeder_pipeline_is_scout_diagnose(self):
+        """RESEARCH_FEEDER_PIPELINE uses diagnose, not work."""
+        from swarm.agent_recovery import RESEARCH_FEEDER_PIPELINE
+        assert RESEARCH_FEEDER_PIPELINE == ["scout", "diagnose"]
+        assert "work" not in RESEARCH_FEEDER_PIPELINE
 
 
 class TestWorkspacePathCoercion:

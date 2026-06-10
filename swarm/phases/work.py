@@ -206,6 +206,19 @@ def _build_work_prompt(state: TaskState) -> str:
             lines.append(f"  {f}")
         lines.append("")
 
+    # Normalized handoff (WS5): additional structured context from prior phases
+    handoff = state.handoff or {}
+    if handoff.get("hypotheses"):
+        lines.append("HYPOTHESES (from scout):")
+        for h in handoff.get("hypotheses", []):
+            lines.append(f"  - {h}")
+        lines.append("")
+    if handoff.get("known_failures"):
+        lines.append("KNOWN FAILURES FROM PRIOR RUNS:")
+        for kf in handoff.get("known_failures", []):
+            lines.append(f"  {kf[:300]}")
+        lines.append("")
+
     synthesis = state.synthesis
     if synthesis and synthesis.get("implementation_steps"):
         lines.append("IMPLEMENTATION BRIEF (from synthesize phase):")

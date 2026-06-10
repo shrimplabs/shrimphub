@@ -289,4 +289,17 @@ class ScoutPhase(Phase):
         findings_n = len(report.get("findings", []))
         self.log(f"Report: {files_n} files, {findings_n} findings, confidence={report.get('confidence', '?')}")
         state.scout_report = report
+        # Populate normalized handoff (WS5)
+        plan = state.plan
+        state.handoff = {
+            "goal": plan.get("goal") or state.description,
+            "facts": list(report.get("findings", [])),
+            "files_inspected": list(report.get("files_inspected", [])),
+            "files_to_modify": list(plan.get("likely_files_to_change", [])),
+            "known_failures": list(state.handoff.get("known_failures", [])),  # preserve from earlier phases
+            "constraints": list(plan.get("constraints", [])),
+            "next_actions": list(report.get("recommended_actions", [])),
+            "unknowns": list(plan.get("unknowns", [])),
+            "hypotheses": list(report.get("hypotheses", [])),
+        }
         return state
