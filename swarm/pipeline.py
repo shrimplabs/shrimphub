@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,14 @@ class TaskState:
     phase_timings: dict = field(default_factory=dict)
     errors: list = field(default_factory=list)
     failed: bool = False
+
+    # --- Failure classification (WS4) ---
+    # One of: "project_validation", "agent_loop_exhausted", "provider_timeout",
+    #         "infrastructure_exception", or "" (no failure)
+    failure_kind: str = ""
+    failure_phase: str = ""
+    failure_exception_class: str = ""
+    failure_traceback: str = ""
 
     def mark_phase_done(self, phase_name: str, elapsed: float) -> None:
         self.phases_completed.append(phase_name)
@@ -156,6 +165,10 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
             "phase_timings": dict(state.phase_timings),
             "errors": list(state.errors),
             "failed": bool(state.failed),
+            "failure_kind": state.failure_kind,
+            "failure_phase": state.failure_phase,
+            "failure_exception_class": state.failure_exception_class,
+            "failure_traceback": state.failure_traceback,
         }
         if phase_name == "plan":
             payload["plan"] = state.plan
@@ -177,6 +190,47 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except Exception as exc:
         log_fn(f"[Pipeline] WARNING: failed to write {phase_name} artifact: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Exception classifier
+# ---------------------------------------------------------------------------
+
+def _classify_exception(exc: Exception) -> str:
+    """Classify a phase exception into a failure_kind label.
+
+    Values:
+      infrastructure_exception  — controller-level bugs (TypeError, AttributeError, etc.)
+      provider_timeout          — LLM / network timeout
+      agent_loop_exhausted      — loop limit hit inside a phase
+      project_validation        — explicit validation failure raised as exception
+    """
+    exc_type = type(exc).__name__
+    msg = str(exc).lower()
+
+    # Explicit validation failure
+    if "validat" in msg and ("fail" in msg or "error" in msg):
+        return "project_validation"
+
+    # Loop exhaustion
+    if "loop" in msg and ("limit" in msg or "exhaust" in msg or "max" in msg):
+        return "agent_loop_exhausted"
+
+    # Network / provider timeouts
+    timeout_types = {"TimeoutError", "ReadTimeout", "ConnectTimeout", "httpx.TimeoutException"}
+    if exc_type in timeout_types or "timeout" in msg or "timed out" in msg:
+        return "provider_timeout"
+
+    # Catch-all: controller/infrastructure bugs (TypeError, AttributeError, etc.)
+    infra_types = {
+        "TypeError", "AttributeError", "KeyError", "IndexError",
+        "ValueError", "OSError", "FileNotFoundError", "PermissionError",
+        "ImportError", "ModuleNotFoundError", "RecursionError",
+    }
+    if exc_type in infra_types:
+        return "infrastructure_exception"
+
+    return "infrastructure_exception"
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +277,18 @@ def run_pipeline(
             state = phase.run(state)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
+            tb = traceback.format_exc()
+            failure_kind = _classify_exception(exc)
             log_fn(f"[Pipeline] FAILED {phase_name} after {elapsed:.1f}s: {exc}")
+            log_fn(f"[Pipeline] failure_kind={failure_kind} exception={type(exc).__name__}")
+            log_fn(f"[Pipeline] Traceback:\n{tb}")
             state.errors.append(f"{phase_name}: {exc}")
             state.failed = True
+            state.failure_kind = failure_kind
+            state.failure_phase = phase_name
+            state.failure_exception_class = type(exc).__name__
+            state.failure_traceback = tb
+            _write_phase_artifact(state, phase_name, config, log_fn=log_fn)
             break
 
         elapsed = time.monotonic() - t_start

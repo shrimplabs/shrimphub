@@ -358,7 +358,7 @@ def execute_tool(tool_call: dict) -> dict:
                     "reparented_dependents": handoff.get("reparented_dependents", []),
                 }
 
-    workspace = _rt.WORKSPACE
+    workspace = Path(_rt.WORKSPACE)  # coerce str→Path; guards against str/str TypeError
     project = _rt.PROJECT
 
     # Build the active dispatch table from the registry.
