@@ -412,7 +412,9 @@ def main() -> int:
                 "validation_timeout": 120,
                 "pipeline": PIPELINE,
                 "data_dir": DATA_DIR,
+                "max_repair_attempts": int(os.environ.get("PIPELINE_MAX_REPAIR_ATTEMPTS", 1)),
             }
+            _pipeline_state.max_repair_attempts = _pipeline_config["max_repair_attempts"]
             _final_state = run_pipeline(PIPELINE, _pipeline_state, config=_pipeline_config, log_fn=log)
             _pipeline_completed = not _final_state.failed
             _pipeline_work_loops = int((_final_state.work_report or {}).get("loops_used", 0) or 0)
