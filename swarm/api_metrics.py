@@ -48,8 +48,14 @@ def _aggregate_source_tasks(records: list) -> list:
         "rows": 0,
     })
 
+    unattributed_rows: list[str] = []
+
     for r in records:
-        src_task = r.get("source_task_id") or r.get("task_id", "")
+        src_task = r.get("source_task_id") or ""
+        if not src_task:
+            # No lineage — report as unattributed overhead, do not invent a source task
+            unattributed_rows.append(r.get("task_id", ""))
+            continue
         key = (
             r.get("experiment_id", ""),
             r.get("source_project", ""),
@@ -74,11 +80,12 @@ def _aggregate_source_tasks(records: list) -> list:
             continue
 
         # Primary: completion status (latest row wins)
-        status = r.get("status") or ("completed" if r.get("validation_passed") else "")
-        if status == "completed" or r.get("validation_passed"):
+        # Use explicit terminal status when present; fall back to validation_passed heuristic
+        status = r.get("status") or ""
+        if status == "completed" or (not status and r.get("validation_passed")):
             g["completed"] = True
             g["failed"] = False
-        elif status == "failed" and not g["completed"]:
+        elif status in {"failed", "cancelled"} and not g["completed"]:
             g["failed"] = True
 
         attempts = int(r.get("attempts") or 0)
@@ -141,7 +148,7 @@ def _aggregate_source_tasks(records: list) -> list:
 
     # Sort by source_task_id for stable output
     result.sort(key=lambda x: (x["experiment_id"], x["source_project"], x["source_task_id"], x["experiment_variant"]))
-    return result
+    return result, unattributed_rows
 
 
 def register_routes(app, data_dir, workspace, config, db, agent_tracker):
@@ -486,7 +493,7 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
         if var_filter:
             records = [r for r in records if r.get("experiment_variant") == var_filter]
 
-        aggregated = _aggregate_source_tasks(records)
+        aggregated, unattributed = _aggregate_source_tasks(records)
 
         fmt = request.args.get("format", "json")
         if fmt == "csv":
@@ -503,6 +510,8 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
         return jsonify({
             "total_source_tasks": len(aggregated),
             "raw_records_used": len(records),
+            "unattributed_rows": len(unattributed),
+            "unattributed_task_ids": unattributed[:50],
             "source_tasks": aggregated,
             "metrics_file": metrics_path,
         })
