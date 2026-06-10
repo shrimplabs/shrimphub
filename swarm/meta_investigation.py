@@ -31,7 +31,7 @@ def _run_meta_investigation(repeated_error: str, loop_history: list[str], task_d
 
     # Prefer the real project path; fall back gracefully if override doesn't exist
     _override = Path(_rt.PROJECT_PATH_OVERRIDE) if _rt.PROJECT_PATH_OVERRIDE else None
-    project_root = (_override if _override and _override.exists() else None) or (_rt.WORKSPACE / _rt.PROJECT)
+    project_root = (_override if _override and _override.exists() else None) or (Path(_rt.WORKSPACE) / _rt.PROJECT)
     _rt.log(f"[Meta] project_root={project_root} (exists={project_root.exists()})")
 
     # Sensitive filenames that must never be readable by the investigator,

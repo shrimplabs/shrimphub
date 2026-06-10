@@ -189,3 +189,130 @@ def test_synthesize_prompt_includes_rich_plan():
 def test_legacy_tool_aliases_still_validate():
     assert validate_tool_call({"tool": "list_dir", "args": {"path": "."}}) == ""
     assert validate_tool_call({"tool": "search_files", "args": {"query": "Player"}}) == ""
+
+
+# ===========================================================================
+# WS4 — Infrastructure exception classification and traceback capture
+# ===========================================================================
+
+class TestInfrastructureExceptionClassification:
+    """run_pipeline: phase exceptions are classified and captured with full traceback."""
+
+    def _make_state(self, tmp_path):
+        return TaskState(
+            task_id="task-ws4",
+            task_type="feature",
+            project="proj",
+            description="Test infra exceptions",
+            project_path=str(tmp_path),
+            workspace=str(tmp_path),
+        )
+
+    def test_str_div_str_classified_as_infrastructure(self, tmp_path):
+        """The original str/str TypeError is classified as infrastructure_exception."""
+        from swarm.pipeline import _classify_exception
+        exc = TypeError("unsupported operand type(s) for /: 'str' and 'str'")
+        assert _classify_exception(exc) == "infrastructure_exception"
+
+    def test_timeout_classified_as_provider_timeout(self):
+        from swarm.pipeline import _classify_exception
+        exc = TimeoutError("read timed out")
+        assert _classify_exception(exc) == "provider_timeout"
+
+    def test_validation_failure_classified_correctly(self):
+        from swarm.pipeline import _classify_exception
+        exc = RuntimeError("validation failed: script errors found")
+        assert _classify_exception(exc) == "project_validation"
+
+    def test_loop_exhaustion_classified_correctly(self):
+        from swarm.pipeline import _classify_exception
+        exc = RuntimeError("hit loop limit without WORK_COMPLETE")
+        assert _classify_exception(exc) == "agent_loop_exhausted"
+
+    def test_phase_exception_captured_in_state(self, tmp_path):
+        """When a phase raises, state.failure_kind/phase/traceback are populated."""
+        from swarm.pipeline import Phase, TaskState, register_phase, run_pipeline, PHASE_REGISTRY
+
+        @register_phase
+        class _BoomPhase(Phase):
+            name = "_test_boom_ws4"
+
+            def run(self, state):
+                raise TypeError("unsupported operand type(s) for /: 'str' and 'str'")
+
+        try:
+            state = self._make_state(tmp_path)
+            final = run_pipeline(
+                ["_test_boom_ws4"],
+                state,
+                config={"data_dir": tmp_path},
+                log_fn=lambda _msg: None,
+            )
+
+            assert final.failed is True
+            assert final.failure_kind == "infrastructure_exception"
+            assert final.failure_phase == "_test_boom_ws4"
+            assert final.failure_exception_class == "TypeError"
+            assert "str" in final.failure_traceback
+        finally:
+            PHASE_REGISTRY.pop("_test_boom_ws4", None)
+
+    def test_phase_exception_written_to_artifact(self, tmp_path):
+        """failure_kind and traceback appear in the JSON artifact on disk."""
+        from swarm.pipeline import Phase, TaskState, register_phase, run_pipeline, PHASE_REGISTRY
+
+        @register_phase
+        class _BoomPhase2(Phase):
+            name = "_test_boom_ws4_artifact"
+
+            def run(self, state):
+                raise AttributeError("'NoneType' object has no attribute 'split'")
+
+        try:
+            state = self._make_state(tmp_path)
+            state.task_id = "task-ws4-artifact"
+            run_pipeline(
+                ["_test_boom_ws4_artifact"],
+                state,
+                config={"data_dir": tmp_path},
+                log_fn=lambda _msg: None,
+            )
+
+            artifact = tmp_path / "agent_task-ws4-artifact__test_boom_ws4_artifact.json"
+            assert artifact.exists(), f"Artifact not found at {artifact}"
+            data = json.loads(artifact.read_text())
+            assert data["failure_kind"] == "infrastructure_exception"
+            assert data["failure_exception_class"] == "AttributeError"
+            assert data["failure_traceback"] != ""
+            assert data["failed"] is True
+        finally:
+            PHASE_REGISTRY.pop("_test_boom_ws4_artifact", None)
+
+
+class TestWorkspacePathCoercion:
+    """tool_dispatch.execute_tool: WORKSPACE as str must not cause str/str TypeError."""
+
+    def test_workspace_str_does_not_raise_on_path_op(self, tmp_path):
+        """Regression: execute_tool must coerce str WORKSPACE to Path before / operator."""
+        import swarm.agent_runtime as rt
+        orig_workspace = rt.WORKSPACE
+        orig_project = rt.PROJECT
+
+        proj_dir = tmp_path / "myproj"
+        proj_dir.mkdir()
+        (proj_dir / "test.gd").write_text("extends Node\n")
+
+        try:
+            rt.WORKSPACE = str(tmp_path)   # string, not Path — triggers the original bug
+            rt.PROJECT = "myproj"
+            rt._sync_core_globals()
+
+            from swarm.tool_dispatch import execute_tool
+            # list_files triggers workspace / project path construction
+            result = execute_tool({"tool": "list_files", "args": {"path": "."}})
+            # Should not raise TypeError — result is whatever list_files returns
+            assert result is not None
+        finally:
+            rt.WORKSPACE = orig_workspace
+            rt.PROJECT = orig_project
+            rt._sync_core_globals()

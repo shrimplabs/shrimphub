@@ -168,7 +168,7 @@ def _project_supports_harness() -> bool:
     project_root = (
         Path(_rt.PROJECT_PATH_OVERRIDE)
         if _rt.PROJECT_PATH_OVERRIDE
-        else (_rt.WORKSPACE / _rt.PROJECT)
+        else (Path(_rt.WORKSPACE) / _rt.PROJECT)
     )
     return (project_root / "autoload" / "test_harness.gd").exists()
 

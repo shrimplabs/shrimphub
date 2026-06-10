@@ -146,7 +146,7 @@ def _project_root() -> str:
     """Return the effective project root, honouring PROJECT_PATH_OVERRIDE (worktrees)."""
     if PROJECT_PATH_OVERRIDE:
         return PROJECT_PATH_OVERRIDE
-    return str(WORKSPACE / PROJECT)
+    return str(Path(WORKSPACE) / PROJECT)
 
 
 def _safe_cwd(cwd=None) -> str:
