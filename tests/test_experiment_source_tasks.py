@@ -38,7 +38,7 @@ def _row(**kwargs):
 class TestAggregateSourceTasks:
     def test_single_row_produces_one_source_task(self):
         records = [_row()]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["source_task_id"] == "task-src-1"
@@ -51,7 +51,7 @@ class TestAggregateSourceTasks:
             _row(task_id="task-src-1", is_recovery_task=False),
             _row(task_id="task-recovery-1", is_recovery_task=True, validation_passed=False, status="failed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         # Only one source-task aggregate
         assert len(result) == 1
         r = result[0]
@@ -65,7 +65,7 @@ class TestAggregateSourceTasks:
             _row(task_id="task-feeder-1", is_research_feeder=True, research_feeder_cycles=1,
                  validation_passed=False, status="failed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["completed"] is True
@@ -77,7 +77,7 @@ class TestAggregateSourceTasks:
                  validation_passed=False, status="failed"),
             _row(infrastructure_failure=False, attempts=2, validation_passed=True, status="completed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["infrastructure_failure_count"] == 1
@@ -88,7 +88,7 @@ class TestAggregateSourceTasks:
             _row(repair_attempts=0, validation_passed=False, status="failed"),
             _row(repair_attempts=1, validation_passed=True, attempts=1, status="completed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["repair_loop_count"] == 1
@@ -98,7 +98,7 @@ class TestAggregateSourceTasks:
             _row(experiment_variant="C", task_id="task-c"),
             _row(experiment_variant="F", task_id="task-f"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 2
         variants = {r["experiment_variant"] for r in result}
         assert variants == {"C", "F"}
@@ -108,7 +108,7 @@ class TestAggregateSourceTasks:
             _row(source_task_id="task-1", task_id="task-1a"),
             _row(source_task_id="task-2", task_id="task-2a"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 2
 
     def test_validation_pass_rate_computed(self):
@@ -116,7 +116,7 @@ class TestAggregateSourceTasks:
             _row(validation_passed=True),
             _row(validation_passed=False, status="failed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["validation_pass_rate"] == 0.5
@@ -126,7 +126,7 @@ class TestAggregateSourceTasks:
             _row(diff_insertions=10, diff_deletions=2, validation_passed=False, status="failed"),
             _row(diff_insertions=30, diff_deletions=5, attempts=2, validation_passed=True, status="completed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["diff_insertions"] == 40
@@ -137,20 +137,67 @@ class TestAggregateSourceTasks:
             _row(work_loops=15, validation_passed=False, status="failed"),
             _row(work_loops=22, attempts=2, validation_passed=True, status="completed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         r = result[0]
         assert r["total_work_loops"] == 37
 
     def test_empty_records_returns_empty(self):
-        assert _aggregate_source_tasks([]) == []
+        result, unattributed = _aggregate_source_tasks([])
+        assert result == []
+        assert unattributed == []
 
-    def test_row_without_source_task_id_uses_task_id(self):
-        """If source_task_id is absent, fall back to task_id as the group key."""
+    def test_row_without_source_task_id_is_unattributed(self):
+        """If source_task_id is absent, row is unattributed — not treated as a source task."""
         records = [_row(source_task_id="", task_id="task-xyz")]
-        result = _aggregate_source_tasks(records)
+        result, unattributed = _aggregate_source_tasks(records)
+        assert len(result) == 0
+        assert "task-xyz" in unattributed
+
+    def test_row_without_source_task_id_is_unattributed_not_a_source_task(self):
+        """Rows missing source_task_id must NOT appear as source tasks — they go to unattributed."""
+        records = [
+            _row(source_task_id="task-1"),                    # has lineage
+            _row(source_task_id="", task_id="task-generated"),  # no lineage
+        ]
+        result, unattributed = _aggregate_source_tasks(records)
         assert len(result) == 1
-        assert result[0]["source_task_id"] == "task-xyz"
+        assert result[0]["source_task_id"] == "task-1"
+        assert "task-generated" in unattributed
+
+    def test_unattributed_count_in_return(self):
+        records = [
+            _row(source_task_id=""),
+            _row(source_task_id=""),
+            _row(source_task_id="real-task"),
+        ]
+        result, unattributed = _aggregate_source_tasks(records)
+        assert len(result) == 1
+        assert len(unattributed) == 2
+
+    def test_failed_status_in_row_marks_source_task_failed(self):
+        """Terminal status=failed in a metric row must set failed=True on the aggregate."""
+        records = [_row(source_task_id="task-fail", status="failed", validation_passed=False)]
+        result, _ = _aggregate_source_tasks(records)
+        assert len(result) == 1
+        assert result[0]["failed"] is True
+        assert result[0]["completed"] is False
+
+    def test_cancelled_status_marks_failed(self):
+        records = [_row(source_task_id="task-c", status="cancelled", validation_passed=False)]
+        result, _ = _aggregate_source_tasks(records)
+        assert result[0]["failed"] is True
+
+    def test_failed_then_completed_resolves_to_completed(self):
+        """If later rows show completed, source task should not be marked failed."""
+        records = [
+            _row(source_task_id="task-retry", status="failed", validation_passed=False, attempts=1),
+            _row(source_task_id="task-retry", status="completed", validation_passed=True, attempts=2),
+        ]
+        result, _ = _aggregate_source_tasks(records)
+        assert len(result) == 1
+        assert result[0]["completed"] is True
+        assert result[0]["failed"] is False
 
     def test_max_attempts_used_not_sum(self):
         """total_attempts should be max across rows, not sum — retries share a task."""
@@ -159,6 +206,6 @@ class TestAggregateSourceTasks:
             _row(attempts=2, validation_passed=False, status="failed"),
             _row(attempts=3, validation_passed=True, status="completed"),
         ]
-        result = _aggregate_source_tasks(records)
+        result, _ = _aggregate_source_tasks(records)
         assert len(result) == 1
         assert result[0]["total_attempts"] == 3

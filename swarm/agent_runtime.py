@@ -438,6 +438,14 @@ def main() -> int:
                     "validation": _final_state.validation,
                     "errors": list(_final_state.errors),
                     "failed": bool(_final_state.failed),
+                    # WS4/WS5 fields — must be present for experiment metrics to read them
+                    "failure_kind": _final_state.failure_kind,
+                    "failure_phase": _final_state.failure_phase,
+                    "failure_exception_class": _final_state.failure_exception_class,
+                    "failure_traceback": _final_state.failure_traceback,
+                    "repair_attempts": _final_state.repair_attempts,
+                    "max_repair_attempts": _final_state.max_repair_attempts,
+                    "handoff": dict(_final_state.handoff),
                 }
                 _pipeline_file = Path(DATA_DIR) / f"agent_{TASK_ID}_pipeline.json"
                 _pipeline_file.write_text(json.dumps(_state_record), encoding="utf-8")

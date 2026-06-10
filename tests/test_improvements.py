@@ -693,6 +693,116 @@ class TestSelfImprovementReviewTask:
         feeders = [t for t in all_tasks if t.get("metadata", {}).get("is_research_feeder")]
         assert len(feeders) == 0
 
+    def test_project_feeder_cap_blocks_original_on_existing_feeder(self, tmp_db):
+        """Held tasks must not remain failed when the project feeder cap is active."""
+        self._insert_task(id="t1", attempts=2, max_attempts=3)
+        db.task_upsert({
+            "id": "research-feeder-live",
+            "project": "proj",
+            "type": "research",
+            "description": "Existing diagnosis",
+            "priority": 85,
+            "status": "pending",
+            "dependencies": [],
+            "metadata": {"is_research_feeder": True, "feeds_into_task_id": "other-task"},
+            "attempts": 0,
+            "max_attempts": 2,
+        })
+
+        orchestrator._handle_task_failure("t1", "proj", "terminal error")
+
+        original = db.task_get("t1")
+        assert original["status"] == "pending"
+        assert original["attempts"] == 0
+        assert "research-feeder-live" in original["dependencies"]
+        assert original["metadata"]["awaiting_research_feeder"] == "research-feeder-live"
+
+    def test_failed_research_feeder_does_not_block_new_feeder(self, tmp_db):
+        """A failed feeder cannot unblock anything, so it should not count as live."""
+        self._insert_task(id="t1", attempts=2, max_attempts=3)
+        db.task_upsert({
+            "id": "research-feeder-dead",
+            "project": "proj",
+            "type": "research",
+            "description": "Dead diagnosis",
+            "priority": 85,
+            "status": "failed",
+            "dependencies": [],
+            "metadata": {"is_research_feeder": True, "feeds_into_task_id": "t1"},
+            "attempts": 1,
+            "max_attempts": 2,
+        })
+
+        orchestrator._handle_task_failure("t1", "proj", "terminal error")
+
+        feeders = [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_research_feeder")
+        ]
+        new_feed = [t for t in feeders if t["id"] != "research-feeder-dead"]
+        assert len(new_feed) == 1
+        original = db.task_get("t1")
+        assert original["status"] == "pending"
+        assert new_feed[0]["id"] in original["dependencies"]
+
+    def test_research_feeder_uses_stable_pipeline_under_random_experiment(self, tmp_db, monkeypatch):
+        """Experiment labels are preserved, but recovery feeders do not inherit chaos ordering."""
+        self._insert_task(id="t1", attempts=2, max_attempts=3)
+
+        def fake_stamp(_project, metadata):
+            return {
+                **metadata,
+                "experiment_id": "exp",
+                "experiment_variant": "variant-d",
+                "pipeline": ["validate", "plan", "scout", "work"],
+                "pipeline_variant": ["validate", "plan", "scout", "work"],
+                "phase_order": ["validate", "plan", "scout", "work"],
+                "phase_random_seed": 123,
+                "is_valid_order": False,
+                "invalidity_reason": "validate_before_work",
+            }
+
+        monkeypatch.setattr("swarm.agent_recovery.stamp_experiment_metadata", fake_stamp)
+
+        orchestrator._handle_task_failure("t1", "proj", "terminal error")
+
+        feeder = next(
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_research_feeder")
+        )
+        meta = feeder["metadata"]
+        assert meta["experiment_variant"] == "variant-d"
+        assert meta["pipeline"] == ["scout", "diagnose"]
+        assert meta["pipeline_variant"] == ["scout", "diagnose"]
+        assert meta["phase_order"] == ["scout", "diagnose"]
+        assert meta["recovery_pipeline_override"] is True
+        assert meta["experiment_inherited_pipeline"] == ["validate", "plan", "scout", "work"]
+        assert meta["is_valid_order"] is True
+        assert meta["invalidity_reason"] == ""
+        assert "phase_random_seed" not in meta
+
+    def test_research_feeder_cycle_cap_stops_spawning_and_leaves_task_failed(self, tmp_db):
+        """After the feeder cap, terminal failure should drain instead of creating another feeder."""
+        self._insert_task(
+            id="t1",
+            attempts=2,
+            max_attempts=3,
+            metadata={"research_feeder_cycles": 2},
+        )
+
+        orchestrator._handle_task_failure("t1", "proj", "terminal error")
+
+        feeders = [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_research_feeder")
+        ]
+        original = db.task_get("t1")
+        assert feeders == []
+        assert original["status"] == "failed"
+        assert original["attempts"] == 3
+        assert original["metadata"]["research_feeder_cap_reached"] is True
+        assert original["metadata"]["needs_human_review"] is True
+
 
 # ===========================================================================
 # H — Readonly task mode
