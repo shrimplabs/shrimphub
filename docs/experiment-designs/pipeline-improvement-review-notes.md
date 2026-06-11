@@ -444,9 +444,10 @@ for line in Path("data/experiment_metrics.jsonl").read_text().splitlines():
     if row.get("experiment_id") == "void-patrol-pipeline-ab-run4-20260606":
         records.append(row)
 
-agg = _aggregate_source_tasks(records)
+agg, unattributed = _aggregate_source_tasks(records)
 print("raw_records", len(records))
 print("aggregates", len(agg))
+print("unattributed", len(unattributed))
 print(Counter(row["experiment_variant"] for row in agg))
 for variant in sorted(Counter(row["experiment_variant"] for row in agg)):
     rows = [row for row in agg if row["experiment_variant"] == variant]

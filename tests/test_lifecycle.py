@@ -16,6 +16,7 @@ import pytest
 from swarm import db
 import swarm.orchestrator as orc
 import swarm.agent_lifecycle as lifecycle
+import swarm.agent_recovery as recovery
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +235,66 @@ class TestSpawnAgent:
             orc.spawn_agent(task, lambda t: _exit0_script())
         updated = db.task_get(task["id"])
         assert updated["status"] == "pending"
+
+
+class TestResearchFeederRunAfter:
+    def _seed_original_and_feeder(self, original_id="orig", feeder_id="research-feeder"):
+        original = _seed_task(task_id=original_id, deps=[feeder_id])
+        feeder = {
+            "id": feeder_id,
+            "project": original["project"],
+            "type": "research",
+            "description": "Investigate failed task",
+            "priority": 50,
+            "status": "completed",
+            "dependencies": [],
+            "metadata": {"feeds_into_task_id": original_id},
+            "attempts": 0,
+            "max_attempts": 1,
+        }
+        db.task_upsert(feeder)
+        return original, feeder
+
+    def test_research_feeder_does_not_snooze_by_default(self, isolated_orc, monkeypatch):
+        monkeypatch.delenv("SWARM_RESEARCH_SNOOZE_HOURS", raising=False)
+        self._seed_original_and_feeder()
+
+        recovery._apply_research_feeder_result("research-feeder", "found context", needs_human_review=True)
+
+        updated = db.task_get("orig")
+        assert updated["status"] == "pending"
+        assert updated["run_after"] is None
+        assert "research-feeder" not in updated["dependencies"]
+        assert updated["metadata"]["research_context"] == "found context"
+
+    def test_research_feeder_snooze_requires_explicit_env(self, isolated_orc, monkeypatch):
+        monkeypatch.setenv("SWARM_RESEARCH_SNOOZE_HOURS", "0.25")
+        self._seed_original_and_feeder()
+
+        recovery._apply_research_feeder_result("research-feeder", "found context", needs_human_review=True)
+
+        updated = db.task_get("orig")
+        assert updated["status"] == "pending"
+        assert updated["run_after"] is not None
+        assert "research-feeder" not in updated["dependencies"]
+
+    def test_research_feeder_cycle_cap_marks_original_failed(self, isolated_orc, monkeypatch):
+        monkeypatch.delenv("SWARM_RESEARCH_SNOOZE_HOURS", raising=False)
+        self._seed_original_and_feeder()
+        db.task_update("orig", {
+            "metadata": {"research_feeder_cycles": recovery.MAX_RESEARCH_FEEDER_CYCLES},
+        })
+
+        recovery._apply_research_feeder_result("research-feeder", "found context")
+
+        updated = db.task_get("orig")
+        assert updated["status"] == "failed"
+        assert updated["attempts"] == updated["max_attempts"]
+        assert updated["run_after"] is None
+        assert "research-feeder" not in updated["dependencies"]
+        assert updated["metadata"]["research_feeder_cap_reached"] is True
+        assert updated["metadata"]["needs_human_review"] is True
+        assert updated["metadata"]["research_context"] == "found context"
 
 
 # ---------------------------------------------------------------------------

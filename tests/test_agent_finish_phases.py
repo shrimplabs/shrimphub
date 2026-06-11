@@ -9,6 +9,7 @@ Covers:
 - _finish_agent ordering: agent finished before task completion; project lock released
 """
 
+import json
 import threading
 
 from unittest.mock import MagicMock, patch
@@ -49,12 +50,12 @@ def isolated_db(tmp_path):
     lifecycle._learnings = None
 
 
-def _seed_task(task_id="t-1", project="proj", task_type="feature", status="in_progress"):
+def _seed_task(task_id="t-1", project="proj", task_type="feature", status="in_progress", metadata=None):
     db.project_upsert({"name": project, "status": "active"})
     db.task_upsert({
         "id": task_id, "project": project, "type": task_type,
         "description": "d", "priority": 50, "status": status,
-        "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 3,
+        "dependencies": [], "metadata": metadata or {}, "attempts": 0, "max_attempts": 3,
     })
 
 
@@ -304,6 +305,37 @@ class TestFinishAgentOrdering:
         agent_idx = next(i for i, e in enumerate(completion_order) if e[0] == "agent")
         task_idx = next(i for i, e in enumerate(completion_order) if e[0] == "task" and e[1] == "completed")
         assert agent_idx < task_idx, f"Expected agent before task; got: {completion_order}"
+
+    def test_experiment_metrics_records_terminal_task_status(self, isolated_db, tmp_path):
+        _seed_task("t-1", metadata={
+            "experiment_id": "exp-1",
+            "experiment_variant": "variant-a",
+            "pipeline_variant": ["work", "validate"],
+            "source_project": "source-proj",
+            "source_task_id": "source-task-1",
+        })
+        _seed_agent("agent-1", "t-1")
+
+        log_path = tmp_path / "agent.log"
+        log_path.write_text("TASK_COMPLETE\n")
+
+        with patch("swarm.agent_finish._finish_worktree_phase",
+                   return_value=af._WorktreeFinishResult(success=True)), \
+             patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._phase_post_completion_pipeline"):
+            af._finish_agent(
+                agent_id="agent-1",
+                exit_code=0,
+                project="proj",
+                task_id="t-1",
+                script_path=None,
+                log_path=str(log_path),
+            )
+
+        metrics_path = lifecycle.DATA_DIR / "experiment_metrics.jsonl"
+        records = [json.loads(line) for line in metrics_path.read_text().splitlines()]
+        assert records[-1]["status"] == "completed"
 
     def test_project_lock_released_after_task_completion(self, isolated_db, tmp_path):
         _seed_task("t-1")
