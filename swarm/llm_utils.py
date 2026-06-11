@@ -378,6 +378,9 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
     # Also try legacy MINIMAX-API alias
     if not api_key and provider_name == "minimax":
         api_key = os.environ.get("MINIMAX-API", "")
+    # Direct api_key in provider config (for custom providers registered without env var)
+    if not api_key:
+        api_key = cfg.get("api_key", "")
 
     base_url = cfg.get("base_url", "https://api.minimax.io/anthropic/v1").rstrip("/")
 
