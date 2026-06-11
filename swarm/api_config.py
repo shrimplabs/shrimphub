@@ -339,15 +339,21 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             return jsonify({"error": "provider required"}), 400
         # Allow registering a new provider on the fly
         if provider not in getattr(_runner_mod, "LLM_PROVIDERS", {}):
-            if not data.get("base_url") or not data.get("api_key_env"):
-                return jsonify({"error": f"Unknown provider '{provider}'. Supply base_url and api_key_env to register it."}), 400
+            if not data.get("base_url") or (not data.get("api_key_env") and not data.get("api_key")):
+                return jsonify({"error": f"Unknown provider '{provider}'. Supply base_url and api_key_env (or api_key) to register it."}), 400
             _runner_mod.LLM_PROVIDERS[provider] = {
                 "base_url":    data["base_url"],
                 "model":       data.get("model", ""),
-                "api_key_env": data["api_key_env"],
+                "api_key_env": data.get("api_key_env", ""),
                 "format":      data.get("format", "openai"),
                 "max_tokens":  data.get("max_tokens", 8096),
             }
+        # Inject api_key directly into env and in-memory config if provided
+        if data.get("api_key"):
+            env_var = data.get("api_key_env") or f"{provider.upper().replace('-', '_')}_API_KEY"
+            os.environ[env_var] = data["api_key"]
+            _runner_mod.LLM_PROVIDERS.setdefault(provider, {})["api_key_env"] = env_var
+            _runner_mod.LLM_PROVIDERS[provider]["api_key"] = data["api_key"]
         # Override model if provided
         if data.get("model") and hasattr(_runner_mod, "LLM_PROVIDERS"):
             _runner_mod.LLM_PROVIDERS[provider]["model"] = data["model"]
