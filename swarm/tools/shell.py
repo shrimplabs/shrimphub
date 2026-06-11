@@ -330,7 +330,7 @@ def run_python(code: str, timeout: int = 30) -> dict:
     candidates = []
     proj_root = _project_root()
     if proj_root:
-        candidates.append(proj_root / ".venv" / "bin" / "python")
+        candidates.append(Path(proj_root) / ".venv" / "bin" / "python")
     # Swarm controller's own venv
     swarm_root = Path(__file__).parent.parent.parent
     candidates.append(swarm_root / ".venv" / "bin" / "python")
