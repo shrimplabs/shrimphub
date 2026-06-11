@@ -855,10 +855,11 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
     # Phase 6b -- experiment metrics collection.
     if task_id and project:
+        task_snapshot_for_metrics = db.task_get(task_id) or task_snapshot_early
         _write_experiment_metrics(
             task_id=task_id,
             project=project,
-            task_snapshot=task_snapshot_early,
+            task_snapshot=task_snapshot_for_metrics,
             success=success,
             loop_count=loop_count,
             diff_stat=diff_stat,

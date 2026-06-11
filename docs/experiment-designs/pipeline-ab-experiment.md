@@ -306,3 +306,113 @@ identical tasks, identical projects, identical models.
   difficulty stratification?
 - Is validate always worth including? Its absence changes the feedback loop
   significantly and might be its own experiment axis.
+
+## Run 4 Findings: Recovery Feeders
+
+Findings recorded 2026-06-09 from `void-patrol-pipeline-ab-run4-20260606`.
+These notes are intended to guide the next controller/tool overhaul, not to
+serve as final statistical analysis.
+
+### Research feeders inherited experiment variants
+
+Research feeders are special in graph behavior: they block the original failed
+task, run diagnosis, then feed findings back into the original task so it can
+retry. They are not currently special in pipeline selection. `_spawn_research_feeder`
+calls `stamp_experiment_metadata(project, research_meta)`, so feeders inherit
+the project experiment config exactly like ordinary implementation tasks.
+
+Observed run-4 feeder pipelines:
+
+| Project | Variant | Research feeder pipeline | Completed | Cancelled |
+| --- | --- | --- | ---: | ---: |
+| `variant-a` | `variant-a` | `plan -> work -> validate` | 3 | 8 |
+| `variant-b` | `variant-b` | `plan -> scout -> synthesize -> work -> validate` | 2 | 10 |
+| `variant-c` | `variant-c` | `scout -> work -> validate` | 2 | 4 |
+| `variant-d` | `variant-d` | randomized per feeder | 8 | 60 |
+| `variant-e` | `variant-e` | `scout -> plan -> work -> validate` | 2 | 10 |
+| `variant-f` | `variant-f` | flat / legacy prompt path | 1 | 0 |
+
+For variant D, 38 research feeders received an explicitly invalid randomized
+order where `validate` ran before `work`. This created a feedback cascade:
+chaos-generated failures spawned chaos-mode recovery tasks, which often failed
+or produced repeated diagnosis instead of stabilizing the original task.
+
+### Interpretation split
+
+Variant D should be split into two interpretations:
+
+- For main task throughput and cross-variant scoring, D's recovery history is
+  contaminated. The result mixes task difficulty, chaos phase ordering, and
+  recovery amplification.
+- For recovery-feeder design, D is highly valuable. It stress-tested the
+  recovery mechanism and produced examples where failed/cancelled feeders still
+  generated useful diagnosis.
+
+Do not treat feeder `completed` status as the primary efficacy metric. Better
+metrics are:
+
+- Did the feeder cause the original task's next retry to complete?
+- Did it reduce repeated feeder cycles?
+- Did it produce a concrete, actionable root cause with exact files/lines?
+- Did it avoid direct game-code edits when the task was supposed to be
+  read-only diagnosis?
+- Did it distinguish project-code failure from controller/tooling failure?
+
+### Non-D feeder signal
+
+The non-D variants suggest recovery feeders do not need a full implementation
+pipeline:
+
+- `variant-c` (`scout -> work -> validate`) had the best balance among pipeline
+  feeders: low churn, and both completed feeders fed parents that completed.
+- `variant-a` (`plan -> work -> validate`) also unblocked parents when it
+  completed, but one parent required six feeder cycles, suggesting too little
+  discovery before work.
+- `variant-b` (`plan -> scout -> synthesize -> work -> validate`) looked too
+  heavy for recovery; completion was low and one completed feeder fed a parent
+  that still failed.
+- `variant-e` (`scout -> plan -> work -> validate`) supported scout-first
+  recovery, but did not clearly outperform the simpler `variant-c`.
+- `variant-f` flat mode had too little data but was stable in the one observed
+  case, which suggests the legacy research prompt remains a useful baseline.
+
+Recommended recovery-feeder shape for future testing:
+
+```text
+scout -> work
+```
+
+or, if a validation/report artifact is needed:
+
+```text
+scout -> work -> validate
+```
+
+Here `work` must mean "write diagnosis/handoff", not "implement and commit".
+
+### Design fix for future runs
+
+Recovery/meta tasks should preserve experiment labels for analysis, but should
+not inherit experimental phase ordering by default.
+
+Recommended rule:
+
+- Ordinary source tasks inherit the project variant pipeline.
+- Recovery/meta tasks use a stable recovery pipeline.
+- Metadata still records `experiment_id`, `experiment_variant`,
+  `source_project`, parent task, and recovery reason.
+- A separate explicit experiment arm can later test chaotic recovery behavior.
+
+Candidate task types to pin to stable recovery/meta pipelines:
+
+- `research` when `metadata.is_research_feeder == true`
+- closure repair / closure triage
+- librarian
+- cartographer
+- scheduler
+- auditor
+- pruner
+- other controller/system tasks
+
+This prevents the "chaos creates failure, chaotic recovery amplifies failure"
+loop while preserving enough metadata to study recovery quality.

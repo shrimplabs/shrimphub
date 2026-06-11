@@ -510,6 +510,9 @@ Do not unpause unless:
 - variant D has randomized task-level `phase_order`
 - variant E has `scout -> plan -> work -> validate`
 - variant F has an empty pipeline and `flat_provider`
+- recovery/meta tasks created during the run are pinned to stable recovery/meta
+  pipelines while preserving experiment labels; they must not inherit variant D
+  randomized phase order unless the run is explicitly testing chaotic recovery
 - dependency integrity shows no missing dependencies or cycles
 - auto-mode is still disabled
 
@@ -578,6 +581,9 @@ During the first hour, check:
   `data/agent_<task_id>_plan.json`, `_scout.json`, `_work.json`, `_validate.json`
 - no task in the new batch is missing experiment metadata
 - variant D follow-on tasks receive fresh randomized phase orders
+- research feeders and other recovery/meta tasks do not receive randomized
+  phase orders by default; if any do, pause and document the run as
+  recovery-contaminated
 - no old run project becomes unpaused
 - no old project folder is being written by active agents
 
