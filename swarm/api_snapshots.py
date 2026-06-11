@@ -21,6 +21,7 @@ from typing import Optional
 
 # Ordered pool of valid pipeline phases for variant D randomisation.
 _PIPELINE_PHASES = ["plan", "scout", "work", "validate"]
+_SEEDED_TAIL_PIPELINE = ["scout", "work", "validate"]
 
 # Named pipeline presets that can be requested by name in the clone call.
 PIPELINE_PRESETS: dict[str, list] = {
@@ -48,6 +49,15 @@ def _phase_order_metadata(phases: list) -> dict:
         "is_valid_order": not reasons,
         "invalidity_reason": ",".join(reasons),
     }
+
+
+def _stable_pipeline_metadata(phases: list[str]) -> dict:
+    meta = {
+        "pipeline": list(phases),
+        "pipeline_variant": list(phases),
+    }
+    meta.update(_phase_order_metadata(list(phases)))
+    return meta
 
 from flask import jsonify, request
 
@@ -96,6 +106,111 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             "project_row": proj_row,
             "tasks": tasks,
         }
+
+    def _append_seeded_tail_tasks(
+        snapshot: dict,
+        *,
+        source_project: str,
+        experiment_id: str,
+        experiment_variant: str,
+        experiment_arm: str,
+    ) -> int:
+        """Append a deterministic art -> polish -> QA tail to cloned Godot DAGs."""
+        tasks: list[dict] = snapshot.get("tasks") or []
+        if not tasks:
+            return 0
+
+        project_path = workspace / source_project
+        if not (project_path / "project.godot").exists():
+            return 0
+        if any(t.get("type") in {"art_pass", "polish", "harness_qa", "qa"} for t in tasks):
+            return 0
+
+        ids = {t.get("id") for t in tasks if t.get("id")}
+        dependents: set[str] = set()
+        for task in tasks:
+            deps = task.get("dependencies") or []
+            if isinstance(deps, str):
+                try:
+                    deps = json.loads(deps)
+                except Exception:
+                    deps = []
+            dependents.update(d for d in deps if d)
+
+        terminal_sources = [
+            t for t in tasks
+            if t.get("id") in ids
+            and t.get("id") not in dependents
+            and t.get("type") in {"feature", "bug", "refactor"}
+            and "genesis" not in str(t.get("id", "")).lower()
+        ]
+        if not terminal_sources:
+            terminal_sources = [
+                t for t in tasks
+                if t.get("id") in ids and t.get("id") not in dependents
+            ]
+        if not terminal_sources:
+            return 0
+
+        terminal_ids = sorted(t["id"] for t in terminal_sources)
+        has_harness = (project_path / "autoload" / "test_harness.gd").exists()
+        qa_type = "harness_qa" if has_harness else "qa"
+        tail_prefix = f"{source_project}-seeded-tail"
+        base_meta = {
+            "experiment_id": experiment_id,
+            "experiment_arm": experiment_arm,
+            "experiment_variant": experiment_variant,
+            "source_project": source_project,
+            "source_task_id": ",".join(terminal_ids),
+            "seeded_experiment_tail": True,
+            "tail_source_task_ids": terminal_ids,
+            "tail_pipeline_pinned": True,
+            "auto_spawned": True,
+        }
+        base_meta.update(_stable_pipeline_metadata(_SEEDED_TAIL_PIPELINE))
+
+        art_id = f"{tail_prefix}-art"
+        polish_id = f"{tail_prefix}-polish"
+        qa_id = f"{tail_prefix}-qa"
+        tasks.extend([
+            {
+                "id": art_id,
+                "project": source_project,
+                "type": "art_pass",
+                "description": "Seeded experiment art pass: ensure game entities are visible on screen, sprites/textures are attached, and no placeholder geometry remains before QA.",
+                "priority": 60,
+                "status": "pending",
+                "dependencies": terminal_ids,
+                "metadata": dict(base_meta, tail_stage="art_pass"),
+                "attempts": 0,
+                "max_attempts": 2,
+            },
+            {
+                "id": polish_id,
+                "project": source_project,
+                "type": "polish",
+                "description": "Seeded experiment UI/UX polish: ensure screen transitions, button feedback, menu flow, HUD clarity, and game feel are correct before QA.",
+                "priority": 60,
+                "status": "pending",
+                "dependencies": [art_id],
+                "metadata": dict(base_meta, tail_stage="polish"),
+                "attempts": 0,
+                "max_attempts": 2,
+            },
+            {
+                "id": qa_id,
+                "project": source_project,
+                "type": qa_type,
+                "description": "Seeded experiment harness QA: run synchronous checkpoint tests against the game logic after art and polish.",
+                "priority": 75,
+                "status": "pending",
+                "dependencies": [polish_id],
+                "metadata": dict(base_meta, tail_stage=qa_type),
+                "attempts": 0,
+                "max_attempts": 2,
+            },
+        ])
+        return 3
 
     def _import_project(snapshot: dict, target_project: str, reset_status: bool = True):
         """Write snapshot data into the DB under target_project name.
@@ -174,13 +289,18 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                     or k in {
                         "pipeline", "pipeline_variant", "flat_provider",
                         "is_valid_order", "invalidity_reason",
+                        "seeded_experiment_tail", "tail_source_task_ids",
+                        "tail_pipeline_pinned", "auto_spawned",
+                        "tail_stage",
                     }
                 }
             else:
                 meta = dict(original_meta)
-            # Always record the original task ID so we can cross-reference results
-            meta["source_task_id"] = t["id"]
-            meta["source_project"] = source_project
+            # Always record lineage so we can cross-reference results. Synthetic
+            # clone-time tail tasks may carry explicit source_task_id values
+            # pointing at the terminal source feature(s), so preserve those.
+            meta["source_task_id"] = meta.get("source_task_id") or t["id"]
+            meta["source_project"] = meta.get("source_project") or source_project
             row["metadata"] = meta
             db.task_upsert(row)
 
@@ -446,6 +566,8 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         project_registry.add_project(new_name, managed=True)
 
         tasks = snapshot["tasks"]
+        experiment_variant_label = pipeline_arg if isinstance(pipeline_arg, str) else "custom"
+        experiment_arm_label = "exploratory" if is_random else "confirmatory"
 
         # For random variant: assign a random phase ordering to each task's metadata
         if is_random:
@@ -476,16 +598,25 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 meta["flat_provider"] = flat_provider
                 t["metadata"] = meta
         elif resolved_pipeline is not None:
-            variant_label = pipeline_arg if isinstance(pipeline_arg, str) else "custom"
             for t in tasks:
                 meta = dict(t.get("metadata") or {})
                 meta["experiment_id"] = experiment_id
                 meta["experiment_arm"] = "confirmatory"
                 meta["pipeline"] = resolved_pipeline
                 meta["pipeline_variant"] = resolved_pipeline
-                meta["experiment_variant"] = variant_label
+                meta["experiment_variant"] = experiment_variant_label
                 meta.update(_phase_order_metadata(list(resolved_pipeline)))
                 t["metadata"] = meta
+
+        seeded_tail_tasks = 0
+        if pipeline_arg is not None:
+            seeded_tail_tasks = _append_seeded_tail_tasks(
+                snapshot,
+                source_project=project_name,
+                experiment_id=experiment_id,
+                experiment_variant="variant-d" if is_random else ("variant-f" if is_flat else experiment_variant_label),
+                experiment_arm=experiment_arm_label,
+            )
 
         _import_project(snapshot, new_name, reset_status=True)
 
@@ -548,6 +679,7 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             "pipeline": "random" if is_random else ("flat" if is_flat else resolved_pipeline),
             "experiment_variant": pipeline_arg,
             "experiment_id": experiment_id,
+            "seeded_tail_tasks": seeded_tail_tasks,
         }
         if git_note:
             result["warning"] = git_note

@@ -213,6 +213,70 @@ class TestProjects:
         assert exp["experiment_id"] == "exp-test"
         assert exp["pipeline_mode"] == "random"
 
+    def test_experiment_clone_seeds_art_polish_qa_tail_for_godot(self, client, app):
+        workspace = Path(app.config["WORKSPACE_ROOT"])
+        source = workspace / "godot-game"
+        (source / "autoload").mkdir(parents=True)
+        (source / "project.godot").write_text("[application]\n")
+        (source / "autoload" / "test_harness.gd").write_text("extends Node\n")
+        os.system(f"git -C {source} init -q")
+        os.system(f"git -C {source} config user.email test@example.invalid")
+        os.system(f"git -C {source} config user.name Test")
+        os.system(f"git -C {source} add .")
+        os.system(f"git -C {source} commit -q -m init")
+
+        r = client.post("/api/projects", json={"name": "godot-game", "managed": True}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/tasks", json={
+            "id": "godot-game-t1",
+            "project": "godot-game",
+            "type": "feature",
+            "description": "Build core loop",
+        }, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/tasks", json={
+            "id": "godot-game-t2",
+            "project": "godot-game",
+            "type": "feature",
+            "description": "Build scoring",
+            "dependencies": ["godot-game-t1"],
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        r = client.post("/api/projects/godot-game/snapshot", json={"tag": "base"}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/projects/godot-game/clone", json={
+            "tag": "base",
+            "new_name": "godot-game-chaos",
+            "pipeline": "variant-d",
+            "experiment_id": "exp-tail",
+        }, content_type="application/json")
+
+        assert r.status_code == 200
+        assert r.json["seeded_tail_tasks"] == 3
+
+        tasks = client.get("/api/tasks?project=godot-game-chaos&include_completed=true").json["tasks"]
+        by_type = {t["type"]: t for t in tasks if (t.get("metadata") or {}).get("seeded_experiment_tail")}
+        assert set(by_type) == {"art_pass", "polish", "harness_qa"}
+
+        art = by_type["art_pass"]
+        polish = by_type["polish"]
+        qa = by_type["harness_qa"]
+        cloned_t2 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "godot-game-t2")
+
+        assert art["dependencies"] == [cloned_t2["id"]]
+        assert polish["dependencies"] == [art["id"]]
+        assert qa["dependencies"] == [polish["id"]]
+
+        for task in (art, polish, qa):
+            meta = task["metadata"]
+            assert meta["experiment_id"] == "exp-tail"
+            assert meta["experiment_variant"] == "variant-d"
+            assert meta["pipeline"] == ["scout", "work", "validate"]
+            assert meta["phase_order"] == ["scout", "work", "validate"]
+            assert meta["tail_pipeline_pinned"] is True
+            assert meta["is_valid_order"] is True
+
     def test_add_project_missing_name(self, client):
         r = client.post("/api/projects", json={}, content_type="application/json")
         assert r.status_code == 400
