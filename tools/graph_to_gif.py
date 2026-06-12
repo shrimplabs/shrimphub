@@ -82,7 +82,7 @@ def _add_glow(img: Image.Image) -> Image.Image:
 
 def _api(base: str, path: str):
     url = f"{base.rstrip('/')}{path}"
-    with urllib.request.urlopen(url, timeout=30) as r:
+    with urllib.request.urlopen(url, timeout=120) as r:
         return json.load(r)
 
 

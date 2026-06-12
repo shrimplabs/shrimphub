@@ -37,3 +37,18 @@ MINIMAX_MODEL: str = "MiniMax-M3"
 # Marks the structured phase-pipeline (plan -> scout -> work -> validate) as shipped.
 # Bump when the pipeline contract in swarm/pipeline.py changes in a non-backwards-compatible way.
 PIPELINE_VERSION: str = "1.0"
+
+# Pipeline phase loop limits — all phase files import from here
+PLAN_MAX_LOOPS: int = 6
+SCOUT_MAX_LOOPS: int = 12
+WORK_MAX_LOOPS: int = 150
+DIAGNOSE_MAX_LOOPS: int = 10
+SYNTHESIZE_MAX_ATTEMPTS: int = 2
+CREATE_TASKS_MAX_LOOPS: int = 15
+
+# Escalation / retry limits — agent_recovery.py reads max_attempts from task rows,
+# which are seeded from these defaults at task-creation time.
+DEFAULT_MAX_ATTEMPTS: int = 3          # bug / feature / refactor / integration
+DEFAULT_MAX_ATTEMPTS_QA: int = 2       # qa / harness_qa / art_pass / plan types
+RESEARCH_FEEDER_MAX_ATTEMPTS: int = 2  # research feeders spawned by recovery
+MAX_RESEARCH_FEEDER_CYCLES: int = 3    # cap on how many feeders one task can spawn

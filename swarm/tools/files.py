@@ -59,7 +59,8 @@ def list_files(relative_path: str = ".") -> dict:
 
 
 def search_code(query: str) -> dict:
-    """Search all GDScript (.gd) files for a string."""
+    """Search all GDScript (.gd) and Python (.py) files for a string.
+    Returns file paths with matching line numbers and snippets."""
     import swarm.tools.core as _core
     path = _core._project_root()
     try:
@@ -67,16 +68,21 @@ def search_code(query: str) -> dict:
         for root, dirs, files in _core.os.walk(path):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for fname in files:
-                if not fname.endswith(".gd"):
+                if not (fname.endswith(".gd") or fname.endswith(".py")):
                     continue
                 fpath = _core.os.path.join(root, fname)
                 try:
                     with open(fpath, encoding="utf-8", errors="replace") as f:
-                        if query in f.read():
-                            matches.append(fpath)
+                        for lineno, line in enumerate(f, 1):
+                            if query in line:
+                                matches.append({
+                                    "file": fpath,
+                                    "line": lineno,
+                                    "text": line.rstrip(),
+                                })
                 except OSError:
                     pass
-        return {"ok": True, "files": matches}
+        return {"ok": True, "matches": matches, "count": len(matches)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

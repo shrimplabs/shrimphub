@@ -663,8 +663,10 @@ def create_app(
                     _spawned, _skipped = orchestrator.fill_slots(generate_task_script)
                     if _spawned:
                         print(f"[Monitor] fill_slots spawned {len(_spawned)} agent(s): {[s[:8] for s in _spawned]}")
+                    elif _skipped:
+                        print(f"[Monitor] fill_slots spawn failures for: {_skipped} (active={orchestrator.get_active_count()})")
                     elif orchestrator.get_active_count() < config.get("max_active_agents", 3):
-                        print(f"[Monitor] fill_slots idle (active={orchestrator.get_active_count()}, pending tasks exist but none runnable or no tasks)")
+                        print(f"[Monitor] fill_slots idle (active={orchestrator.get_active_count()}, no runnable tasks)")
 
                 # Run auto-replan for projects with auto-replan enabled
                 for _proj in config.get("auto_replan_projects", []):

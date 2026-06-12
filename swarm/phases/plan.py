@@ -56,7 +56,7 @@ Set fast_path=true if the task is trivially small (single obvious fix, <10 lines
 A fast_path task may skip the scout phase.
 """
 
-_MAX_PLAN_LOOPS = 6
+from swarm.constants import PLAN_MAX_LOOPS as _MAX_PLAN_LOOPS
 _ALLOWED_PLAN_TOOLS = {"read_file", "read_file_range", "list_files", "search_code"}
 
 _DOC_CANDIDATES = (
@@ -214,7 +214,8 @@ class PlanPhase(Phase):
         )
 
         self.log(f"Calling {provider} to frame task...")
-        messages = [{"role": "user", "content": user_msg}]
+        state.messages.append({"role": "user", "content": user_msg})
+        messages = state.messages
         plan = None
         text = ""
         last_plan_errors: list[str] = []

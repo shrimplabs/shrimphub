@@ -458,15 +458,17 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
 
         # Cap per-cycle spawning to avoid burst after cooldown expiry.
         cycle_limit = min(limit, SPAWN_PER_CYCLE)
+        _tried_task_ids: set = set()  # avoid retrying the same failing task in one cycle
         while len(spawned) < cycle_limit:
             if get_active_count() >= MAX_ACTIVE_AGENTS:
                 break
 
-            task = _get_next_task()
+            task = _get_next_task(exclude_ids=_tried_task_ids)
             if not task:
                 break
 
             project = task["project"]
+            _tried_task_ids.add(task["id"])
             if LOCK_PROJECT:
                 db.project_set_locked(project, True)
 
@@ -474,10 +476,11 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
             if agent_id:
                 spawned.append(agent_id)
             else:
+                print(f"[Swarm] spawn_agent returned None for task {task['id'][:12]} project={project} — skipping and trying next")
                 if LOCK_PROJECT:
                     db.project_set_locked(project, False)
                 skipped.append(project)
-                break
+                # Do NOT break — try the next available task
 
         # Meta agents: never fire when over quota — they consume LLM calls
         # just like regular agents and make quota exhaustion worse.
@@ -804,7 +807,7 @@ _META_TASK_TYPES = frozenset({
 })
 
 
-def _get_next_task() -> Optional[Dict]:
+def _get_next_task(exclude_ids: set | None = None) -> Optional[Dict]:
     """Select the next pending task with met dependencies, using TASK_SELECTION_STRATEGY."""
     db.backfill_completed_task_ids()
     all_tasks = db.task_get_all()
@@ -881,6 +884,8 @@ def _get_next_task() -> Optional[Dict]:
         if task_wt and task_wt in active_worktrees:
             continue
         deps = t.get("dependencies", [])
+        if exclude_ids and t["id"] in exclude_ids:
+            continue
         if all(is_dependency_met(d, all_task_ids, completed_ids) for d in deps):
             ready.append(t)
 
