@@ -715,10 +715,16 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     and t.get("id") not in active_ids
                     and not _is_graph_noise(t)
                 ]
-                # task-history.jsonl is a legacy fallback for tasks pruned before the
-                # "completed tasks stay in DB" migration. Skip the 93MB JSONL read for
-                # per-project graphs since task_get_by_project already covers the DB.
-                all_history = db_history
+                # task-history.jsonl is a legacy fallback for tasks that predate the
+                # "completed tasks stay in DB" migration. Only read it when the DB
+                # history is thin — avoids the 93MB file scan on healthy DBs.
+                if len(db_history) < 10:
+                    jsonl_history = _load_history_tasks(data_dir, project=project, max_entries=200)
+                    db_ids = {t["id"] for t in db_history}
+                    jsonl_only = [t for t in jsonl_history if t.get("id") not in db_ids and not _is_graph_noise(t)]
+                    all_history = db_history + jsonl_only
+                else:
+                    all_history = db_history
 
                 head_task_id = _resolve_project_head_for_dot(db, project, all_history)
                 if head_task_id and head_task_id not in active_ids:
