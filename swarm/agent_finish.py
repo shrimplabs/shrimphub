@@ -822,6 +822,19 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
             # Phase 5b -- success path.
             task_snapshot_pre_complete = _phase_complete_task(task_id, project, diff_stat)
 
+            # Terminal recovery continuation: when a bug-recovery-* task completes,
+            # mark the original recovery-* task completed so late-added dependents unblock.
+            if task_snapshot_early:
+                original_failed_id = (task_snapshot_early.get("metadata") or {}).get("continuation_for_failed_task")
+                if original_failed_id:
+                    original = db.task_get(original_failed_id)
+                    if original and original.get("status") == "failed":
+                        db.task_update_status(original_failed_id, "completed",
+                                              completed=__import__("datetime").datetime.now().isoformat())
+                        db.task_record_completed(original_failed_id, project or "")
+                        print(f"[Swarm] Marked original failed task {original_failed_id[:16]} completed "
+                              f"(continuation {task_id[:16]} succeeded)")
+
             # Research feeder completion: if this task was a research feeder,
             # inject its findings into the original task and reset it to pending.
             if task_snapshot_early and (task_snapshot_early.get("metadata") or {}).get("is_research_feeder"):
