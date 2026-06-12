@@ -578,7 +578,7 @@ func _initialize():
             try:
                 result = subprocess.run(
                     editor_cmd, shell=True, cwd=project_path,
-                    capture_output=True, text=True, timeout=90,
+                    capture_output=True, text=True, timeout=45,
                 )
                 combined = (result.stdout or "") + (result.stderr or "")
                 bad = [
