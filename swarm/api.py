@@ -1297,7 +1297,7 @@ def run_app(
 ):
     """Run the Flask app"""
     app = create_app(workspace, data_dir)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
