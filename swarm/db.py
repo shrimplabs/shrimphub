@@ -625,6 +625,21 @@ def task_upsert(task: Dict) -> str:
 def task_delete(task_id: str) -> bool:
     conn = _connect()
     cur = conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    if cur.rowcount > 0:
+        # Remove this ID from any other task's dependency list to prevent ghost deps.
+        # Only scan tasks whose deps JSON contains the deleted ID string.
+        rows = conn.execute(
+            "SELECT id, dependencies FROM tasks WHERE dependencies LIKE ?",
+            (f'%"{task_id}"%',),
+        ).fetchall()
+        for row in rows:
+            deps = json.loads(row["dependencies"] or "[]")
+            cleaned = [d for d in deps if d != task_id]
+            if len(cleaned) != len(deps):
+                conn.execute(
+                    "UPDATE tasks SET dependencies=? WHERE id=?",
+                    (json.dumps(cleaned), row["id"]),
+                )
     conn.commit()
     return cur.rowcount > 0
 

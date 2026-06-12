@@ -452,11 +452,17 @@ def create_app(
             except Exception:
                 pass
 
-        known_ids = active_ids | completed_ids | history_ids
+        # Skip the 93MB JSONL read — completed tasks stay in DB now, so
+        # active_ids | completed_ids is sufficient. history_ids only matters
+        # for pre-migration tasks which are effectively zero at this point.
+        known_ids = active_ids | completed_ids
+
         pruned = []
 
         for task in all_tasks:
-            if task.get("status") not in ("pending", "failed"):
+            # Check all non-completed statuses — in_progress tasks with ghost deps
+            # get killed by the dep violation checker, so catch them here first.
+            if task.get("status") in ("completed", "cancelled", "archived"):
                 continue
             deps = list(task.get("dependencies") or [])
             ghost_deps = [d for d in deps if d not in known_ids]
