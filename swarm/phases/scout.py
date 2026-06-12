@@ -225,6 +225,12 @@ class ScoutPhase(Phase):
                 })
 
             text, _tokens, _thinking = call_llm(_SCOUT_SYSTEM, messages, provider=provider)
+
+            if text.startswith("Error:") or text.startswith("API error"):
+                self.log(f"LLM error at loop {loop}: {text[:120]} — aborting scout phase")
+                state.errors.append(f"scout: LLM error at loop {loop}: {text[:120]}")
+                raise RuntimeError(f"LLM call failed: {text[:120]}")
+
             messages.append({"role": "assistant", "content": text})
 
             # Check for completion
