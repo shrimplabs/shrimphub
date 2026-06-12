@@ -626,6 +626,9 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
             status = getattr(t, "status", None)
             if status in _LIVE_EXCLUDE_STATUSES:
                 return True
+            # Never hide tasks that are actively running or waiting to run
+            if status in ("in_progress", "pending"):
+                return False
             if getattr(t, "type", None) in _LIVE_EXCLUDE_TYPES:
                 return True
             tid = getattr(t, "id", "") or ""
@@ -707,16 +710,15 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                     return False
 
                 db_history = [
-                    dict(t) for t in db.task_get_all()
-                    if t.get("project") == project
-                    and t.get("status") in ("completed", "cancelled", "failed")
+                    dict(t) for t in db.task_get_by_project(project)
+                    if t.get("status") in ("completed", "cancelled", "failed")
                     and t.get("id") not in active_ids
                     and not _is_graph_noise(t)
                 ]
-                jsonl_history = _load_history_tasks(data_dir, project=project, max_entries=500)
-                db_ids = {t["id"] for t in db_history}
-                jsonl_only = [t for t in jsonl_history if t.get("id") not in db_ids and not _is_graph_noise(t)]
-                all_history = db_history + jsonl_only
+                # task-history.jsonl is a legacy fallback for tasks pruned before the
+                # "completed tasks stay in DB" migration. Skip the 93MB JSONL read for
+                # per-project graphs since task_get_by_project already covers the DB.
+                all_history = db_history
 
                 head_task_id = _resolve_project_head_for_dot(db, project, all_history)
                 if head_task_id and head_task_id not in active_ids:
@@ -783,14 +785,8 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
                         if t.get("id") not in active_ids
                         and not _global_noise(t)
                     ]
-                    db_hist_ids = {t["id"] for t in db_hist_global}
-                    jsonl_global = [
-                        t for t in _load_history_tasks(data_dir, max_entries=500)
-                        if t.get("id") not in db_hist_ids
-                        and not _global_noise(t)
-                    ]
                     ancestors = _select_history_with_ancestry(
-                        db_hist_global + jsonl_global,
+                        db_hist_global,
                         seed_ids=dep_ids_needed,
                         max_depth=history_depth,
                     )
@@ -826,6 +822,45 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
             dot = "digraph {}"
 
         return jsonify({"dot": dot})
+
+    @app.route("/api/dependencies/svg", methods=["GET"])
+    def get_dependency_svg():
+        """Render the dependency graph server-side via system graphviz dot binary.
+
+        Accepts the same query params as /api/dependencies/dot.
+        Returns SVG text directly (Content-Type: image/svg+xml).
+        Falls back to returning {dot: ...} JSON if graphviz is not available.
+        """
+        import subprocess, shutil
+        dot_bin = shutil.which("dot")
+        if not dot_bin:
+            return get_dependency_dot()
+
+        dot_resp = get_dependency_dot()
+        # get_dependency_dot returns a Response — extract the dot string
+        try:
+            dot_data = dot_resp.get_json()
+            dot_src = dot_data.get("dot", "") if dot_data else ""
+        except Exception:
+            return get_dependency_dot()
+
+        if not dot_src or dot_src.strip() in ("digraph {}", ""):
+            return get_dependency_dot()
+
+        try:
+            result = subprocess.run(
+                [dot_bin, "-Tsvg"],
+                input=dot_src.encode(),
+                capture_output=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                from flask import Response
+                return Response(result.stdout, mimetype="image/svg+xml")
+        except Exception:
+            pass
+
+        return get_dependency_dot()
 
     @app.route("/api/dependencies/ready", methods=["GET"])
     def get_ready_tasks():
