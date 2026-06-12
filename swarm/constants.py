@@ -39,8 +39,8 @@ MINIMAX_MODEL: str = "MiniMax-M3"
 PIPELINE_VERSION: str = "1.0"
 
 # Pipeline phase loop limits — all phase files import from here
-PLAN_MAX_LOOPS: int = 6
-SCOUT_MAX_LOOPS: int = 12
+PLAN_MAX_LOOPS: int = 10
+SCOUT_MAX_LOOPS: int = 24
 WORK_MAX_LOOPS: int = 150
 DIAGNOSE_MAX_LOOPS: int = 10
 SYNTHESIZE_MAX_ATTEMPTS: int = 2
