@@ -358,6 +358,12 @@ class WorkPhase(Phase):
         for loop in range(1, _MAX_WORK_LOOPS + 1):
             self.log(f"Work loop {loop}/{_MAX_WORK_LOOPS}")
             text, _tokens, _thinking = call_llm(_WORK_SYSTEM, messages, provider=provider)
+
+            if text.startswith("Error:") or text.startswith("API error"):
+                self.log(f"LLM error at loop {loop}: {text[:120]} — aborting work phase")
+                state.errors.append(f"work: LLM error at loop {loop}: {text[:120]}")
+                raise RuntimeError(f"LLM call failed: {text[:120]}")
+
             messages.append({"role": "assistant", "content": text})
 
             if "WORK_COMPLETE" in text:

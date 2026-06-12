@@ -635,8 +635,20 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     log(f"Rate limited ({resp.status_code}) -- waiting {wait}s (attempt {attempt+1}/7)")
                     _record_rate_limit_event(provider_name)
                     time.sleep(wait)
+                elif resp.status_code in (502, 503, 504):
+                    # Proxy/gateway error — backends temporarily down, always retry
+                    wait = backoff[min(attempt, len(backoff) - 1)]
+                    try:
+                        body_text = resp.text[:200]
+                    except Exception:
+                        body_text = "<unreadable stream>"
+                    log(f"Gateway error {resp.status_code} (stream): {body_text} -- retrying in {wait}s (attempt {attempt+1}/7)")
+                    time.sleep(wait)
                 else:
-                    body_text = resp.text[:500]
+                    try:
+                        body_text = resp.text[:500]
+                    except Exception:
+                        body_text = "<unreadable stream>"
                     log(f"API error {resp.status_code} (stream): {body_text}")
                     if resp.status_code == 500 and ("999" in body_text or "unknown error" in body_text.lower()):
                         wait = backoff[min(attempt, len(backoff) - 1)]
@@ -652,6 +664,10 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     wait = backoff[min(attempt, len(backoff) - 1)]
                     log(f"Rate limited ({resp.status_code}) -- waiting {wait}s (attempt {attempt+1}/7)")
                     _record_rate_limit_event(provider_name)
+                    time.sleep(wait)
+                elif resp.status_code in (502, 503, 504):
+                    wait = backoff[min(attempt, len(backoff) - 1)]
+                    log(f"Gateway error {resp.status_code}: {resp.text[:200]} -- retrying in {wait}s (attempt {attempt+1}/7)")
                     time.sleep(wait)
                 else:
                     body_text = resp.text[:500]

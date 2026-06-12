@@ -228,6 +228,12 @@ class PlanPhase(Phase):
                     "content": "You have two planning loops left. Stop inspecting and output PLAN_COMPLETE with the JSON plan.",
                 })
             text, _tokens, _thinking = call_llm(_PLAN_SYSTEM, messages, provider=provider)
+
+            if text.startswith("Error:") or text.startswith("API error"):
+                self.log(f"LLM error at loop {loop}: {text[:120]} — aborting plan phase")
+                state.errors.append(f"plan: LLM error at loop {loop}: {text[:120]}")
+                raise RuntimeError(f"LLM call failed: {text[:120]}")
+
             messages.append({"role": "assistant", "content": text})
 
             try:
