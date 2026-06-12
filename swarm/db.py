@@ -195,6 +195,7 @@ def _create_schema(conn: sqlite3.Connection):
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
         CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
+        CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority DESC, created ASC);
 
         CREATE TABLE IF NOT EXISTS projects (
             name            TEXT PRIMARY KEY,
@@ -544,6 +545,27 @@ def task_get_by_project(project: str) -> List[Dict]:
         "SELECT * FROM tasks WHERE project=? ORDER BY priority DESC",
         (project,),
     ).fetchall()
+    return [_task_row(r) for r in rows]
+
+
+def task_get_active(statuses: tuple = ("pending", "in_progress", "failed"),
+                    project: Optional[str] = None) -> List[Dict]:
+    """Fetch only the active working set — avoids full-table scan for the dashboard.
+
+    statuses: which statuses to include (default: the dashboard working set)
+    project:  optional project filter (uses idx_tasks_project index)
+    """
+    placeholders = ",".join("?" * len(statuses))
+    if project:
+        rows = _connect().execute(
+            f"SELECT * FROM tasks WHERE project=? AND status IN ({placeholders}) ORDER BY priority DESC, created ASC",
+            (project, *statuses),
+        ).fetchall()
+    else:
+        rows = _connect().execute(
+            f"SELECT * FROM tasks WHERE status IN ({placeholders}) ORDER BY priority DESC, created ASC",
+            statuses,
+        ).fetchall()
     return [_task_row(r) for r in rows]
 
 

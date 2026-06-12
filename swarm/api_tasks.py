@@ -295,22 +295,25 @@ def register_routes(app, task_source, db, workspace, config=None):
         status_filter = request.args.get("status")
         project_filter = request.args.get("project")
 
-        all_tasks = task_source.get_all_tasks()
-
         if status_filter:
-            tasks = [t for t in all_tasks if t.status == status_filter]
+            # Exact status match — DB-filtered
+            raw = db.task_get_active(statuses=(status_filter,), project=project_filter or None)
         elif include_completed:
-            # Exclude 'archived' — these are pre-migration legacy rows that pre-date
-            # the immutable-history model. Treat them the same as completed for display.
+            # Full history requested — needs all rows, exclude legacy archived only
+            all_tasks = task_source.get_all_tasks()
             tasks = [t for t in all_tasks if t.status != "archived"]
+            if project_filter:
+                tasks = [t for t in tasks if t.project == project_filter]
+            return jsonify({"tasks": [t.to_dict() for t in tasks]})
         else:
-            # Default: active working set -- pending, in_progress, failed
-            # Completed and cancelled are history; use ?include_completed=true to see them
-            tasks = [t for t in all_tasks if t.status in ("pending", "in_progress", "failed")]
+            # Default: active working set — push filter to DB, avoids scanning 7k+ rows
+            raw = db.task_get_active(
+                statuses=("pending", "in_progress", "failed"),
+                project=project_filter or None,
+            )
 
-        if project_filter:
-            tasks = [t for t in tasks if t.project == project_filter]
-
+        from swarm.tasks import Task
+        tasks = [Task.from_dict(r) for r in raw]
         return jsonify({
             "tasks": [t.to_dict() for t in tasks]
         })
