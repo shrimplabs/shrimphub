@@ -12,6 +12,10 @@ from swarm import db
 from swarm.experiment_metadata import stamp_experiment_metadata
 from swarm.task_chains import append_project_head
 
+# Stable pipeline for closure repair/triage — must not inherit randomized
+# experiment variants (variant-D chaos ordering broke repair cascades in run4).
+_CLOSURE_REPAIR_PIPELINE = ["plan", "work", "validate"]
+
 
 def plan_repair_tasks_for_run(run_id: str) -> list[dict[str, Any]]:
     run = db.verification_run_get(run_id)
@@ -159,7 +163,7 @@ def _build_repair_task(
         "closure_results": results,
         "closure_artifacts": artifacts,
     }
-    metadata = stamp_experiment_metadata(project, metadata)
+    metadata = stamp_experiment_metadata(project, metadata, stable=True)
     return {
         "id": task_id,
         "project": project,
@@ -312,7 +316,7 @@ Before completing, append a brief note to PROJECT_CLOSURE.md explaining:
         "repair_budget_exhausted": True,
         "prior_repair_rounds": len(prior_history),
     }
-    metadata = stamp_experiment_metadata(project, metadata)
+    metadata = stamp_experiment_metadata(project, metadata, stable=True)
     return {
         "id": task_id,
         "project": project,

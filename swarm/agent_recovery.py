@@ -472,7 +472,7 @@ def _spawn_terminal_recovery_continuation(failed_task: dict, attempts: int, last
         "error_log_chars": output_chars,
         **branch_intent_metadata(failed_task),
     }
-    metadata = stamp_experiment_metadata(project, metadata)
+    metadata = stamp_experiment_metadata(project, metadata, stable=True)
     continuation_deps = _replacement_task_dependencies(
         failed_task,
         new_task_id=continuation_id,
@@ -711,7 +711,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
             "dependent_count": len(dependents),
             **branch_intent_metadata(failed_task),
         }
-        recovery_meta = stamp_experiment_metadata(project, recovery_meta)
+        recovery_meta = stamp_experiment_metadata(project, recovery_meta, stable=True)
         if not escalate_to_research and failed_meta.get("worktree_path") and failed_meta.get("worktree_branch"):
             wt_p = Path(failed_meta["worktree_path"])
             if wt_p.exists():
