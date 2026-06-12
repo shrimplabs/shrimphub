@@ -21,7 +21,7 @@ from swarm.tool_dispatch import execute_tool, validate_tool_call
 from swarm.llm_utils import call_llm, parse_tool_calls
 
 
-_MAX_WORK_LOOPS = 80
+from swarm.constants import WORK_MAX_LOOPS as _MAX_WORK_LOOPS
 
 _WORK_SYSTEM = """\
 You are a software engineer implementing a specific change.
@@ -49,6 +49,8 @@ Available tools:
 - kill_game() — stop the launched game
 
 When done, output: WORK_COMPLETE
+
+IMPORTANT: Every action must use the [TOOL_CALL] format above. Never describe what you would do — always output the tool call directly.
 """
 
 
@@ -151,6 +153,83 @@ def _build_work_profile_section(state: TaskState) -> str:
     return ""
 
 
+def _build_work_prompt_slim(state: TaskState) -> str:
+    """Slim work directive used when continuous context is active.
+
+    The model already has full file contents and findings in its message history
+    from the plan and scout phases. We only inject genuinely new info:
+    - Known failures from prior attempts (not in this conversation)
+    - Synthesis implementation steps (if a synthesize phase ran)
+    - Validation repair errors (if this is a repair loop)
+    - Work profile (art_pass/polish contracts)
+    """
+    plan = state.plan
+    lines = [
+        f"GOAL: {plan.get('goal', state.description)}",
+        "",
+    ]
+
+    # Inject success criteria and constraints as a quick goal anchor
+    if plan.get("success_criteria"):
+        lines.append("SUCCESS CRITERIA:")
+        for sc in plan.get("success_criteria", []):
+            lines.append(f"  - {sc}")
+        lines.append("")
+
+    if plan.get("constraints"):
+        lines.append("CONSTRAINTS:")
+        for c in plan.get("constraints", []):
+            lines.append(f"  - {c}")
+        lines.append("")
+
+    # Known failures — from prior attempts, not visible in this conversation
+    handoff = state.handoff or {}
+    if handoff.get("known_failures"):
+        lines.append("KNOWN FAILURES FROM PRIOR RUNS:")
+        for kf in handoff.get("known_failures", []):
+            lines.append(f"  {kf[:300]}")
+        lines.append("")
+
+    # Synthesis steps — only produced if a synthesize phase ran
+    synthesis = state.synthesis
+    if synthesis and synthesis.get("implementation_steps"):
+        lines.append("IMPLEMENTATION BRIEF (from synthesize phase):")
+        lines.append(f"  {synthesis.get('summary', '')}")
+        lines.append("")
+        lines.append("STEPS:")
+        for step in synthesis.get("implementation_steps", []):
+            lines.append(f"  [{step.get('action','modify').upper()}] {step.get('file','')}")
+            lines.append(f"    {step.get('description','')}")
+            if step.get("code_hint"):
+                lines.append(f"    Hint: {step['code_hint'][:200]}")
+        if synthesis.get("risks"):
+            lines.append("")
+            lines.append("RISKS:")
+            for r in synthesis.get("risks", []):
+                lines.append(f"  ⚠ {r}")
+        lines.append("")
+
+    work_profile = _build_work_profile_section(state)
+    if work_profile:
+        lines.append(work_profile)
+        lines.append("")
+
+    # Repair context: injected when this is a re-work after a validation failure
+    validation = state.validation or {}
+    if state.repair_attempts > 0 and not validation.get("passed"):
+        val_errors = validation.get("errors", [])
+        error_text = "\n".join(val_errors)[:2000]
+        lines.append(
+            f"VALIDATION REPAIR (attempt {state.repair_attempts}):\n"
+            f"Your previous implementation failed validation. Fix these errors before "
+            f"committing again:\n\n{error_text}"
+        )
+        lines.append("")
+
+    lines.append("Implement the change, commit, then output WORK_COMPLETE.")
+    return "\n".join(lines)
+
+
 def _build_work_prompt(state: TaskState) -> str:
     plan = state.plan
     scout = state.scout_report
@@ -206,13 +285,8 @@ def _build_work_prompt(state: TaskState) -> str:
             lines.append(f"  {f}")
         lines.append("")
 
-    # Normalized handoff (WS5): additional structured context from prior phases
+    # Known failures from prior attempts
     handoff = state.handoff or {}
-    if handoff.get("hypotheses"):
-        lines.append("HYPOTHESES (from scout):")
-        for h in handoff.get("hypotheses", []):
-            lines.append(f"  - {h}")
-        lines.append("")
     if handoff.get("known_failures"):
         lines.append("KNOWN FAILURES FROM PRIOR RUNS:")
         for kf in handoff.get("known_failures", []):
@@ -269,7 +343,14 @@ class WorkPhase(Phase):
         rt._ROUTING_PHASE = "work"
         self.log(f"Using provider: {provider}")
 
-        messages = [{"role": "user", "content": _build_work_prompt(state)}]
+        if state.messages:
+            # Continuous context: model already has full file contents from plan/scout.
+            # Inject only a slim directive with genuinely new info.
+            state.messages.append({"role": "user", "content": _build_work_prompt_slim(state)})
+            messages = state.messages
+        else:
+            # Isolated context (legacy): start fresh with full context summary.
+            messages = [{"role": "user", "content": _build_work_prompt(state)}]
         commit_sha = None
         completed = False
         vision_calls_since_write = 0
@@ -288,7 +369,10 @@ class WorkPhase(Phase):
             if not tool_calls:
                 messages.append({
                     "role": "user",
-                    "content": "Continue. Commit your changes and output WORK_COMPLETE when done.",
+                    "content": (
+                        "Continue. Use [TOOL_CALL]{\"tool\": \"...\", \"args\": {...}}[/TOOL_CALL] "
+                        "for every tool call. Commit your changes and output WORK_COMPLETE when done."
+                    ),
                 })
                 continue
 

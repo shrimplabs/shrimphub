@@ -520,7 +520,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                     _routed_model_logged = True
                 for choice in ev.get("choices", []):
                     delta = choice.get("delta", {})
-                    chunk_text = delta.get("content") or ""
+                    chunk_text = delta.get("content") or delta.get("reasoning_content") or ""
                     if chunk_text:
                         text_parts.append(chunk_text)
                 _usage = ev.get("usage") or {}
@@ -615,7 +615,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         if resp_model and resp_model != model:
             log(f"[LLM] routed to model={resp_model}")
         _msg = result.get("choices", [{}])[0].get("message", {})
-        text = _msg.get("content") or _msg.get("reasoning") or "No response"
+        text = _msg.get("content") or _msg.get("reasoning_content") or _msg.get("reasoning") or "No response"
         return text, tokens, []
 
     # Use streaming for anthropic formats; non-streaming for openai

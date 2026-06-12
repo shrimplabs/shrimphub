@@ -33,7 +33,7 @@ _BLOCKED_TOOLS = frozenset({
 })
 _ALLOWED_SCOUT_TOOLS = {"read_file", "read_file_range", "list_files", "search_code", "list_dir", "search_files"}
 
-_MAX_SCOUT_LOOPS = 12
+from swarm.constants import SCOUT_MAX_LOOPS as _MAX_SCOUT_LOOPS
 
 _SCOUT_SYSTEM = """\
 You are a read-only code scout. Your job is to gather evidence to help an
@@ -206,7 +206,8 @@ class ScoutPhase(Phase):
         rt._ROUTING_PHASE = "scout"
         self.log(f"Using provider: {provider}")
 
-        messages = [{"role": "user", "content": _build_scout_prompt(state)}]
+        state.messages.append({"role": "user", "content": _build_scout_prompt(state)})
+        messages = state.messages
         report = None
         _consecutive_stalls = 0
 

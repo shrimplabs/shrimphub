@@ -72,6 +72,12 @@ class TaskState:
     #                 known_failures, constraints, next_actions, unknowns}
     handoff: dict = field(default_factory=dict)
 
+    # --- Continuous context (shared message list across phases) ---
+    # When populated, phases append to this instead of starting a fresh
+    # conversation. Structured output fields (plan, scout_report, etc.) are
+    # still written for external consumers (metrics, artifacts).
+    messages: list = field(default_factory=list)
+
     # --- Execution metadata ---
     phases_completed: list = field(default_factory=list)
     phase_timings: dict = field(default_factory=dict)

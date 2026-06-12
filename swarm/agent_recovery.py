@@ -36,24 +36,31 @@ _MAX_RECOVERY_TASKS_PER_BRANCH = 3
 # Escalation policy
 # ---------------------------------------------------------------------------
 # Defines how each task type behaves when attempts are exhausted.
-# on_exhaust: "research" → spawn a research feeder task (future Phase B)
+# on_exhaust: "research" → spawn a research feeder task
 #             "cancel"   → mark task cancelled, unblock dependents
 # This dict is the source of truth; config.json can override individual entries.
+# max_attempts values come from constants.py — do not hardcode here.
+from swarm.constants import (
+    DEFAULT_MAX_ATTEMPTS as _A,
+    DEFAULT_MAX_ATTEMPTS_QA as _AQ,
+    RESEARCH_FEEDER_MAX_ATTEMPTS as _AR,
+)
 
 _DEFAULT_ESCALATION_POLICY: dict[str, dict] = {
-    "bug":         {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
-    "feature":     {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
-    "refactor":    {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
-    "polish":      {"max_attempts": 3, "on_exhaust": "cancel"},
-    "qa":          {"max_attempts": 2, "on_exhaust": "cancel"},
-    "harness_qa":  {"max_attempts": 2, "on_exhaust": "cancel"},
-    "hybrid_qa":   {"max_attempts": 2, "on_exhaust": "cancel"},
-    "scenario_qa": {"max_attempts": 2, "on_exhaust": "cancel"},
-    "art_pass":    {"max_attempts": 2, "on_exhaust": "cancel"},
-    "audit":       {"max_attempts": 2, "on_exhaust": "cancel"},
-    "research":    {"max_attempts": 2, "on_exhaust": "cancel"},
-    "plan":        {"max_attempts": 2, "on_exhaust": "cancel"},
-    "project_plan":{"max_attempts": 2, "on_exhaust": "cancel"},
+    "bug":         {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
+    "feature":     {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
+    "refactor":    {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
+    "integration": {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
+    "polish":      {"max_attempts": _A,  "on_exhaust": "cancel"},
+    "qa":          {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "harness_qa":  {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "hybrid_qa":   {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "scenario_qa": {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "art_pass":    {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "audit":       {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "research":    {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "plan":        {"max_attempts": _AQ, "on_exhaust": "cancel"},
+    "project_plan":{"max_attempts": _AQ, "on_exhaust": "cancel"},
 }
 
 
@@ -760,7 +767,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
 # ---------------------------------------------------------------------------
 
 RESEARCH_FEEDER_PIPELINE = ["scout", "diagnose"]
-MAX_RESEARCH_FEEDER_CYCLES = 2
+from swarm.constants import MAX_RESEARCH_FEEDER_CYCLES
 
 
 def _pin_research_feeder_pipeline(metadata: dict) -> dict:
@@ -827,7 +834,12 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         return None
 
     if project in al.PAUSED_PROJECTS:
-        print(f"[Swarm] Skipping research feeder — {project} is paused")
+        print(f"[Swarm] Skipping research feeder — {project} is paused; resetting task to pending so it retries on unpause")
+        fresh = db.task_get(failed_id)
+        if fresh:
+            meta = dict(fresh.get("metadata") or {})
+            meta["last_failure"] = last_output[-300:] if last_output else ""
+            db.task_upsert({**fresh, "status": "pending", "attempts": 0, "started": None, "completed": None, "agent_id": None, "metadata": meta})
         return None
 
     def _block_original_on_existing_feeder(existing_id: str) -> None:

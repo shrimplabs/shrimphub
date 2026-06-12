@@ -22,7 +22,7 @@ from swarm.tool_dispatch import execute_tool, validate_tool_call
 from swarm.llm_utils import call_llm, parse_tool_calls
 
 
-_MAX_CREATE_LOOPS = 15
+from swarm.constants import CREATE_TASKS_MAX_LOOPS as _MAX_CREATE_LOOPS
 
 # Only task-creation and read tools — no writes
 _ALLOWED_TOOLS = frozenset({

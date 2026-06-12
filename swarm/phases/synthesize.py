@@ -245,12 +245,14 @@ class SynthesizePhase(Phase):
         self.log(f"Using provider: {provider}, mode: {'implementation' if impl_mode else 'research'}")
 
         prompt = _build_synthesize_prompt(state)
-        messages = [{"role": "user", "content": prompt}]
+        state.messages.append({"role": "user", "content": prompt})
+        messages = state.messages
 
         # Synthesize in 1-2 calls — this is a smart model, it should get it right first try
+        from swarm.constants import SYNTHESIZE_MAX_ATTEMPTS as _MAX_SYNTH
         synthesis = None
-        for attempt in range(1, 3):
-            self.log(f"Synthesize attempt {attempt}/2")
+        for attempt in range(1, _MAX_SYNTH + 1):
+            self.log(f"Synthesize attempt {attempt}/{_MAX_SYNTH}")
             text, _tokens, _thinking = call_llm(system_prompt, messages, provider=provider)
             messages.append({"role": "assistant", "content": text})
 

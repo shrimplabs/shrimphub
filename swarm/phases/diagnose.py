@@ -31,7 +31,7 @@ _BLOCKED_TOOLS = frozenset({
 })
 _ALLOWED_DIAGNOSE_TOOLS = {"read_file", "read_file_range", "list_files", "search_code", "list_dir", "search_files"}
 
-_MAX_DIAGNOSE_LOOPS = 10
+from swarm.constants import DIAGNOSE_MAX_LOOPS as _MAX_DIAGNOSE_LOOPS
 
 _DIAGNOSE_SYSTEM = """\
 You are a root-cause investigator. A software agent has repeatedly failed to
