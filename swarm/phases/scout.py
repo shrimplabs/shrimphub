@@ -37,7 +37,9 @@ from swarm.constants import SCOUT_MAX_LOOPS as _MAX_SCOUT_LOOPS
 
 _SCOUT_SYSTEM = """\
 You are a read-only code scout. Your job is to gather evidence to help an
-implementation agent understand what needs to change.
+implementation agent understand what needs to change. The quality of your
+investigation directly determines how efficiently the work phase runs —
+a shallow report means the work agent rediscovers everything you missed.
 
 You have access to file reading and search tools ONLY. You may NOT write files,
 commit, or create tasks.
@@ -45,20 +47,24 @@ commit, or create tasks.
 To call a tool, output EXACTLY this format:
 [TOOL_CALL]{"tool": "read_file", "args": {"path": "relative/path/to/file"}}[/TOOL_CALL]
 
-Available tools: read_file, read_file_range, list_files, search_code
+Available tools: read_file, read_file_range, list_files, search_code, list_dir
 
-You have a limited number of investigation loops. After 8 loops, you MUST
-output your report regardless of whether you feel done.
+Investigation requirements — do NOT report until you have:
+1. Read every file listed as likely to change
+2. Given a concrete answer (not "unknown") to every unknown listed in the task
+3. Read at least the relevant sections of any file you hypothesize will need changes
+4. Used search_code to locate the specific functions/nodes/signals involved
 
-When ready to report (or when instructed), output EXACTLY this format —
-the word SCOUT_COMPLETE on its own line, then the JSON immediately after:
+Only then output SCOUT_COMPLETE. Use your full loop budget — a thorough scout
+that uses 12 loops saves 40+ loops in the work phase.
 
+When done, output EXACTLY this format:
 SCOUT_COMPLETE
 {
   "files_inspected": ["list of file paths you read"],
-  "findings": ["concrete facts you discovered"],
+  "findings": ["concrete facts — specific line numbers, function names, current values"],
   "hypotheses": ["your best theories about root cause or approach"],
-  "recommended_actions": ["specific changes the implementation agent should make"],
+  "recommended_actions": ["specific changes: file path, what to change, how"],
   "confidence": 0.8
 }
 """
@@ -103,7 +109,7 @@ def _build_scout_prompt(state: TaskState) -> str:
     lines.append(f"")
     lines.append("Use only these canonical tool names: read_file, read_file_range, list_files, search_code.")
     lines.append(f"")
-    lines.append("Investigate, then output SCOUT_COMPLETE + JSON report. You have 12 loops max — report by loop 8.")
+    lines.append(f"Investigate thoroughly, then output SCOUT_COMPLETE + JSON report. You have {_MAX_SCOUT_LOOPS} loops max — do not report before loop 5.")
     return "\n".join(lines)
 
 
@@ -233,11 +239,23 @@ class ScoutPhase(Phase):
 
             messages.append({"role": "assistant", "content": text})
 
-            # Check for completion
+            # Check for completion — enforce minimum investigation depth
             report = _extract_scout_report(text)
             if report is not None:
-                self.log(f"Scout complete at loop {loop}")
-                break
+                if loop < 5 and not state.plan.get("fast_path"):
+                    self.log(f"Scout tried to complete at loop {loop} — too early, requiring more investigation")
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You reported too early. You have not yet read all the files likely to change "
+                            "or answered all the unknowns. Continue investigating — read the remaining files "
+                            "and use search_code to find the specific functions involved."
+                        ),
+                    })
+                    report = None
+                else:
+                    self.log(f"Scout complete at loop {loop}")
+                    break
 
             # Execute tool calls
             tool_calls = parse_tool_calls(text)

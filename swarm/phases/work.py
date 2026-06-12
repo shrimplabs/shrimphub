@@ -182,6 +182,15 @@ def _build_work_prompt_slim(state: TaskState) -> str:
             lines.append(f"  - {c}")
         lines.append("")
 
+    # Scout recommended actions — the most valuable output of the scout phase.
+    # Injected explicitly so work doesn't re-derive what scout already found.
+    scout = state.scout_report or {}
+    if scout.get("recommended_actions"):
+        lines.append("SCOUT RECOMMENDED ACTIONS (implement these directly):")
+        for a in scout.get("recommended_actions", []):
+            lines.append(f"  - {a}")
+        lines.append("")
+
     # Known failures — from prior attempts, not visible in this conversation
     handoff = state.handoff or {}
     if handoff.get("known_failures"):
