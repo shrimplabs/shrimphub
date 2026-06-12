@@ -495,7 +495,21 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         stream_complete = False
         _routed_model_logged = False
 
-        for raw_line in resp.iter_lines(chunk_size=8192):
+        try:
+          line_iter = resp.iter_lines(chunk_size=8192)
+        except Exception as _ie:
+          return f"Error: stream init failed: {_ie}", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
+
+        while True:
+            try:
+                raw_line = next(line_iter)
+            except StopIteration:
+                break
+            except Exception as _se:
+                # Connection dropped mid-stream — treat as truncation, will retry
+                log(f"Stream read error: {_se}")
+                return f"Error: stream interrupted: {_se}", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
+
             if not raw_line:
                 continue
             if isinstance(raw_line, bytes):
@@ -629,7 +643,13 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
             if use_stream:
                 resp = requests.post(url, headers=headers, json=body, stream=True, timeout=(10, 300))
                 if resp.status_code == 200:
-                    return _parse_sse_stream(resp)
+                    text, tokens, thinking = _parse_sse_stream(resp)
+                    if isinstance(text, str) and text.startswith("Error: stream"):
+                        wait = backoff[min(attempt, len(backoff) - 1)]
+                        log(f"Stream error — retrying in {wait}s (attempt {attempt+1}/7): {text[:80]}")
+                        time.sleep(wait)
+                        continue
+                    return text, tokens, thinking
                 elif resp.status_code in (429, 529):
                     wait = backoff[min(attempt, len(backoff) - 1)]
                     log(f"Rate limited ({resp.status_code}) -- waiting {wait}s (attempt {attempt+1}/7)")
