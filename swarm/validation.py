@@ -1391,7 +1391,7 @@ def _spawn_validation_bug_task(
         "research_feeder_cycles": parent_cycles,
         **branch_intent_metadata(original_task),
     }
-    metadata = stamp_experiment_metadata(project, metadata)
+    metadata = stamp_experiment_metadata(project, metadata, stable=True)
     if worktree_path is not None:
         metadata["worktree_path"] = str(worktree_path)
         metadata["worktree_branch"] = worktree_branch

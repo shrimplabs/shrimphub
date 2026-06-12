@@ -56,14 +56,24 @@ def experiment_defaults_for_project(
     return dict(experiment) if isinstance(experiment, Mapping) else {}
 
 
+STABLE_RECOVERY_PIPELINE: list[str] = ["plan", "work", "validate"]
+
+
 def stamp_experiment_metadata(
     project_name: str,
     metadata: Mapping[str, Any] | None,
     *,
     config: Mapping[str, Any] | None = None,
     config_file: str | Path | None = None,
+    stable: bool = False,
 ) -> dict[str, Any]:
-    """Apply project-level experiment defaults to a newly-created task."""
+    """Apply project-level experiment defaults to a newly-created task.
+
+    stable=True: record experiment labels for analysis but pin execution to
+    STABLE_RECOVERY_PIPELINE regardless of the project's variant. Use for
+    recovery tasks, validation bug tasks, auto-QA/polish, closure repair —
+    any task that must not inherit chaos/experimental phase ordering.
+    """
     meta = dict(metadata or {})
     if meta.get("experiment_variant"):
         return meta
@@ -83,7 +93,16 @@ def stamp_experiment_metadata(
     if not meta.get("source_task_id"):
         meta["source_task_id"] = meta.get("parent_task_id") or meta.get("parent_task") or ""
 
-    if pipeline_mode == "random":
+    if stable:
+        # Record the variant for analysis but don't inherit randomized ordering
+        meta["pipeline"] = list(STABLE_RECOVERY_PIPELINE)
+        meta["pipeline_variant"] = list(STABLE_RECOVERY_PIPELINE)
+        meta["phase_order"] = list(STABLE_RECOVERY_PIPELINE)
+        meta["recovery_pipeline_override"] = True
+        meta["recovery_pipeline_reason"] = "stable_recovery"
+        meta.pop("phase_random_seed", None)
+        meta.update(classify_phase_order(STABLE_RECOVERY_PIPELINE))
+    elif pipeline_mode == "random":
         phases = list(experiment.get("phase_pool") or PIPELINE_PHASES)
         seed = random.randint(0, 2**31 - 1)
         random.Random(seed).shuffle(phases)

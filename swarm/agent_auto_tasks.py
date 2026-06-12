@@ -94,7 +94,7 @@ def auto_spawn_integration_task(
         f"scene tree, UI). Fix any disconnections. "
         f"Do NOT rewrite existing working systems \u2014 only add the missing wiring."
     )
-    metadata = stamp_experiment_metadata(project, {"is_integration_task": True})
+    metadata = stamp_experiment_metadata(project, {"is_integration_task": True}, stable=True)
     db.task_upsert({
         "id": integ_id,
         "project": project,
@@ -234,7 +234,7 @@ def auto_spawn_qa_task(
             "priority": 60,
             "status": "pending",
             "dependencies": art_deps,
-            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}),
+            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}, stable=True),
             "attempts": 0,
             "max_attempts": 2,
         })
@@ -262,7 +262,7 @@ def auto_spawn_qa_task(
             "priority": 60,
             "status": "pending",
             "dependencies": pol_deps,
-            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}),
+            "metadata": stamp_experiment_metadata(project, {"auto_spawned": True}, stable=True),
             "attempts": 0,
             "max_attempts": 2,
         })
