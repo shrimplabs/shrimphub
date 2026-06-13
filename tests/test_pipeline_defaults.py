@@ -162,10 +162,13 @@ class TestPlanFallback:
         })
         scout_response = "SCOUT_COMPLETE\n" + scout_json
 
+        from swarm.constants import PLAN_MAX_LOOPS
         responses = iter([
-            (bad_plan_response, {}, []),  # plan loops x6
-        ] * 6 + [
-            (scout_response, {}, []),     # scout loop 1 → SCOUT_COMPLETE
+            (bad_plan_response, {}, []),
+        ] * PLAN_MAX_LOOPS + [
+            ("Continuing investigation.", {}, []),
+        ] * 4 + [
+            (scout_response, {}, []),     # scout minimum depth → SCOUT_COMPLETE
         ])
 
         state = TaskState(
@@ -177,7 +180,8 @@ class TestPlanFallback:
             workspace=str(tmp_path),
         )
 
-        with patch("swarm.llm_utils.call_llm", side_effect=responses):
+        with patch("swarm.llm_utils.call_llm", side_effect=responses), \
+             patch("swarm.phases.scout.call_llm", side_effect=responses):
             final = run_pipeline(
                 ["plan", "scout"],
                 state,
@@ -189,3 +193,5 @@ class TestPlanFallback:
         assert "plan" in final.phases_completed
         assert "scout" in final.phases_completed
         assert final.plan.get("_plan_parse_failed") is True
+        assert final.phase_loops["plan"] == PLAN_MAX_LOOPS
+        assert final.phase_loops["scout"] == 5

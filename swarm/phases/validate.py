@@ -19,6 +19,7 @@ class ValidatePhase(Phase):
     name = "validate"
 
     def run(self, state: TaskState) -> TaskState:
+        state.record_phase_loops("validate", 0)
         from swarm.validation import _post_task_validation_in_worktree
         from swarm import db
         from pathlib import Path

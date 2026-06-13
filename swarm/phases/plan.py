@@ -291,6 +291,8 @@ class PlanPhase(Phase):
                 tool_results.append(f"[{tool_name}]\n{result_str[:4000]}")
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
 
+        state.record_phase_loops("plan", loop)
+
         if plan is None:
             # WS2: instead of killing the pipeline, produce a minimal synthetic plan
             # from the task description so scout→work→validate can still proceed.
