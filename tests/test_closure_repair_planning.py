@@ -103,6 +103,22 @@ def test_ensure_repair_task_for_regression_reuses_open_linked_task():
     assert len(tasks) == 1
 
 
+def test_ensure_repair_task_for_regression_skips_resolved_regression_with_live_linked_task():
+    _seed_failed_run()
+    regression = db.regression_list_by_project("proj", status="open")[0]
+    first = ensure_repair_task_for_regression(regression["id"])
+    db.regression_update(regression["id"], {
+        "status": "resolved",
+        "resolved_at": "2026-01-01T00:05:00",
+        "resolved_by_run_id": "run-pass",
+    })
+
+    second = ensure_repair_task_for_regression(regression["id"])
+
+    assert second is None
+    assert db.task_get(first["id"])["status"] == "pending"
+
+
 def test_plan_repair_tasks_for_run_only_uses_regressions_for_that_run():
     _seed_failed_run(run_id="run-1", fingerprint="boot:http:failed")
     _seed_failed_run(run_id="run-2", trigger_task_id="task-2", fingerprint="tests:failed")

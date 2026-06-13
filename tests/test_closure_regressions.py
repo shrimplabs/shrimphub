@@ -6,6 +6,7 @@ from swarm import db
 from swarm.closure.regressions import (
     normalize_regression_fingerprints,
     refresh_project_recurrence_state,
+    resolve_regressions_for_passing_run,
     summarize_project_recurrence,
     upsert_regressions_for_run,
 )
@@ -159,3 +160,112 @@ def test_refresh_project_recurrence_state_persists_stall_inputs():
     assert [item["fingerprint"] for item in summary["stalled_candidates"]] == ["boot:http:failed"]
     assert project["open_regression_count"] == 1
     assert project["stall_count"] == 3
+
+
+def test_passing_run_cancels_stale_linked_closure_repair_task():
+    db.project_upsert(_project("proj", profile="python"))
+    _run(run_id="run-1", fingerprints_json=["tests:failed"])
+    [regression] = upsert_regressions_for_run("run-1")
+    db.task_upsert({
+        "id": "closure-repair-1",
+        "project": "proj",
+        "type": "bug",
+        "description": "repair",
+        "status": "pending",
+        "priority": 80,
+        "dependencies": [],
+        "metadata": {
+            "is_closure_repair_task": True,
+            "source_regression_id": regression["id"],
+        },
+    })
+    db.regression_update(regression["id"], {"linked_task_id": "closure-repair-1"})
+    _run(
+        run_id="run-pass",
+        status="passed",
+        completed_at="2026-01-01T00:10:00",
+        results_json={"boot_ok": True, "tests_ok": True, "smoke_ok": True, "critical_flows": {}, "errors": []},
+        fingerprints_json=[],
+    )
+
+    resolved = resolve_regressions_for_passing_run("run-pass")
+
+    assert resolved == [regression["id"]]
+    task = db.task_get("closure-repair-1")
+    assert task["status"] == "cancelled"
+    assert task["metadata"]["cancelled_by_resolved_regression"] is True
+    assert task["metadata"]["resolved_by_run_id"] == "run-pass"
+    assert db.regression_get(regression["id"])["status"] == "resolved"
+
+
+def test_passing_run_cancels_research_feeder_for_stale_closure_repair_task():
+    db.project_upsert(_project("proj", profile="python"))
+    _run(run_id="run-1", fingerprints_json=["tests:failed"])
+    [regression] = upsert_regressions_for_run("run-1")
+    db.task_upsert({
+        "id": "closure-repair-1",
+        "project": "proj",
+        "type": "bug",
+        "description": "repair",
+        "status": "failed",
+        "priority": 80,
+        "dependencies": [],
+        "metadata": {
+            "is_closure_repair_task": True,
+            "source_regression_id": regression["id"],
+        },
+    })
+    db.task_upsert({
+        "id": "research-feeder-1",
+        "project": "proj",
+        "type": "research",
+        "description": "diagnose repair",
+        "status": "pending",
+        "priority": 70,
+        "dependencies": ["closure-repair-1"],
+        "metadata": {
+            "is_research_feeder": True,
+            "feeds_into_task_id": "closure-repair-1",
+        },
+    })
+    db.regression_update(regression["id"], {"linked_task_id": "closure-repair-1"})
+    _run(
+        run_id="run-pass",
+        status="passed",
+        completed_at="2026-01-01T00:10:00",
+        results_json={"boot_ok": True, "tests_ok": True, "smoke_ok": True, "critical_flows": {}, "errors": []},
+        fingerprints_json=[],
+    )
+
+    assert resolve_regressions_for_passing_run("run-pass") == [regression["id"]]
+    feeder = db.task_get("research-feeder-1")
+    assert feeder["status"] == "cancelled"
+    assert feeder["metadata"]["cancelled_by_resolved_regression"] is True
+    assert feeder["metadata"]["cancelled_with_closure_repair_task"] == "closure-repair-1"
+
+
+def test_passing_run_does_not_cancel_non_closure_linked_task():
+    db.project_upsert(_project("proj", profile="python"))
+    _run(run_id="run-1", fingerprints_json=["tests:failed"])
+    [regression] = upsert_regressions_for_run("run-1")
+    db.task_upsert({
+        "id": "ordinary-bug-1",
+        "project": "proj",
+        "type": "bug",
+        "description": "ordinary bug",
+        "status": "pending",
+        "priority": 80,
+        "dependencies": [],
+        "metadata": {},
+    })
+    db.regression_update(regression["id"], {"linked_task_id": "ordinary-bug-1"})
+    _run(
+        run_id="run-pass",
+        status="passed",
+        completed_at="2026-01-01T00:10:00",
+        results_json={"boot_ok": True, "tests_ok": True, "smoke_ok": True, "critical_flows": {}, "errors": []},
+        fingerprints_json=[],
+    )
+
+    assert resolve_regressions_for_passing_run("run-pass") == [regression["id"]]
+    assert db.task_get("ordinary-bug-1")["status"] == "pending"

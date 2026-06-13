@@ -39,6 +39,10 @@ def ensure_repair_task_for_regression(regression_id: str) -> dict[str, Any] | No
     if not regression:
         raise ValueError(f"regression not found: {regression_id}")
 
+    if regression.get("status") != "open":
+        print(f"[RepairPlanning] Regression {regression_id} is {regression.get('status')} -- skipping repair planning")
+        return None
+
     linked_task_id = regression.get("linked_task_id")
     if linked_task_id:
         existing = db.task_get(linked_task_id)
