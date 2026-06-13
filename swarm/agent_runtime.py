@@ -431,6 +431,8 @@ def main() -> int:
                     "pipeline": list(PIPELINE),
                     "phases_completed": list(_final_state.phases_completed),
                     "phase_timings": dict(_final_state.phase_timings),
+                    "phase_loops": dict(_final_state.phase_loops),
+                    "total_phase_loops": sum(int(v or 0) for v in _final_state.phase_loops.values()),
                     "plan": _final_state.plan,
                     "scout_report": _final_state.scout_report,
                     "synthesis": _final_state.synthesis,

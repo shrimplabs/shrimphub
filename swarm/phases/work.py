@@ -432,6 +432,7 @@ class WorkPhase(Phase):
             "commit_sha": commit_sha,
             "patches_applied": completed,
         }
+        state.record_phase_loops("work", loop)
 
         if not completed:
             self.log("Work hit loop limit without completing")

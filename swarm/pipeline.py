@@ -81,6 +81,7 @@ class TaskState:
     # --- Execution metadata ---
     phases_completed: list = field(default_factory=list)
     phase_timings: dict = field(default_factory=dict)
+    phase_loops: dict = field(default_factory=dict)
     errors: list = field(default_factory=list)
     failed: bool = False
 
@@ -99,6 +100,10 @@ class TaskState:
     def mark_phase_done(self, phase_name: str, elapsed: float) -> None:
         self.phases_completed.append(phase_name)
         self.phase_timings[phase_name] = round(elapsed, 2)
+        self.phase_loops.setdefault(phase_name, 0)
+
+    def record_phase_loops(self, phase_name: str, loops: int) -> None:
+        self.phase_loops[phase_name] = max(0, int(loops or 0))
 
     def to_summary(self) -> str:
         """Human-readable summary for logging."""
@@ -179,6 +184,7 @@ def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None
             "phase": phase_name,
             "phases_completed": list(state.phases_completed),
             "phase_timings": dict(state.phase_timings),
+            "phase_loops": dict(state.phase_loops),
             "errors": list(state.errors),
             "failed": bool(state.failed),
             "failure_kind": state.failure_kind,
@@ -358,6 +364,8 @@ def run_pipeline(
                         continue
                     phase_cls = PHASE_REGISTRY[repair_phase_name]
                     phase = phase_cls(config=config)
+                    base_phase_key = getattr(phase, "name", repair_phase_name)
+                    previous_base_loops = state.phase_loops.get(base_phase_key)
                     t_start = time.monotonic()
                     log_fn(f"[Pipeline] Repair {repair_phase_name.upper()} (attempt {state.repair_attempts})")
                     try:
@@ -377,6 +385,12 @@ def run_pipeline(
                         _write_phase_artifact(state, f"repair_{repair_phase_name}", config, log_fn=log_fn)
                         break
                     elapsed = time.monotonic() - t_start
+                    repair_loop_key = f"repair_{repair_phase_name}"
+                    state.record_phase_loops(repair_loop_key, int(state.phase_loops.get(base_phase_key, 0) or 0))
+                    if previous_base_loops is None:
+                        state.phase_loops.pop(base_phase_key, None)
+                    else:
+                        state.phase_loops[base_phase_key] = previous_base_loops
                     state.mark_phase_done(f"repair_{repair_phase_name}", elapsed)
                     _write_phase_artifact(state, f"repair_{repair_phase_name}", config, log_fn=log_fn)
                     log_fn(f"  ✓ Repair {repair_phase_name.upper()} complete ({elapsed:.1f}s)")

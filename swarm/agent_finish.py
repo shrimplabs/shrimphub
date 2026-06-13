@@ -694,6 +694,9 @@ def _write_experiment_metrics(
         "phase_random_seed": metadata.get("phase_random_seed"),
         "phases_completed": pipeline_state.get("phases_completed", []),
         "phase_timings": pipeline_state.get("phase_timings", {}),
+        "phase_loops": pipeline_state.get("phase_loops", {}),
+        "total_phase_loops": pipeline_state.get("total_phase_loops")
+            or sum(int(v or 0) for v in (pipeline_state.get("phase_loops") or {}).values()),
         "work_loops": loop_count,
         "validation_passed": success,
         "pipeline_validation_passed": (pipeline_state.get("validation") or {}).get("passed"),

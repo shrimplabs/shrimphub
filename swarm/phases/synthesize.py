@@ -275,6 +275,8 @@ class SynthesizePhase(Phase):
                 ),
             })
 
+        state.record_phase_loops("synthesize", attempt)
+
         if synthesis is None:
             self.log("Synthesis failed — using fallback from scout findings")
             scout = state.scout_report

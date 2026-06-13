@@ -262,6 +262,8 @@ class DiagnosePhase(Phase):
 
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
 
+        state.record_phase_loops("diagnose", loop)
+
         if report is None:
             self.log("Diagnose hit loop limit — building fallback report from history")
             report = _fallback_report_from_history(messages)

@@ -118,6 +118,7 @@ class CreateTasksPhase(Phase):
             self.log("No tasks proposed by synthesis — nothing to create")
             state.tasks_created = []
             state.work_report = {"completed": True, "loops_used": 0, "commit_sha": None, "patches_applied": False}
+            state.record_phase_loops("create_tasks", 0)
             return state
 
         # Use the same smart model as synthesize — it knows the context
@@ -195,4 +196,5 @@ class CreateTasksPhase(Phase):
             "patches_applied": False,
             "tasks_created": all_created_ids,
         }
+        state.record_phase_loops("create_tasks", loop)
         return state

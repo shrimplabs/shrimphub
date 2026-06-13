@@ -199,6 +199,7 @@ class ScoutPhase(Phase):
         # Fast-path: skip scout if plan says trivial
         if state.plan.get("fast_path"):
             self.log("Skipping scout (fast_path=true)")
+            state.record_phase_loops("scout", 0)
             state.scout_report = {
                 "files_inspected": [],
                 "findings": ["fast_path: task deemed trivial by plan phase"],
@@ -302,6 +303,8 @@ class ScoutPhase(Phase):
                 tool_results.append(f"[{tool_name}]\n{result_str[:4000]}")
 
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+
+        state.record_phase_loops("scout", loop)
 
         if report is None:
             self.log("Scout hit loop limit — extracting findings from conversation history")
