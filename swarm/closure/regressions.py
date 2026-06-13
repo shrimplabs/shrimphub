@@ -8,6 +8,7 @@ from hashlib import sha1
 from typing import Any, Mapping
 
 from swarm import db
+from swarm.task_mutations import cancel_task_with_metadata
 
 
 def normalize_regression_fingerprints(run: Mapping[str, Any] | None) -> list[str]:
@@ -86,6 +87,7 @@ def resolve_regressions_for_passing_run(run_id: str) -> list[str]:
                 "resolved_at": now,
                 "resolved_by_run_id": run_id,
             })
+            _cancel_stale_linked_repair(regression, resolved_by_run_id=run_id)
             resolved.append(regression["id"])
 
     if resolved:
@@ -210,6 +212,7 @@ def resolve_regressions_for_linked_task(task_id: str, project: str) -> list[str]
                 "resolved_at": now,
                 "resolved_by_run_id": f"task:{task_id}",
             })
+            _cancel_stale_linked_repair(regression, resolved_by_run_id=f"task:{task_id}", exclude_task_id=task_id)
             resolved.append(regression["id"])
     if resolved:
         refresh_project_recurrence_state(project)
@@ -248,6 +251,52 @@ def _severity_for_fingerprint(fingerprint: str) -> str:
 def _regression_id(project: str, fingerprint: str) -> str:
     digest = sha1(f"{project}:{fingerprint}".encode("utf-8")).hexdigest()[:12]
     return f"reg-{digest}"
+
+
+def _cancel_stale_linked_repair(
+    regression: Mapping[str, Any],
+    *,
+    resolved_by_run_id: str,
+    exclude_task_id: str | None = None,
+) -> bool:
+    """Cancel unresolved closure repair work for a regression that has gone green."""
+    linked_task_id = regression.get("linked_task_id")
+    if not isinstance(linked_task_id, str) or not linked_task_id.strip():
+        return False
+    if exclude_task_id and linked_task_id == exclude_task_id:
+        return False
+
+    cancelled = False
+    for feeder in db.task_get_all():
+        metadata = feeder.get("metadata") if isinstance(feeder.get("metadata"), Mapping) else {}
+        if metadata.get("feeds_into_task_id") != linked_task_id:
+            continue
+        if not metadata.get("is_research_feeder"):
+            continue
+        if feeder.get("status") not in {"pending", "in_progress"}:
+            continue
+        cancel_task_with_metadata(db, feeder["id"], {
+            "cancelled_by_resolved_regression": True,
+            "cancelled_with_closure_repair_task": linked_task_id,
+            "resolved_regression_id": regression.get("id"),
+            "resolved_by_run_id": resolved_by_run_id,
+        })
+        cancelled = True
+
+    task = db.task_get(linked_task_id)
+    if not task or task.get("status") not in {"pending", "in_progress"}:
+        return cancelled
+
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), Mapping) else {}
+    if not (metadata.get("is_closure_repair_task") or metadata.get("is_closure_triage_task")):
+        return cancelled
+
+    cancel_task_with_metadata(db, linked_task_id, {
+        "cancelled_by_resolved_regression": True,
+        "resolved_regression_id": regression.get("id"),
+        "resolved_by_run_id": resolved_by_run_id,
+    })
+    return True
 
 
 def _summarize_open_regression(regression: Mapping[str, Any], *, stall_threshold: int) -> dict[str, Any]:
