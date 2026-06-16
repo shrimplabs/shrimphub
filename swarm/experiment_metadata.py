@@ -117,6 +117,16 @@ def stamp_experiment_metadata(
         meta["phase_order"] = []
         if experiment.get("flat_provider"):
             meta["flat_provider"] = experiment.get("flat_provider")
+    elif pipeline_mode == "adaptive_flat":
+        meta["pipeline"] = []
+        meta["pipeline_variant"] = []
+        meta["phase_order"] = []
+        meta["pipeline_mode"] = "adaptive_flat"
+        meta["adaptive_flat"] = True
+        if experiment.get("flat_provider"):
+            meta["flat_provider"] = experiment.get("flat_provider")
+        if isinstance(experiment.get("loop_model_routing"), Mapping):
+            meta["loop_model_routing"] = dict(experiment["loop_model_routing"])
     elif isinstance(experiment.get("pipeline"), list):
         phases = list(experiment["pipeline"])
         meta["pipeline"] = phases

@@ -32,6 +32,7 @@ PIPELINE_PRESETS: dict[str, list] = {
     "variant-d": "random",   # resolved per-task at clone time
     "variant-e": ["scout", "plan", "work", "validate"],
     "variant-f": [],          # flat loop, no pipeline
+    "adaptive-flat": "adaptive_flat",  # flat transcript with per-loop model routing
 }
 
 
@@ -58,6 +59,19 @@ def _stable_pipeline_metadata(phases: list[str]) -> dict:
     }
     meta.update(_phase_order_metadata(list(phases)))
     return meta
+
+
+def _as_dependency_list(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return []
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item]
 
 from flask import jsonify, request
 
@@ -107,71 +121,60 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             "tasks": tasks,
         }
 
-    def _append_seeded_tail_tasks(
-        snapshot: dict,
+    def _append_quality_gate_chain(
+        tasks: list[dict],
         *,
         source_project: str,
+        chain_id: str,
+        dependencies: list[str],
         experiment_id: str,
         experiment_variant: str,
         experiment_arm: str,
+        qa_type: str,
+        qa_focus: str = "",
     ) -> int:
-        """Append a deterministic art -> polish -> QA tail to cloned Godot DAGs."""
-        tasks: list[dict] = snapshot.get("tasks") or []
-        if not tasks:
+        if not dependencies:
             return 0
 
-        project_path = workspace / source_project
-        if not (project_path / "project.godot").exists():
-            return 0
-        if any(t.get("type") in {"art_pass", "polish", "harness_qa", "qa"} for t in tasks):
-            return 0
-
-        ids = {t.get("id") for t in tasks if t.get("id")}
-        dependents: set[str] = set()
-        for task in tasks:
-            deps = task.get("dependencies") or []
-            if isinstance(deps, str):
-                try:
-                    deps = json.loads(deps)
-                except Exception:
-                    deps = []
-            dependents.update(d for d in deps if d)
-
-        terminal_sources = [
-            t for t in tasks
-            if t.get("id") in ids
-            and t.get("id") not in dependents
-            and t.get("type") in {"feature", "bug", "refactor"}
-            and "genesis" not in str(t.get("id", "")).lower()
-        ]
-        if not terminal_sources:
-            terminal_sources = [
-                t for t in tasks
-                if t.get("id") in ids and t.get("id") not in dependents
-            ]
-        if not terminal_sources:
-            return 0
-
-        terminal_ids = sorted(t["id"] for t in terminal_sources)
-        has_harness = (project_path / "autoload" / "test_harness.gd").exists()
-        qa_type = "harness_qa" if has_harness else "qa"
-        tail_prefix = f"{source_project}-seeded-tail"
         base_meta = {
             "experiment_id": experiment_id,
             "experiment_arm": experiment_arm,
             "experiment_variant": experiment_variant,
             "source_project": source_project,
-            "source_task_id": ",".join(terminal_ids),
+            "source_task_id": ",".join(dependencies),
             "seeded_experiment_tail": True,
-            "tail_source_task_ids": terminal_ids,
+            "tail_source_task_ids": dependencies,
             "tail_pipeline_pinned": True,
             "auto_spawned": True,
+            "quality_gate_chain": chain_id,
         }
         base_meta.update(_stable_pipeline_metadata(_SEEDED_TAIL_PIPELINE))
 
-        art_id = f"{tail_prefix}-art"
-        polish_id = f"{tail_prefix}-polish"
-        qa_id = f"{tail_prefix}-qa"
+        art_id = f"{source_project}-{chain_id}-art"
+        polish_id = f"{source_project}-{chain_id}-polish"
+        qa_id = f"{source_project}-{chain_id}-qa"
+
+        art_meta = dict(
+            base_meta,
+            tail_stage="art_pass",
+            quality_gate_stage="art_pass",
+            phase_loop_limits={"work": 200},
+        )
+        polish_meta = dict(
+            base_meta,
+            tail_stage="polish",
+            quality_gate_stage="polish",
+            phase_loop_limits={"work": 200},
+        )
+        qa_meta = dict(
+            base_meta,
+            tail_stage=qa_type,
+            quality_gate_stage=qa_type,
+        )
+        if qa_focus:
+            qa_meta["qa_focus"] = qa_focus
+            qa_meta["quality_gate_focus"] = qa_focus
+
         tasks.extend([
             {
                 "id": art_id,
@@ -180,8 +183,8 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 "description": "Seeded experiment art pass: ensure game entities are visible on screen, sprites/textures are attached, and no placeholder geometry remains before QA.",
                 "priority": 60,
                 "status": "pending",
-                "dependencies": terminal_ids,
-                "metadata": dict(base_meta, tail_stage="art_pass"),
+                "dependencies": dependencies,
+                "metadata": art_meta,
                 "attempts": 0,
                 "max_attempts": 2,
             },
@@ -193,7 +196,7 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 "priority": 60,
                 "status": "pending",
                 "dependencies": [art_id],
-                "metadata": dict(base_meta, tail_stage="polish"),
+                "metadata": polish_meta,
                 "attempts": 0,
                 "max_attempts": 2,
             },
@@ -201,16 +204,118 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 "id": qa_id,
                 "project": source_project,
                 "type": qa_type,
-                "description": "Seeded experiment harness QA: run synchronous checkpoint tests against the game logic after art and polish.",
+                "description": (
+                    "Seeded experiment playability harness QA: launch the game and verify critical mechanics "
+                    "including movement, damage, enemy damage, wave completion, restart, and runtime health."
+                    if qa_focus == "playability"
+                    else "Seeded experiment harness QA: run synchronous checkpoint tests against the game logic after art and polish."
+                ),
                 "priority": 75,
                 "status": "pending",
                 "dependencies": [polish_id],
-                "metadata": dict(base_meta, tail_stage=qa_type),
+                "metadata": qa_meta,
                 "attempts": 0,
                 "max_attempts": 2,
             },
         ])
         return 3
+
+    def _append_seeded_tail_tasks(
+        snapshot: dict,
+        *,
+        source_project: str,
+        experiment_id: str,
+        experiment_variant: str,
+        experiment_arm: str,
+        quality_gate_mode: str = "final_tail",
+    ) -> int:
+        """Append deterministic art -> polish -> QA gates to cloned Godot DAGs."""
+        tasks: list[dict] = snapshot.get("tasks") or []
+        if not tasks:
+            return 0
+
+        project_path = workspace / source_project
+        if not (project_path / "project.godot").exists():
+            return 0
+        if any(t.get("type") in {"art_pass", "polish", "harness_qa", "qa", "hybrid_qa", "scenario_qa"} for t in tasks):
+            return 0
+
+        def implementation_tasks() -> list[dict]:
+            return [
+                t for t in tasks
+                if t.get("id")
+                and t.get("type") in {"feature", "bug", "refactor"}
+                and "genesis" not in str(t.get("id", "")).lower()
+            ]
+
+        def terminal_ids(candidates: list[dict]) -> list[str]:
+            candidate_ids = {t.get("id") for t in candidates if t.get("id")}
+            dependents: set[str] = set()
+            for task in candidates:
+                deps = _as_dependency_list(task.get("dependencies"))
+                dependents.update(d for d in deps if d in candidate_ids)
+            terminal = [
+                t["id"] for t in candidates
+                if t.get("id") in candidate_ids and t.get("id") not in dependents
+            ]
+            return sorted(terminal)
+
+        impl = sorted(implementation_tasks(), key=lambda t: str(t.get("id", "")))
+        if not impl:
+            return 0
+
+        has_harness = (project_path / "autoload" / "test_harness.gd").exists()
+        qa_type = "harness_qa" if has_harness else "qa"
+
+        total_added = 0
+        final_candidates = impl
+        if quality_gate_mode in {"run9_mid_final", "mid_final"} and len(impl) >= 2:
+            split = len(impl) // 2
+            first_half = impl[:split]
+            second_half = impl[split:]
+            final_candidates = second_half or impl
+            first_half_ids = {t["id"] for t in first_half}
+            mid_deps = terminal_ids(first_half) or [first_half[-1]["id"]]
+            total_added += _append_quality_gate_chain(
+                tasks,
+                source_project=source_project,
+                chain_id="run9-mid",
+                dependencies=mid_deps,
+                experiment_id=experiment_id,
+                experiment_variant=experiment_variant,
+                experiment_arm=experiment_arm,
+                qa_type=qa_type,
+                qa_focus="playability",
+            )
+            mid_qa_id = f"{source_project}-run9-mid-qa"
+            for task in second_half:
+                deps = _as_dependency_list(task.get("dependencies"))
+                if not any(d in first_half_ids for d in deps):
+                    continue
+                new_deps = [d for d in deps if d not in first_half_ids]
+                if mid_qa_id not in new_deps:
+                    new_deps.append(mid_qa_id)
+                task["dependencies"] = new_deps
+                meta = dict(task.get("metadata") or {})
+                meta["run9_mid_gate_dependency_rewrite"] = True
+                meta["run9_mid_gate_replaced_dependencies"] = sorted(d for d in deps if d in first_half_ids)
+                task["metadata"] = meta
+
+        final_deps = terminal_ids(final_candidates)
+        if not final_deps:
+            final_deps = [final_candidates[-1]["id"]]
+        total_added += _append_quality_gate_chain(
+            tasks,
+            source_project=source_project,
+            chain_id=("run9-final" if quality_gate_mode in {"run9_mid_final", "mid_final"} else "seeded-tail"),
+            dependencies=final_deps,
+            experiment_id=experiment_id,
+            experiment_variant=experiment_variant,
+            experiment_arm=experiment_arm,
+            qa_type=qa_type,
+            qa_focus=("playability" if quality_gate_mode in {"run9_mid_final", "mid_final"} else ""),
+        )
+        return total_added
 
     def _import_project(snapshot: dict, target_project: str, reset_status: bool = True):
         """Write snapshot data into the DB under target_project name.
@@ -288,10 +393,16 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                     or k.startswith("phase_")
                     or k in {
                         "pipeline", "pipeline_variant", "flat_provider",
+                        "pipeline_mode", "adaptive_flat", "loop_model_routing",
+                        "phase_loop_limits", "qa_focus", "quality_gate_focus",
+                        "quality_gate_chain", "quality_gate_stage",
                         "is_valid_order", "invalidity_reason",
                         "seeded_experiment_tail", "tail_source_task_ids",
                         "tail_pipeline_pinned", "auto_spawned",
                         "tail_stage",
+                        "dependency_override_applied", "dependency_override_reason",
+                        "original_dependencies", "run9_mid_gate_dependency_rewrite",
+                        "run9_mid_gate_replaced_dependencies",
                     }
                 }
             else:
@@ -497,15 +608,32 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         """Clone a snapshot into a brand-new project with a different name.
 
         Optional body fields:
-          pipeline: preset name ("control", "variant-a" … "variant-f") or explicit
+          pipeline: preset name ("control", "variant-a" … "variant-f",
+                    "adaptive-flat") or explicit
                     list of phase names. Omit to inherit the source project's pipeline.
           flat_provider: for variant-f, which provider to use (default: "minimax")
+          loop_model_routing: optional adaptive-flat routing config.
+          quality_gate_mode: "final_tail" (default), "run9_mid_final", or "none".
+          dependency_overrides: explicit source task dependency overrides for approved parallel arms.
         """
         data = request.json or {}
         tag = (data.get("tag") or "").strip()
         new_name = (data.get("new_name") or "").strip()
         pipeline_arg = data.get("pipeline")  # preset name, list, or None
         flat_provider = data.get("flat_provider", "minimax")
+        quality_gate_mode = str(data.get("quality_gate_mode") or "").strip()
+        if data.get("run9_quality_gates") is True:
+            quality_gate_mode = "run9_mid_final"
+        if not quality_gate_mode:
+            quality_gate_mode = "final_tail"
+        if quality_gate_mode not in {"final_tail", "run9_mid_final", "mid_final", "none"}:
+            return jsonify({"error": "quality_gate_mode must be one of: final_tail, run9_mid_final, none"}), 400
+        dependency_overrides = data.get("dependency_overrides") or {}
+        if dependency_overrides and not isinstance(dependency_overrides, dict):
+            return jsonify({"error": "dependency_overrides must be an object mapping source task ids to dependency id lists"}), 400
+        loop_model_routing = data.get("loop_model_routing") or {}
+        if not isinstance(loop_model_routing, dict):
+            loop_model_routing = {}
         experiment_id = (
             data.get("experiment_id")
             or f"{project_name}-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
@@ -530,12 +658,15 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         resolved_pipeline = None  # None = inherit global config
         is_random = False
         is_flat = False
+        is_adaptive_flat = False
 
         if pipeline_arg is not None:
             if isinstance(pipeline_arg, str) and pipeline_arg in PIPELINE_PRESETS:
                 preset = PIPELINE_PRESETS[pipeline_arg]
                 if preset == "random":
                     is_random = True
+                elif preset == "adaptive_flat":
+                    is_adaptive_flat = True
                 elif preset == []:
                     is_flat = True
                 else:
@@ -544,6 +675,8 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 resolved_pipeline = pipeline_arg
             elif pipeline_arg == "random":
                 is_random = True
+            elif pipeline_arg in ("adaptive_flat", "adaptive-flat"):
+                is_adaptive_flat = True
             elif pipeline_arg in ("flat", "none", ""):
                 is_flat = True
 
@@ -568,6 +701,28 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         tasks = snapshot["tasks"]
         experiment_variant_label = pipeline_arg if isinstance(pipeline_arg, str) else "custom"
         experiment_arm_label = "exploratory" if is_random else "confirmatory"
+
+        if dependency_overrides:
+            task_ids = {t.get("id") for t in tasks if t.get("id")}
+            for task_id, deps in dependency_overrides.items():
+                if task_id not in task_ids:
+                    return jsonify({"error": f"dependency_overrides references unknown task id: {task_id}"}), 400
+                dep_list = _as_dependency_list(deps)
+                unknown = [dep for dep in dep_list if dep not in task_ids]
+                if unknown:
+                    return jsonify({"error": f"dependency_overrides for {task_id} references unknown dependency id(s): {', '.join(unknown)}"}), 400
+            for t in tasks:
+                task_id = t.get("id")
+                if task_id not in dependency_overrides:
+                    continue
+                old_deps = _as_dependency_list(t.get("dependencies"))
+                new_deps = _as_dependency_list(dependency_overrides[task_id])
+                t["dependencies"] = new_deps
+                meta = dict(t.get("metadata") or {})
+                meta["dependency_override_applied"] = True
+                meta["dependency_override_reason"] = "explicit_clone_request"
+                meta["original_dependencies"] = old_deps
+                t["metadata"] = meta
 
         # For random variant: assign a random phase ordering to each task's metadata
         if is_random:
@@ -597,6 +752,29 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 meta["invalidity_reason"] = ""
                 meta["flat_provider"] = flat_provider
                 t["metadata"] = meta
+        elif is_adaptive_flat:
+            effective_routing = {
+                "enabled": True,
+                "fast_provider": "minimax-fast",
+                "strong_provider": flat_provider,
+                "max_consecutive_cheap_loops": 3,
+                **loop_model_routing,
+            }
+            for t in tasks:
+                meta = dict(t.get("metadata") or {})
+                meta["experiment_id"] = experiment_id
+                meta["experiment_arm"] = "confirmatory"
+                meta["pipeline"] = []
+                meta["pipeline_variant"] = []
+                meta["experiment_variant"] = "adaptive-flat"
+                meta["phase_order"] = []
+                meta["is_valid_order"] = True
+                meta["invalidity_reason"] = ""
+                meta["flat_provider"] = flat_provider
+                meta["pipeline_mode"] = "adaptive_flat"
+                meta["adaptive_flat"] = True
+                meta["loop_model_routing"] = effective_routing
+                t["metadata"] = meta
         elif resolved_pipeline is not None:
             for t in tasks:
                 meta = dict(t.get("metadata") or {})
@@ -609,13 +787,17 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 t["metadata"] = meta
 
         seeded_tail_tasks = 0
-        if pipeline_arg is not None:
+        if pipeline_arg is not None and quality_gate_mode != "none":
             seeded_tail_tasks = _append_seeded_tail_tasks(
                 snapshot,
                 source_project=project_name,
                 experiment_id=experiment_id,
-                experiment_variant="variant-d" if is_random else ("variant-f" if is_flat else experiment_variant_label),
+                experiment_variant=(
+                    "variant-d" if is_random
+                    else ("adaptive-flat" if is_adaptive_flat else ("variant-f" if is_flat else experiment_variant_label))
+                ),
                 experiment_arm=experiment_arm_label,
+                quality_gate_mode=quality_gate_mode,
             )
 
         _import_project(snapshot, new_name, reset_status=True)
@@ -651,6 +833,31 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 },
             }
 
+        # For adaptive-flat: store flat provider plus routing config for future tasks.
+        if is_adaptive_flat:
+            pp = config.setdefault("project_pipelines", {})
+            effective_routing = {
+                "enabled": True,
+                "fast_provider": "minimax-fast",
+                "strong_provider": flat_provider,
+                "max_consecutive_cheap_loops": 3,
+                **loop_model_routing,
+            }
+            pp[new_name] = {
+                "*": [],
+                "_flat_provider": flat_provider,
+                "_loop_model_routing": effective_routing,
+                "_experiment": {
+                    "experiment_id": experiment_id,
+                    "experiment_arm": "confirmatory",
+                    "experiment_variant": "adaptive-flat",
+                    "pipeline_mode": "adaptive_flat",
+                    "flat_provider": flat_provider,
+                    "loop_model_routing": effective_routing,
+                    "source_project": project_name,
+                },
+            }
+
         # For variant D: new tasks created later must keep sampling random orders.
         if is_random:
             pp = config.setdefault("project_pipelines", {})
@@ -680,6 +887,8 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             "experiment_variant": pipeline_arg,
             "experiment_id": experiment_id,
             "seeded_tail_tasks": seeded_tail_tasks,
+            "quality_gate_mode": quality_gate_mode,
+            "dependency_overrides": len(dependency_overrides),
         }
         if git_note:
             result["warning"] = git_note

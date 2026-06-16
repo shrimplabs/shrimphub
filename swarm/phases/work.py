@@ -363,9 +363,12 @@ class WorkPhase(Phase):
         commit_sha = None
         completed = False
         vision_calls_since_write = 0
+        phase_limits = self.config.get("phase_loop_limits") or {}
+        max_work_loops = int(phase_limits.get("work") or self.config.get("work_max_loops") or _MAX_WORK_LOOPS)
+        max_work_loops = max(1, max_work_loops)
 
-        for loop in range(1, _MAX_WORK_LOOPS + 1):
-            self.log(f"Work loop {loop}/{_MAX_WORK_LOOPS}")
+        for loop in range(1, max_work_loops + 1):
+            self.log(f"Work loop {loop}/{max_work_loops}")
             text, _tokens, _thinking = call_llm(_WORK_SYSTEM, messages, provider=provider)
 
             if text.startswith("Error:") or text.startswith("API error"):

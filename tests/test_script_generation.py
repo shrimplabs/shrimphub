@@ -101,6 +101,40 @@ class TestEmbeddedConfig:
         assert "rt.LLM_PROVIDER" in source
         assert sr.LLM_PROVIDER in source
 
+    def test_adaptive_flat_project_config_embedded(self, tmp_path):
+        import swarm_runner as sr
+
+        task = _make_task(project="adaptive-flat-game", metadata={})
+        original_config = sr._config
+        sr._config = {
+            **original_config,
+            "project_pipelines": {
+                **original_config.get("project_pipelines", {}),
+                "adaptive-flat-game": {
+                    "*": [],
+                    "_flat_provider": "minimax",
+                    "_experiment": {"pipeline_mode": "adaptive_flat"},
+                    "_loop_model_routing": {
+                        "enabled": True,
+                        "fast_provider": "minimax-fast",
+                        "strong_provider": "minimax",
+                    },
+                },
+            },
+        }
+        try:
+            source = _gen(task, workspace=tmp_path)
+        finally:
+            sr._config = original_config
+
+        compile(source, "<generated>", "exec")
+        assert "rt.PIPELINE             = []" in source
+        assert "rt.ADAPTIVE_FLAT        = True" in source
+        assert "'fast_provider': 'minimax-fast'" in source
+        assert "'enabled': True" in source
+        assert '"enabled": true' not in source
+        assert "rt.LLM_PROVIDER     = 'minimax'" in source
+
     def test_max_lines_embedded(self, tmp_path):
         import swarm_runner as sr
         source = _gen(_make_task(), workspace=tmp_path)

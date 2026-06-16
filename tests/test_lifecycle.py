@@ -42,6 +42,14 @@ sys.exit(1)
 """
 
 
+def _sleep_script():
+    """Long-running script used to verify watchdog termination."""
+    return """\
+import time
+time.sleep(60)
+"""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture: isolated DB + orchestrator globals
 # ---------------------------------------------------------------------------
@@ -235,6 +243,39 @@ class TestSpawnAgent:
             orc.spawn_agent(task, lambda t: _exit0_script())
         updated = db.task_get(task["id"])
         assert updated["status"] == "pending"
+
+
+class TestAgentReconciliation:
+    def test_live_agent_on_cancelled_task_is_terminated(self, isolated_orc):
+        task = _seed_task(task_id="cancelled-owned-task")
+        agent_id = orc.spawn_agent(task, lambda t: _sleep_script())
+        assert agent_id is not None
+
+        with lifecycle._handle_lock:
+            process = lifecycle._active_handles[agent_id]["process"]
+        assert process.poll() is None
+
+        db.task_update_status(
+            task["id"],
+            "cancelled",
+            completed="2026-06-14T13:00:00",
+        )
+
+        result = lifecycle.reconcile_agent_runtime_state(prune=False)
+
+        assert agent_id in result["repaired_agent_ids"]
+        assert process.poll() is not None
+        with lifecycle._handle_lock:
+            assert agent_id not in lifecycle._active_handles
+
+        agent = db.agent_get(agent_id)
+        assert agent["status"] == "failed"
+        assert agent["exit_code"] == -1
+        assert agent["completed_at"]
+
+        updated = db.task_get(task["id"])
+        assert updated["status"] == "cancelled"
+        assert updated["completed"] == "2026-06-14T13:00:00"
 
 
 class TestResearchFeederRunAfter:
@@ -447,7 +488,7 @@ class TestLifecycleFailure:
         assert updated["attempts"] == 1
         assert recovery_tasks == []
 
-    def test_cancel_exhaust_with_dependents_creates_continuity_task(self, isolated_orc):
+    def test_polish_exhaust_with_dependents_soft_completes_gate(self, isolated_orc):
         task = _seed_task(task_id="polish-blocker", max_attempts=1, attempts=0, project="cancel-proj")
         db.task_update("polish-blocker", {"type": "polish", "status": "in_progress"})
         db.task_upsert({
@@ -463,18 +504,72 @@ class TestLifecycleFailure:
 
         lifecycle._handle_task_failure("polish-blocker", "cancel-proj", "router timeout")
 
-        cancelled = db.task_get(task["id"])
+        completed = db.task_get(task["id"])
         continuity_tasks = [
             t for t in db.task_get_all()
             if (t.get("metadata") or {}).get("is_recovery_task")
         ]
-        assert cancelled["status"] == "cancelled"
-        assert cancelled["metadata"]["cancel_continuity_repaired"] is True
-        assert len(continuity_tasks) == 1
-        continuity = continuity_tasks[0]
-        assert continuity["status"] == "pending"
-        assert continuity["type"] == "polish"
-        assert db.task_get("qa-downstream")["dependencies"] == [continuity["id"]]
+        assert completed["status"] == "completed"
+        assert completed["metadata"]["soft_gate_failed"] is True
+        assert completed["metadata"]["quality_gate_incomplete"] is True
+        assert completed["metadata"]["quality_gate_failure_reason"] == "max_attempts_exhausted"
+        assert continuity_tasks == []
+
+        downstream = db.task_get("qa-downstream")
+        assert downstream["dependencies"] == ["polish-blocker"]
+        assert downstream["metadata"]["quality_gate_incomplete_upstream"] == ["polish-blocker"]
+        assert downstream["metadata"]["soft_quality_gate_warnings"][0]["task_id"] == "polish-blocker"
+
+    def test_research_cap_on_art_pass_soft_completes_gate(self, isolated_orc):
+        art = _seed_task(task_id="art-soft-cap", max_attempts=2, attempts=2, project="soft-proj")
+        db.task_upsert({
+            "id": "soft-proj-genesis",
+            "project": "soft-proj",
+            "type": "feature",
+            "description": "Genesis",
+            "priority": 50,
+            "status": "completed",
+            "dependencies": [],
+            "metadata": {},
+        })
+        db.task_update("art-soft-cap", {
+            "type": "art_pass",
+            "status": "failed",
+            "metadata": {"research_feeder_cycles": 3},
+            "dependencies": ["soft-proj-genesis"],
+        })
+        db.task_upsert({
+            "id": "polish-after-art",
+            "project": "soft-proj",
+            "type": "polish",
+            "description": "Polish after art",
+            "priority": 50,
+            "status": "pending",
+            "dependencies": ["art-soft-cap"],
+            "metadata": {},
+        })
+        db.task_upsert({
+            "id": "research-art",
+            "project": "soft-proj",
+            "type": "research",
+            "description": "Diagnose art",
+            "priority": 50,
+            "status": "completed",
+            "dependencies": [],
+            "metadata": {"feeds_into_task_id": "art-soft-cap"},
+        })
+
+        recovery._apply_research_feeder_result("research-art", "art diagnosis", needs_human_review=False)
+
+        completed = db.task_get("art-soft-cap")
+        assert completed["status"] == "completed"
+        assert completed["metadata"]["soft_gate_failed"] is True
+        assert completed["metadata"]["quality_gate_failure_reason"] == "research_feeder_cycle_cap"
+        assert completed["metadata"]["research_feeder_cap_reached"] is True
+
+        downstream = db.task_get("polish-after-art")
+        assert downstream["dependencies"] == ["art-soft-cap"]
+        assert downstream["metadata"]["quality_gate_incomplete_upstream"] == ["art-soft-cap"]
 
     def test_cancel_exhaust_without_dependents_still_cancels_cleanly(self, isolated_orc):
         _seed_task(task_id="qa-alone", max_attempts=1, attempts=0, project="cancel-proj")

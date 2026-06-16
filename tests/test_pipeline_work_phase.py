@@ -1,7 +1,8 @@
 import json
 import pytest
+from unittest.mock import patch
 from swarm.pipeline import TaskState, run_pipeline, register_phase, Phase, PHASE_REGISTRY
-from swarm.phases.work import _build_work_prompt
+from swarm.phases.work import WorkPhase, _build_work_prompt
 
 
 def test_visual_tasks_get_pipeline_vision_guidance():
@@ -60,6 +61,26 @@ def test_polish_task_gets_pipeline_ux_profile():
     assert "TASK_COMPLETE" not in prompt
     assert "<< description >>" not in prompt
     assert "Improve menu feedback" in prompt
+
+
+def test_work_loop_limit_can_be_overridden(tmp_path):
+    state = TaskState(
+        task_id="art-override",
+        task_type="art_pass",
+        project="game",
+        description="Improve sprites",
+        project_path=str(tmp_path),
+        workspace=str(tmp_path),
+    )
+
+    with patch("swarm.phases.work.call_llm", return_value=("continue", {}, [])) as call_llm:
+        phase = WorkPhase(config={"phase_loop_limits": {"work": 3}})
+        result = phase.run(state)
+
+    assert result.failed is True
+    assert result.phase_loops["work"] == 3
+    assert result.work_report["loops_used"] == 3
+    assert call_llm.call_count == 3
 
 
 # ===========================================================================

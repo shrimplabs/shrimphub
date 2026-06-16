@@ -213,6 +213,73 @@ class TestProjects:
         assert exp["experiment_id"] == "exp-test"
         assert exp["pipeline_mode"] == "random"
 
+    def test_adaptive_flat_clone_stamps_tasks_and_future_graph_tasks(self, client, app):
+        workspace = Path(app.config["WORKSPACE_ROOT"])
+        source = workspace / "source-adaptive-game"
+        source.mkdir(parents=True)
+        (source / "README.md").write_text("source\n")
+        os.system(f"git -C {source} init -q")
+        os.system(f"git -C {source} config user.email test@example.invalid")
+        os.system(f"git -C {source} config user.name Test")
+        os.system(f"git -C {source} add README.md")
+        os.system(f"git -C {source} commit -q -m init")
+
+        r = client.post("/api/projects", json={"name": "source-adaptive-game", "managed": True}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/tasks", json={
+            "id": "source-adaptive-game-task-1",
+            "project": "source-adaptive-game",
+            "type": "feature",
+            "description": "Add a thing",
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        r = client.post("/api/projects/source-adaptive-game/snapshot", json={"tag": "base"}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/projects/source-adaptive-game/clone", json={
+            "tag": "base",
+            "new_name": "source-adaptive-game-run9",
+            "pipeline": "adaptive-flat",
+            "flat_provider": "minimax",
+            "loop_model_routing": {
+                "fast_provider": "minimax-fast",
+                "strong_provider": "minimax",
+                "max_consecutive_cheap_loops": 2,
+            },
+            "experiment_id": "exp-adaptive-flat",
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        tasks = client.get("/api/tasks?project=source-adaptive-game-run9&include_completed=true").json["tasks"]
+        cloned = [t for t in tasks if t["id"] != "source-adaptive-game-run9-genesis"]
+        assert cloned
+        meta = cloned[0]["metadata"]
+        assert meta["experiment_id"] == "exp-adaptive-flat"
+        assert meta["experiment_variant"] == "adaptive-flat"
+        assert meta["pipeline"] == []
+        assert meta["pipeline_mode"] == "adaptive_flat"
+        assert meta["adaptive_flat"] is True
+        assert meta["flat_provider"] == "minimax"
+        assert meta["loop_model_routing"]["max_consecutive_cheap_loops"] == 2
+
+        r = client.post("/api/tasks", json={
+            "id": "source-adaptive-game-run9-followup",
+            "project": "source-adaptive-game-run9",
+            "type": "feature",
+            "description": "Follow-up created by graph reflection",
+        }, content_type="application/json")
+        assert r.status_code == 200
+        meta = r.json["task"]["metadata"]
+        assert meta["experiment_variant"] == "adaptive-flat"
+        assert meta["pipeline_mode"] == "adaptive_flat"
+        assert meta["adaptive_flat"] is True
+        assert meta["loop_model_routing"]["fast_provider"] == "minimax-fast"
+
+        cfg = json.loads(Path(app.config["CONFIG_FILE"]).read_text())
+        project_cfg = cfg["project_pipelines"]["source-adaptive-game-run9"]
+        assert project_cfg["_experiment"]["pipeline_mode"] == "adaptive_flat"
+        assert project_cfg["_loop_model_routing"]["strong_provider"] == "minimax"
+
     def test_experiment_clone_seeds_art_polish_qa_tail_for_godot(self, client, app):
         workspace = Path(app.config["WORKSPACE_ROOT"])
         source = workspace / "godot-game"
@@ -276,6 +343,134 @@ class TestProjects:
             assert meta["phase_order"] == ["scout", "work", "validate"]
             assert meta["tail_pipeline_pinned"] is True
             assert meta["is_valid_order"] is True
+
+    def test_experiment_clone_can_seed_run9_mid_and_final_quality_gates(self, client, app):
+        workspace = Path(app.config["WORKSPACE_ROOT"])
+        source = workspace / "run9-game"
+        (source / "autoload").mkdir(parents=True)
+        (source / "project.godot").write_text("[application]\n")
+        (source / "autoload" / "test_harness.gd").write_text("extends Node\n")
+        os.system(f"git -C {source} init -q")
+        os.system(f"git -C {source} config user.email test@example.invalid")
+        os.system(f"git -C {source} config user.name Test")
+        os.system(f"git -C {source} add .")
+        os.system(f"git -C {source} commit -q -m init")
+
+        r = client.post("/api/projects", json={"name": "run9-game", "managed": True}, content_type="application/json")
+        assert r.status_code == 200
+        for idx in range(1, 5):
+            payload = {
+                "id": f"run9-game-t{idx}",
+                "project": "run9-game",
+                "type": "feature",
+                "description": f"Feature {idx}",
+            }
+            if idx > 1:
+                payload["dependencies"] = [f"run9-game-t{idx - 1}"]
+            r = client.post("/api/tasks", json=payload, content_type="application/json")
+            assert r.status_code == 200
+
+        r = client.post("/api/projects/run9-game/snapshot", json={"tag": "base"}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/projects/run9-game/clone", json={
+            "tag": "base",
+            "new_name": "run9-game-c",
+            "pipeline": "variant-c",
+            "experiment_id": "exp-run9",
+            "run9_quality_gates": True,
+        }, content_type="application/json")
+
+        assert r.status_code == 200
+        assert r.json["seeded_tail_tasks"] == 6
+        assert r.json["quality_gate_mode"] == "run9_mid_final"
+
+        tasks = client.get("/api/tasks?project=run9-game-c&include_completed=true").json["tasks"]
+        gates = [
+            t for t in tasks
+            if (t.get("metadata") or {}).get("seeded_experiment_tail")
+        ]
+        assert len(gates) == 6
+
+        by_chain_stage = {
+            (t["metadata"]["quality_gate_chain"], t["metadata"]["quality_gate_stage"]): t
+            for t in gates
+        }
+        mid_art = by_chain_stage[("run9-mid", "art_pass")]
+        mid_polish = by_chain_stage[("run9-mid", "polish")]
+        mid_qa = by_chain_stage[("run9-mid", "harness_qa")]
+        final_art = by_chain_stage[("run9-final", "art_pass")]
+        final_polish = by_chain_stage[("run9-final", "polish")]
+        final_qa = by_chain_stage[("run9-final", "harness_qa")]
+
+        cloned_t2 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "run9-game-t2")
+        cloned_t3 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "run9-game-t3")
+        cloned_t4 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "run9-game-t4")
+
+        assert mid_art["dependencies"] == [cloned_t2["id"]]
+        assert mid_polish["dependencies"] == [mid_art["id"]]
+        assert mid_qa["dependencies"] == [mid_polish["id"]]
+        assert cloned_t3["dependencies"] == [mid_qa["id"]]
+        assert cloned_t3["metadata"]["run9_mid_gate_dependency_rewrite"] is True
+        assert final_art["dependencies"] == [cloned_t4["id"]]
+        assert final_polish["dependencies"] == [final_art["id"]]
+        assert final_qa["dependencies"] == [final_polish["id"]]
+
+        assert mid_art["metadata"]["phase_loop_limits"] == {"work": 200}
+        assert final_polish["metadata"]["phase_loop_limits"] == {"work": 200}
+        assert mid_qa["metadata"]["qa_focus"] == "playability"
+        assert final_qa["metadata"]["qa_focus"] == "playability"
+
+    def test_experiment_clone_accepts_explicit_dependency_overrides(self, client, app):
+        workspace = Path(app.config["WORKSPACE_ROOT"])
+        source = workspace / "parallel-game"
+        source.mkdir(parents=True)
+        (source / "project.godot").write_text("[application]\n")
+        os.system(f"git -C {source} init -q")
+        os.system(f"git -C {source} config user.email test@example.invalid")
+        os.system(f"git -C {source} config user.name Test")
+        os.system(f"git -C {source} add .")
+        os.system(f"git -C {source} commit -q -m init")
+
+        r = client.post("/api/projects", json={"name": "parallel-game", "managed": True}, content_type="application/json")
+        assert r.status_code == 200
+        for idx in range(1, 4):
+            payload = {
+                "id": f"parallel-game-t{idx}",
+                "project": "parallel-game",
+                "type": "feature",
+                "description": f"Feature {idx}",
+            }
+            if idx > 1:
+                payload["dependencies"] = [f"parallel-game-t{idx - 1}"]
+            r = client.post("/api/tasks", json=payload, content_type="application/json")
+            assert r.status_code == 200
+
+        r = client.post("/api/projects/parallel-game/snapshot", json={"tag": "base"}, content_type="application/json")
+        assert r.status_code == 200
+        r = client.post("/api/projects/parallel-game/clone", json={
+            "tag": "base",
+            "new_name": "parallel-game-run9",
+            "pipeline": "variant-f",
+            "quality_gate_mode": "none",
+            "dependency_overrides": {
+                "parallel-game-t2": [],
+                "parallel-game-t3": ["parallel-game-t1"],
+            },
+        }, content_type="application/json")
+
+        assert r.status_code == 200
+        assert r.json["dependency_overrides"] == 2
+        assert r.json["seeded_tail_tasks"] == 0
+
+        tasks = client.get("/api/tasks?project=parallel-game-run9&include_completed=true").json["tasks"]
+        cloned_t1 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "parallel-game-t1")
+        cloned_t2 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "parallel-game-t2")
+        cloned_t3 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "parallel-game-t3")
+
+        assert cloned_t2["dependencies"] == []
+        assert cloned_t3["dependencies"] == [cloned_t1["id"]]
+        assert cloned_t2["metadata"]["dependency_override_applied"] is True
+        assert cloned_t2["metadata"]["original_dependencies"] == ["parallel-game-t1"]
 
     def test_add_project_missing_name(self, client):
         r = client.post("/api/projects", json={}, content_type="application/json")

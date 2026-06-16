@@ -50,6 +50,43 @@ def test_stamp_experiment_metadata_respects_explicit_pipeline():
     assert meta == {"pipeline": ["work"], "experiment_variant": "custom"}
 
 
+def test_stamp_experiment_metadata_applies_adaptive_flat_project_mode():
+    routing = {
+        "enabled": True,
+        "fast_provider": "minimax-fast",
+        "strong_provider": "minimax",
+    }
+    config = {
+        "project_pipelines": {
+            "game-adaptive-flat": {
+                "*": [],
+                "_flat_provider": "minimax",
+                "_loop_model_routing": routing,
+                "_experiment": {
+                    "experiment_id": "exp-adaptive",
+                    "experiment_arm": "confirmatory",
+                    "experiment_variant": "adaptive-flat",
+                    "pipeline_mode": "adaptive_flat",
+                    "flat_provider": "minimax",
+                    "loop_model_routing": routing,
+                },
+            }
+        }
+    }
+
+    meta = stamp_experiment_metadata("game-adaptive-flat", {}, config=config)
+
+    assert meta["experiment_id"] == "exp-adaptive"
+    assert meta["experiment_variant"] == "adaptive-flat"
+    assert meta["pipeline"] == []
+    assert meta["pipeline_variant"] == []
+    assert meta["phase_order"] == []
+    assert meta["pipeline_mode"] == "adaptive_flat"
+    assert meta["adaptive_flat"] is True
+    assert meta["flat_provider"] == "minimax"
+    assert meta["loop_model_routing"] == routing
+
+
 def test_stamp_experiment_metadata_repairs_partial_pipeline_metadata():
     config = {
         "project_pipelines": {

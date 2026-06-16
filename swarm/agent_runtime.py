@@ -232,6 +232,12 @@ _ROUTING_PHASE: str = ""  # set by pipeline phases so shrimp-router picks the ri
 PLAN_PROVIDER: str = ""        # provider for plan phase; empty = use LLM_PROVIDER
 WORK_PROVIDER: str = ""        # provider for work phase; empty = use LLM_PROVIDER
 SYNTHESIZE_PROVIDER: str = ""  # provider for synthesize phase (research pipeline); empty = use LLM_PROVIDER
+PHASE_LOOP_LIMITS: dict = {}   # optional per-phase loop overrides, e.g. {"plan": 20}
+
+# EXPERIMENT: adaptive_flat keeps the legacy continuous transcript but routes
+# individual loops between fast and strong providers based on recent tool use.
+ADAPTIVE_FLAT: bool = False
+LOOP_MODEL_ROUTING: dict = {}
 
 # Write-blocked tools during scout phase -- enforced at dispatch level.
 _SCOUT_BLOCKED_TOOLS: frozenset = frozenset({
@@ -409,6 +415,7 @@ def main() -> int:
                 "scout_provider": SCOUT_PROVIDER or LLM_PROVIDER,
                 "work_provider": WORK_PROVIDER or LLM_PROVIDER,
                 "synthesize_provider": SYNTHESIZE_PROVIDER or LLM_PROVIDER,
+                "phase_loop_limits": dict(PHASE_LOOP_LIMITS or {}),
                 "validation_timeout": 120,
                 "pipeline": PIPELINE,
                 "data_dir": DATA_DIR,
@@ -737,9 +744,30 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     # Tool loop
     conversation = [{"role": "user", "content": user_prompt}]
     tool_loop_count = 0
+    _adaptive_flat_enabled = bool(
+        ADAPTIVE_FLAT
+        or (LOOP_MODEL_ROUTING or {}).get("enabled")
+        or TASK_METADATA.get("pipeline_mode") == "adaptive_flat"
+    )
+    _last_tools_for_routing: list[str] = []
+    _adaptive_flat_stats = {
+        "enabled": _adaptive_flat_enabled,
+        "cheap_loops": 0,
+        "strong_loops": 0,
+        "default_loops": 0,
+        "model_switches": 0,
+        "cheap_completion_blocks": 0,
+        "last_provider": "",
+        "decisions": [],
+    }
+    _consecutive_cheap_loops = 0
 
     # Scout phase: determine threshold for this task type (0 = no scout phase)
-    _scout_threshold = SCOUT_LOOPS.get(TASK_TYPE, 0) if SCOUT_PROVIDER and SCOUT_PROVIDER != LLM_PROVIDER else 0
+    _scout_threshold = (
+        SCOUT_LOOPS.get(TASK_TYPE, 0)
+        if SCOUT_PROVIDER and SCOUT_PROVIDER != LLM_PROVIDER and not _adaptive_flat_enabled
+        else 0
+    )
     _scout_active = _scout_threshold > 0
     _scout_handed_off = False  # True once we've switched to the main provider
 
@@ -930,11 +958,75 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         # Determine active provider for this loop
         _active_provider = SCOUT_PROVIDER if (_scout_active and not _scout_handed_off) else None
+        _provider_tier = "default"
+        _provider_reason = "default_provider"
+        if _adaptive_flat_enabled and not _active_provider:
+            try:
+                from swarm.model_routing import choose_adaptive_flat_provider
+                _decision = choose_adaptive_flat_provider(
+                    LOOP_MODEL_ROUTING,
+                    default_provider=LLM_PROVIDER,
+                    fast_provider=str((LOOP_MODEL_ROUTING or {}).get("fast_provider", "")),
+                    strong_provider=str((LOOP_MODEL_ROUTING or {}).get("strong_provider", "")),
+                    task_type=TASK_TYPE,
+                    loop_index=tool_loop_count,
+                    last_tools=_last_tools_for_routing,
+                    consecutive_cheap_loops=_consecutive_cheap_loops,
+                )
+                _active_provider = _decision.provider
+                _provider_tier = _decision.tier
+                _provider_reason = _decision.reason
+            except Exception as _route_err:
+                log(f"[AdaptiveFlat] routing failed, using default provider: {_route_err}")
+                _active_provider = None
+                _provider_tier = "default"
+                _provider_reason = "routing_error"
+            _provider_name = _active_provider or LLM_PROVIDER
+            _last_provider = _adaptive_flat_stats.get("last_provider", "")
+            if _last_provider and _last_provider != _provider_name:
+                _adaptive_flat_stats["model_switches"] += 1
+            _adaptive_flat_stats["last_provider"] = _provider_name
+            if _provider_tier == "cheap":
+                _adaptive_flat_stats["cheap_loops"] += 1
+                _consecutive_cheap_loops += 1
+            elif _provider_tier == "strong":
+                _adaptive_flat_stats["strong_loops"] += 1
+                _consecutive_cheap_loops = 0
+            else:
+                _adaptive_flat_stats["default_loops"] += 1
+                _consecutive_cheap_loops = 0
+            _adaptive_flat_stats["decisions"].append({
+                "loop": tool_loop_count + 1,
+                "provider": _provider_name,
+                "tier": _provider_tier,
+                "reason": _provider_reason,
+                "last_tools": list(_last_tools_for_routing),
+            })
+            if len(_adaptive_flat_stats["decisions"]) > 40:
+                _adaptive_flat_stats["decisions"] = _adaptive_flat_stats["decisions"][-40:]
+            log(
+                f"[AdaptiveFlat] provider={_provider_name} tier={_provider_tier} "
+                f"reason={_provider_reason} last_tools={_last_tools_for_routing}"
+            )
+            try:
+                import swarm.agent_runtime as _self_mod
+                if _provider_tier == "cheap":
+                    _self_mod._ROUTING_PHASE = str(LOOP_MODEL_ROUTING.get("cheap_phase") or "")
+                else:
+                    _self_mod._ROUTING_PHASE = str(LOOP_MODEL_ROUTING.get("strong_phase") or "")
+            except Exception:
+                pass
 
         system_with_budget = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}]\n" + system_prompt
         if _scout_active and not _scout_handed_off:
             system_with_budget += "\n\n[SCOUT MODE — read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
         response, tokens, thinking_blocks = call_llm(system_with_budget, conversation, provider=_active_provider)
+        if _adaptive_flat_enabled:
+            try:
+                import swarm.agent_runtime as _self_mod
+                _self_mod._ROUTING_PHASE = ""
+            except Exception:
+                pass
         total_input_tokens += tokens.get("input", 0)
         total_output_tokens += tokens.get("output", 0)
         total_cache_read_tokens += tokens.get("cache_read", 0)
@@ -958,6 +1050,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 "total": total_input_tokens + total_output_tokens,
                 "conv_estimate": _conv_est,
                 "compact_threshold": compact_token_threshold,
+                "adaptive_flat": _adaptive_flat_stats,
             }))
         except Exception:
             pass
@@ -990,6 +1083,20 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         _has_task_complete = "TASK_COMPLETE" in _response_sans_tools
 
         tool_calls = parse_tool_calls(response)
+        if _adaptive_flat_enabled and _provider_tier == "cheap" and _has_task_complete:
+            _adaptive_flat_stats["cheap_completion_blocks"] += 1
+            _has_task_complete = False
+            log("[AdaptiveFlat] Cheap provider attempted TASK_COMPLETE; requiring strong confirmation")
+            conversation.append({"role": "user", "content": (
+                "[ADAPTIVE-FLAT GUARD]\n"
+                "A cheap/read-only routed loop attempted TASK_COMPLETE. Completion must be confirmed "
+                "by the strong provider. Continue with any needed tool calls, or let the strong model "
+                "confirm completion on the next loop."
+            )})
+            _last_tools_for_routing = []
+            _consecutive_cheap_loops = int(LOOP_MODEL_ROUTING.get("max_consecutive_cheap_loops", LOOP_MODEL_ROUTING.get("max_cheap_loops", 3)) or 3)
+            tool_loop_count += 1
+            continue
 
         # Validate tool calls before executing -- catch missing required args
         # and inject a targeted correction WITHOUT burning a loop counter slot.
@@ -1012,6 +1119,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     log("WARNING: malformed tool call(s) after 2 retries -- executing anyway")
 
         if not tool_calls:
+            _last_tools_for_routing = []
             has_open = "[TOOL_CALL]" in response or "<tool_call>" in response
             has_close = "[/TOOL_CALL]" in response or "</tool_call>" in response
             if has_open and not has_close:
@@ -1073,6 +1181,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             break
 
         tool_results = []
+        _last_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
         _last_run_outputs = []   # reset each loop; only keep the latest batch
         _no_tool_call_nudged = False  # reset -- model is back to using tools
 
@@ -1584,6 +1693,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             "loop_count": tool_loop_count,
             "provider": LLM_PROVIDER,
             "model": _pconf.get("model", ""),
+            "adaptive_flat": _adaptive_flat_stats,
         }
         token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
         token_file.write_text(json.dumps(token_data))

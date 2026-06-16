@@ -229,9 +229,13 @@ class PlanPhase(Phase):
         text = ""
         last_plan_errors: list[str] = []
 
-        for loop in range(1, _MAX_PLAN_LOOPS + 1):
-            self.log(f"Plan loop {loop}/{_MAX_PLAN_LOOPS}")
-            if loop == _MAX_PLAN_LOOPS - 1:
+        phase_limits = self.config.get("phase_loop_limits") or {}
+        max_plan_loops = int(phase_limits.get("plan") or self.config.get("plan_max_loops") or _MAX_PLAN_LOOPS)
+        max_plan_loops = max(1, max_plan_loops)
+
+        for loop in range(1, max_plan_loops + 1):
+            self.log(f"Plan loop {loop}/{max_plan_loops}")
+            if loop == max_plan_loops - 1:
                 messages.append({
                     "role": "user",
                     "content": "You have two planning loops left. Stop inspecting and output PLAN_COMPLETE with the JSON plan.",
@@ -298,7 +302,7 @@ class PlanPhase(Phase):
             # from the task description so scout→work→validate can still proceed.
             detail = "; ".join(last_plan_errors) if last_plan_errors else "no valid PLAN_COMPLETE JSON"
             self.log(
-                f"Plan phase could not produce a concrete plan after {_MAX_PLAN_LOOPS} loops "
+                f"Plan phase could not produce a concrete plan after {max_plan_loops} loops "
                 f"({detail}). Falling back to minimal synthetic plan."
             )
             plan = {

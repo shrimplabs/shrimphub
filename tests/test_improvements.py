@@ -21,6 +21,7 @@ import io
 import pytest
 
 from swarm import agent_lifecycle, db, orchestrator
+from swarm.constants import MAX_RESEARCH_FEEDER_CYCLES
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +181,28 @@ class TestExitOneFalseFailures:
         # QA tasks are not re-enqueued via research feeder, so they end up non-completed
         assert db.task_get("t1")["status"] in ("failed", "cancelled", "pending")
         assert "t1" not in db.task_get_completed_ids()
+
+    def test_infrastructure_failure_does_not_consume_attempt(self, tmp_db):
+        _task(id="t1", status="in_progress", attempts=2, max_attempts=3, type="polish")
+        log_path = tmp_db / "agent_a1.log"
+        log_path.write_text(
+            "[Agent] Gateway error 502 (stream): "
+            '{"error":"All backends failed: No backends available"}\n'
+            "[Pipeline:work] LLM error at loop 1: Error: minimax rate limited after 7 attempts\n"
+            "[Agent] [Pipeline] failure_kind=infrastructure_exception exception=RuntimeError\n"
+        )
+
+        orchestrator._finish_agent("a1", 1, "proj", "t1", None, str(log_path))
+
+        task = db.task_get("t1")
+        assert task["status"] == "pending"
+        assert task["attempts"] == 2
+        assert task["metadata"]["infrastructure_retry_pending"] is True
+        assert task["metadata"]["infrastructure_failure_count"] == 1
+        assert not [
+            t for t in db.task_get_all()
+            if (t.get("metadata") or {}).get("is_research_feeder")
+        ]
 
     def test_agent_status_reflects_success_override(self, tmp_db):
         """Agent record itself should show 'completed' when TASK_COMPLETE overrides exit 1."""
@@ -787,7 +810,7 @@ class TestSelfImprovementReviewTask:
             id="t1",
             attempts=2,
             max_attempts=3,
-            metadata={"research_feeder_cycles": 2},
+            metadata={"research_feeder_cycles": MAX_RESEARCH_FEEDER_CYCLES},
         )
 
         orchestrator._handle_task_failure("t1", "proj", "terminal error")

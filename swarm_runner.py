@@ -967,17 +967,44 @@ def generate_task_script(task: dict) -> str:
     # Pipeline resolution (priority: per-task > project-level > global config)
     _pipelines_cfg = _config.get("pipelines", {})
     _project_pipelines_cfg = _config.get("project_pipelines", {})
+    _project_pipeline_cfg = _project_pipelines_cfg.get(project, {})
     _pipeline_from_metadata = metadata.get("pipeline")  # set at task creation for A/B testing
-    _project_pipeline_override = _project_pipelines_cfg.get(project, {}).get(task_type) \
-        or _project_pipelines_cfg.get(project, {}).get("*")
+    _project_pipeline_override = _project_pipeline_cfg.get(task_type) \
+        or _project_pipeline_cfg.get("*")
+    _project_phase_loop_limits = _project_pipeline_cfg.get("_phase_loop_limits", {})
+    phase_loop_limits = metadata.get("phase_loop_limits") or _project_phase_loop_limits or {}
+    _project_experiment_cfg = _project_pipeline_cfg.get("_experiment", {}) if isinstance(_project_pipeline_cfg.get("_experiment", {}), dict) else {}
+    _metadata_pipeline_mode = str(metadata.get("pipeline_mode") or metadata.get("experiment_pipeline_mode") or "")
+    _project_pipeline_mode = str(_project_experiment_cfg.get("pipeline_mode") or _project_pipeline_cfg.get("_pipeline_mode") or "")
+    adaptive_flat_enabled = bool(
+        metadata.get("adaptive_flat")
+        or _metadata_pipeline_mode == "adaptive_flat"
+        or _project_pipeline_mode == "adaptive_flat"
+    )
+    _global_loop_model_routing = _config.get("loop_model_routing", {}) if isinstance(_config.get("loop_model_routing", {}), dict) else {}
+    _project_loop_model_routing = _project_pipeline_cfg.get("_loop_model_routing", {}) if isinstance(_project_pipeline_cfg.get("_loop_model_routing", {}), dict) else {}
+    _metadata_loop_model_routing = metadata.get("loop_model_routing", {}) if isinstance(metadata.get("loop_model_routing", {}), dict) else {}
+    loop_model_routing = {
+        **_global_loop_model_routing,
+        **_project_loop_model_routing,
+        **_metadata_loop_model_routing,
+    }
     # Variant F: if metadata marks flat (empty list explicitly set), skip pipeline
     _meta_pipeline_is_set = "pipeline" in metadata
     _effective_llm_provider = LLM_PROVIDER  # may be overridden for variant F
-    if _meta_pipeline_is_set and isinstance(_pipeline_from_metadata, list) and len(_pipeline_from_metadata) == 0:
+    if adaptive_flat_enabled:
+        pipeline = []
+        loop_model_routing = {**loop_model_routing, "enabled": True}
+        _flat_provider = metadata.get("flat_provider", "") or \
+            _project_pipeline_cfg.get("_flat_provider", "") or \
+            _project_experiment_cfg.get("flat_provider", "")
+        if _flat_provider:
+            _effective_llm_provider = _flat_provider
+    elif _meta_pipeline_is_set and isinstance(_pipeline_from_metadata, list) and len(_pipeline_from_metadata) == 0:
         pipeline = []  # variant F — flat loop
         # Override provider if flat_provider specified in task metadata
         _flat_provider = metadata.get("flat_provider", "") or \
-            _project_pipelines_cfg.get(project, {}).get("_flat_provider", "")
+            _project_pipeline_cfg.get("_flat_provider", "")
         if _flat_provider:
             _effective_llm_provider = _flat_provider
     else:
@@ -1295,7 +1322,10 @@ rt.COMPACTION_PROVIDER  = {repr(compaction_provider)}
 rt.PLAN_PROVIDER        = {repr(plan_provider)}
 rt.WORK_PROVIDER        = {repr(work_provider)}
 rt.SYNTHESIZE_PROVIDER  = {repr(synthesize_provider)}
+rt.PHASE_LOOP_LIMITS    = {json.dumps(phase_loop_limits)}
 rt.PIPELINE             = {json.dumps(pipeline)}
+rt.ADAPTIVE_FLAT        = {repr(adaptive_flat_enabled)}
+rt.LOOP_MODEL_ROUTING   = {repr(loop_model_routing)}
 rt.AUDIT_SYSTEM             = {repr(audit_system)}
 rt.AUDIT_USER               = {repr(audit_user)}
 rt.AUDIT_LEARNINGS_SYSTEM   = {repr(audit_learnings_system)}

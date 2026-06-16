@@ -142,6 +142,105 @@ def _bounded_failure_excerpt(last_output: str) -> tuple[str, int]:
     return failure_excerpt, len(last_output or "")
 
 
+_SOFT_QUALITY_GATE_TYPES = {"art_pass", "polish"}
+
+
+def _soft_complete_quality_gate(
+    task: dict,
+    *,
+    attempts: int,
+    agent_output: str,
+    reason: str,
+    db_ref=None,
+) -> bool:
+    """Complete a qualitative gate without pretending it succeeded.
+
+    Art and polish passes are important, but they are not reliable binary build
+    gates. If the agent stalls, misunderstands scope, or exhausts recovery, the
+    downstream QA/polish chain should keep moving with a visible risk marker
+    instead of being stranded behind a failed dependency.
+    """
+    task_type = task.get("type", "")
+    if task_type not in _SOFT_QUALITY_GATE_TYPES:
+        return False
+
+    db_live = db_ref or _db()
+    task_id = task.get("id", "")
+    project = task.get("project", "")
+    excerpt, output_chars = _bounded_failure_excerpt(agent_output)
+
+    meta = dict(task.get("metadata") or {})
+    meta.update({
+        "soft_gate_failed": True,
+        "quality_gate_incomplete": True,
+        "quality_gate_failure_reason": reason,
+        "needs_human_review": True,
+        "human_review_reason": (
+            f"{task_type} is a qualitative soft gate. It exhausted automatic "
+            "handling and was allowed to pass so downstream QA can inspect the "
+            "project instead of stranding the graph."
+        ),
+        "failure_attempts": attempts,
+        "error_log_excerpt": excerpt,
+        "error_log_chars": output_chars,
+    })
+
+    db_live.task_update(task_id, {
+        "status": "completed",
+        "attempts": attempts,
+        "completed": datetime.now().isoformat(),
+        "agent_id": None,
+        "metadata": meta,
+    })
+
+    warning = {
+        "task_id": task_id,
+        "type": task_type,
+        "reason": reason,
+        "summary": (
+            f"Upstream {task_type} soft gate did not complete cleanly; "
+            "inspect visual/UX quality during this task."
+        ),
+    }
+    for dependent in _live_dependents(db_live, task_id, project=project):
+        dep_meta = dict(dependent.get("metadata") or {})
+        warnings = list(dep_meta.get("soft_quality_gate_warnings") or [])
+        if not any(w.get("task_id") == task_id for w in warnings if isinstance(w, dict)):
+            warnings.append(warning)
+        dep_meta["soft_quality_gate_warnings"] = warnings[-5:]
+        incomplete = list(dep_meta.get("quality_gate_incomplete_upstream") or [])
+        if task_id not in incomplete:
+            incomplete.append(task_id)
+        dep_meta["quality_gate_incomplete_upstream"] = incomplete[-10:]
+        db_live.task_update(dependent["id"], {"metadata": dep_meta})
+
+    print(
+        f"[Swarm] {task_type} {task_id[:12]} exhausted but is a soft quality gate — "
+        "marked completed with quality risk metadata"
+    )
+    return True
+
+
+def _is_infrastructure_failure(output: str) -> bool:
+    """Return True for provider/router failures that should not count as task attempts."""
+    text = (output or "").lower()
+    if not text:
+        return False
+    markers = (
+        "failure_kind=infrastructure_exception",
+        "all backends failed",
+        "no backends available",
+        "rate limited after",
+        "rate limit exhausted",
+        "gateway error 502",
+        "502 gateway",
+        "stream init failed",
+        "overloaded_error",
+        "llm call failed: error:",
+    )
+    return any(marker in text for marker in markers)
+
+
 # ---------------------------------------------------------------------------
 # Plan hint helpers (used by _validate_project_plan_subtasks)
 # ---------------------------------------------------------------------------
@@ -1138,6 +1237,19 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
             f"Task has gone through research→retry {cycles} times without resolving. "
             "Stopping automatic recovery so the graph can drain."
         )
+        original_for_soft_gate = {**original_task, "metadata": orig_meta, "dependencies": orig_deps}
+        if _soft_complete_quality_gate(
+            original_for_soft_gate,
+            attempts=original_task.get("max_attempts") or cycles,
+            agent_output=research_output,
+            reason="research_feeder_cycle_cap",
+            db_ref=db_ref,
+        ):
+            print(
+                f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_FEEDER_CYCLES}) reached for "
+                f"{original_task_id[:12]} — soft-completed qualitative gate so downstream QA can proceed"
+            )
+            return
         max_attempts = original_task.get("max_attempts") or 3
         update_payload = {
             "status": "failed",
@@ -1194,6 +1306,26 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
 
     task = db.task_get(task_id) or _task_snapshot
     if not task:
+        return
+
+    if _is_infrastructure_failure(agent_output):
+        meta = dict(task.get("metadata") or {})
+        meta["last_failure"] = "Infrastructure/provider failure; task was not charged an attempt."
+        meta["last_infrastructure_failure"] = (agent_output or "")[-1000:]
+        meta["infrastructure_failure_count"] = int(meta.get("infrastructure_failure_count") or 0) + 1
+        meta["infrastructure_retry_pending"] = True
+        db.task_upsert({
+            **task,
+            "status": "pending",
+            "started": None,
+            "completed": None,
+            "agent_id": None,
+            "metadata": meta,
+        })
+        print(
+            f"[Swarm] Task {task_id} hit infrastructure/provider failure — "
+            "resetting to pending without consuming an attempt"
+        )
         return
 
     attempts = task.get("attempts", 0) + 1
@@ -1257,6 +1389,13 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             db.task_update(task_id, {"status": "cancelled"})
             # Inject partial findings + human review flag into original
             _apply_research_feeder_result(task_id, agent_output, needs_human_review=True)
+        elif task_type in _SOFT_QUALITY_GATE_TYPES:
+            _soft_complete_quality_gate(
+                task,
+                attempts=attempts,
+                agent_output=agent_output,
+                reason="max_attempts_exhausted",
+            )
         elif project and on_exhaust == "research":
             # New path: spawn research feeder, original task stays in place
             _spawn_research_feeder(task, attempts, agent_output)

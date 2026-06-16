@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any, Callable
 
 
 def reconcile_agent_runtime_state(
@@ -22,6 +24,62 @@ def reconcile_agent_runtime_state(
     repaired_agents = []
     reset_tasks = []
     known = set(active_handles.keys()) | (finishing_agents or frozenset())
+
+    def _drop_active_handle(agent_id: str) -> None:
+        try:
+            active_handles.pop(agent_id, None)
+        except AttributeError:
+            pass
+
+    def _terminate_handle(agent_id: str, handle: Any) -> None:
+        process = handle.get("process") if isinstance(handle, Mapping) else None
+        if not process:
+            return
+        try:
+            process.kill()
+            process.wait(timeout=5)
+        except Exception as exc:
+            logger(f"[Swarm] Could not terminate stale active handle {agent_id[:8]}: {exc}")
+
+    def _fail_agent_and_repair_task(agent: dict, task: dict | None, reason: str) -> None:
+        aid = agent["id"]
+        task_id = agent.get("task_id")
+        logger(f"[Swarm] {reason} for {aid[:8]} - failing agent and resetting task if needed")
+        db.agent_update_status(
+            aid,
+            "failed",
+            completed_at=datetime.now().isoformat(),
+            exit_code=agent.get("exit_code") or -1,
+        )
+        repaired_agents.append(aid)
+        if task_id and task and task.get("status") == "in_progress":
+            task_mutations.reset_task_to_pending(db, task_id, reset_attempts=False)
+            reset_tasks.append(task_id)
+
+    # First repair live in-memory handles. These are skipped by the orphan-agent
+    # path below, so they need their own ownership check. Without this, recovery
+    # code can mark a task terminal while the subprocess keeps running until it
+    # exits naturally.
+    for aid, handle in list(active_handles.items()):
+        if aid in (finishing_agents or frozenset()):
+            continue
+        agent = db.agent_get(aid)
+        task_id = (agent or {}).get("task_id") or (handle.get("task_id") if isinstance(handle, Mapping) else None)
+        task = db.task_get(task_id) if task_id else None
+        if agent is None:
+            logger(f"[Swarm] Active handle {aid[:8]} has no DB agent row - terminating")
+            _terminate_handle(aid, handle)
+            _drop_active_handle(aid)
+            repaired_agents.append(aid)
+            continue
+        if not active_agent_matches_task(agent, task):
+            _terminate_handle(aid, handle)
+            _drop_active_handle(aid)
+            try:
+                _fail_agent_and_repair_task(agent, task, "Stale live agent/task ownership")
+            except Exception as exc:
+                logger(f"[Swarm] Could not repair stale live ownership for {aid[:8]}: {exc}")
+
     for agent in db.agent_get_active():
         aid = agent["id"]
         if aid in known:
@@ -29,13 +87,8 @@ def reconcile_agent_runtime_state(
         task_id = agent.get("task_id")
         task = db.task_get(task_id) if task_id else None
         if task is None or not active_agent_matches_task(agent, task):
-            logger(f"[Swarm] Stale agent/task ownership for {aid[:8]} - failing agent and resetting task if needed")
             try:
-                db.agent_update_status(aid, "failed", exit_code=agent.get("exit_code") or -1)
-                repaired_agents.append(aid)
-                if task_id and task and task.get("status") == "in_progress":
-                    task_mutations.reset_task_to_pending(db, task_id, reset_attempts=False)
-                    reset_tasks.append(task_id)
+                _fail_agent_and_repair_task(agent, task, "Stale agent/task ownership")
             except Exception as exc:
                 logger(f"[Swarm] Could not repair stale ownership for {aid[:8]}: {exc}")
             continue
@@ -81,4 +134,3 @@ def reconcile_agent_runtime_state(
         "repaired_agent_ids": list(dict.fromkeys(repaired_agents)),
         "reset_task_ids": list(dict.fromkeys(reset_tasks)),
     }
-

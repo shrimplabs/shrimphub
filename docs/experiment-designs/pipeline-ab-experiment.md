@@ -54,6 +54,277 @@ Variant D is not interpreted as an optimal valid workflow. It is an exploratory/
 
 **Variant F detail**: no pipeline is run. The agent uses a single MiniMax model in the legacy continuous work loop — identical to pre-pipeline behaviour. Used to establish whether the pipeline adds value at all.
 
+### Run 7 focused variants
+
+Run 7 narrows the comparison to variants that remain useful after the run 4
+and run 6 findings. It keeps one flat baseline, two simple structured
+pipelines, one fixed chaos-derived order, and one adaptive routing arm.
+
+Experiment id: `void-patrol-pipeline-ab-run7-20260613`
+
+| Project | Variant | Main feature pipeline | Purpose |
+|---------|---------|-----------------------|---------|
+| `void-patrol-control-run7` | `variant-f` | flat legacy loop (`[]`) | Baseline against the run 4 success case; tests whether flat MiniMax-style continuous work remains competitive. |
+| `void-patrol-variant-c-run7` | `variant-c` | `scout -> work -> validate` | Simple scout-first structured pipeline; tests whether scouting plus direct work beats planning overhead. |
+| `void-patrol-variant-e-run7` | `variant-e` | `scout -> plan -> work -> validate` | Scout-grounded planning; tests whether planning is useful after evidence has been gathered. |
+| `void-patrol-variant-g-run7` | `variant-g` | `work -> scout -> plan -> validate` | Fixed chaos-derived ordering from prior observations; tests whether surprising chaos orders retain value when made repeatable. |
+| `void-patrol-adaptive-run7` | `variant-adaptive` | task-type dependent | Tests whether phase order should depend on task type rather than project-wide treatment. |
+
+Run 7 also adds three post-feature quality tails to every arm:
+
+```text
+feature 8 -> art_pass -> polish -> harness_qa
+          -> art_pass -> polish -> harness_qa
+          -> art_pass -> polish -> harness_qa
+```
+
+Tail tasks are intentionally included because earlier runs showed that playable
+game quality depends heavily on art, UX polish, live QA, and integration passes,
+not only on feature completion.
+
+Tail pipeline rules:
+
+- Non-adaptive arms pin `art_pass`, `polish`, and `harness_qa` to
+  `scout -> work -> validate`.
+- The adaptive arm uses `scout -> work -> validate` for `feature`, `art_pass`,
+  and `harness_qa`.
+- The adaptive arm uses `scout -> plan -> work -> validate` for `polish` and
+  `refactor`.
+- The adaptive arm uses `plan -> work -> validate` for `bug`.
+
+### Run 7 cleanliness note
+
+Preliminary outlier audit on 2026-06-13 suggests run 7 may be analytically
+clean if provider outages are treated as censored infrastructure events rather
+than pipeline failures.
+
+Observed terminal outliers:
+
+| Project | Task shape | Terminal state | Classification |
+| --- | --- | --- | --- |
+| `void-patrol-adaptive-run7` | integration bug | failed | `minimax-fast` provider failure in `plan` loop 1 |
+| `void-patrol-variant-c-run7` | integration bug | failed | `minimax-fast` provider failure in `plan` loop 1 |
+| `void-patrol-variant-e-run7` | integration bug | failed | `minimax-fast` provider failure in `plan` loop 1 |
+| `void-patrol-variant-g-run7` | integration bug | failed | `minimax-fast` provider failure in `plan` loop 1 |
+| `void-patrol-variant-e-run7` | tail 1 QA | cancelled | `minimax` provider failure in `work`; old cancel path marked dependents |
+| `void-patrol-variant-g-run7` | tail 1 QA | cancelled | `minimax` provider failure in `work`; old cancel path marked dependents |
+| `void-patrol-variant-g-run7` | closure repair | cancelled | benign resolved-regression cleanup after validation passed |
+
+Common failure signature:
+
+```text
+Gateway error 502 -> All backends failed: No backends available
+-> rate limited after 7 attempts -> failure_kind=infrastructure_exception
+```
+
+Interpretation:
+
+- The failed integration tasks did not reach meaningful project work; they
+  should be excluded or explicitly labelled as infrastructure-censored.
+- The cancelled QA tasks are graph-contaminating under the old retry policy,
+  but their root cause is still provider availability, not game quality.
+- The closure-repair cancellation should not count against the run because the
+  repair had already completed and validated.
+- After the infrastructure-failure recovery patch, these failures should no
+  longer consume attempts or spawn research-feeder churn.
+
+### Run 8 focused confirmation setup
+
+Run 8 is a narrower confirmation run based on the run 7 artifact-quality
+signal and the run 4 flat-loop outlier.
+
+Experiment id: `void-patrol-pipeline-ab-run8-20260614`
+
+Source snapshot: `void-patrol__void-patrol-basis`
+
+| Project | Variant | Main feature pipeline | Tail shape | Purpose |
+| --- | --- | --- | --- | --- |
+| `void-patrol-variant-c-run8` | `variant-c` | `scout -> work -> validate` | 3x `art_pass -> polish -> harness_qa` | Tests whether scout plus direct work is enough without planning overhead. |
+| `void-patrol-variant-e-run8` | `variant-e` | `scout -> plan -> work -> validate` | 3x `art_pass -> polish -> harness_qa` | Current structured winner from run 7. |
+| `void-patrol-variant-e-long-plan-run8` | `variant-e-long-plan` | `scout -> plan -> work -> validate` | 3x `art_pass -> polish -> harness_qa` | Same as E, but plan phase receives 20 loops instead of the default 10. |
+| `void-patrol-variant-f-run8` | `variant-f` | flat MiniMax-M3 loop | none | Pure flat baseline, preserving the run 4 F comparison. |
+| `void-patrol-variant-f-tail-run8` | `variant-f-tail` | flat MiniMax-M3 loop | 3x `art_pass -> polish -> harness_qa` | Practical hybrid: flat implementation plus structured final quality tail. |
+
+Run 8 deliberately omits chaos, adaptive, and `work -> scout -> plan ->
+validate` arms. Those were useful for discovery, but this run is intended to
+separate three specific effects:
+
+- whether planning after scout beats scout-only structured work
+- whether a deeper plan phase improves E
+- whether the flat loop remains strong when paired with the same art/polish/QA
+  quality tail used by structured arms
+
+Setup note: `variant-e-long-plan` uses project-level
+`_phase_loop_limits: {"plan": 20}`. This is intentionally code-backed in the
+agent runtime so it is not just a metadata label.
+
+Run 8 live stability note, 2026-06-14: after a swarm-controller restart,
+the run was not constrained by provider 429s. Router health reported MiniMax
+healthy, quota was not rate-limited, and recent `headroom.log` rows had no
+rate-limit errors. The temporary under-fill (`6/9` active agents) was caused
+by graph/dependency gating: all remaining pending tasks were blocked by
+dependencies or `run_after`, not by quota.
+
+The run did expose a controller lifecycle consistency bug: recovery/research
+tasks could be marked terminal (`cancelled`) while their owning agent process
+remained active for a short window. This was patched mid-run in
+`swarm/maintenance/agents.py` by making reconciliation inspect live in-memory
+handles and terminate agents whose task ownership no longer matches an
+`in_progress` task. Treat `variant-e-run8` with extra caution in quantitative
+analysis because it accumulated cancelled research feeders before/around this
+fix. Other arms remain usable if they finish without terminal infrastructure
+failures, but run 8 should be labeled "controller lifecycle bug discovered
+and fixed mid-run."
+
+Run 8 intervention ledger, 2026-06-15:
+
+- **Code intervention: active-agent/task lifecycle repair.**
+  `swarm/maintenance/agents.py` was changed mid-run so active in-memory agent
+  handles are reconciled against task ownership. If a live agent is attached
+  to a task that is no longer a valid `in_progress` owner, the watchdog now
+  terminates the subprocess, removes the active handle, and marks the agent
+  failed without resetting already-terminal task rows. This fixes the observed
+  impossible state where a `cancelled` task still had an active agent.
+- **Code intervention: art/polish soft quality gates.**
+  `swarm/agent_recovery.py` was changed mid-run so exhausted `art_pass` and
+  `polish` tasks are not hard blockers. On max-attempt exhaustion or research
+  feeder cycle cap, these qualitative gates are marked `completed` with
+  metadata flags (`soft_gate_failed`, `quality_gate_incomplete`,
+  `needs_human_review`, `quality_gate_failure_reason`) and downstream tasks
+  receive `soft_quality_gate_warnings`. This lets QA inspect quality risk
+  instead of stranding the graph.
+- **Live DB intervention: stranded run 8 quality gates soft-repaired.**
+  Before modifying the live DB, a backup was created:
+  `data/swarm.db.bak-soft-quality-gates-20260615093704`. Two already-stranded
+  run 8 tasks were converted from hard terminal failures to soft-gate
+  completions:
+  `void-patrol-variant-c-run8-tail1-polish` and
+  `void-patrol-variant-e-long-plan-run8-tail1-art`.
+- **Analysis handling.**
+  Do not treat those two repaired rows as ordinary successful art/polish
+  completions. Count them separately as `soft_gate_failed` qualitative-pass
+  failures that were allowed through to keep the run draining. Downstream QA
+  spawned after this point is still useful, but should be interpreted as QA
+  after incomplete qualitative gates.
+- **Run cleanliness.**
+  Run 8 remains useful as a stress/confirmation run, but it is not a pristine
+  treatment run. Mark the whole run as "mid-run controller intervention".
+  `variant-e-run8` remains the least clean arm because of earlier cancelled
+  research feeders. `variant-c-run8` and `variant-e-long-plan-run8` now contain
+  explicit soft-gate repairs in the tail. `variant-f-run8` appears effectively
+  complete but includes cancelled QA/recovery rows and should be analyzed with
+  terminal-state breakdowns, not only completed-task counts.
+
+### Voxel Forge graph-quality note
+
+For the `voxel-forge` production graph, art and polish gates were given a
+task-level work-loop override:
+
+```json
+{"phase_loop_limits": {"work": 200}}
+```
+
+This preserves the larger contiguous work budget that earlier flat art agents
+appeared to have (`MAX_TOOL_LOOPS=200`) while keeping the structured
+`scout -> work -> validate` quality-gate shape. Harness QA remains on the
+default structured work budget. This may be an important artifact-quality
+variable: visual and UX work often needs enough uninterrupted loops to inspect
+screenshots, generate or wire assets, retest, and iterate before completion.
+
+### Run 9 adaptive-flat special-path cleanup note
+
+Run 9 introduces an explicitly experimental `adaptive_flat` path. It is not a
+new default pipeline. The goal is to test whether the flat-loop advantage comes
+from preserving one continuous transcript while still allowing cheaper/faster
+models to handle bounded read-only exploration.
+
+Special code paths added for this experiment:
+
+- `swarm/model_routing.py`: standalone adaptive-flat routing policy. It chooses
+  between a fast provider and a strong provider using recent tool calls,
+  task type, and a consecutive-cheap-loop cap.
+- `swarm/agent_runtime.py`: legacy flat-loop hook. When `ADAPTIVE_FLAT` is
+  enabled, the runtime disables the old scout summary/reset path, routes each
+  loop through `choose_adaptive_flat_provider`, records routing stats in the
+  agent token JSON, and blocks cheap-provider `TASK_COMPLETE` until a strong
+  loop can confirm.
+- `swarm_runner.py`: wrapper-generation hook. A project or task can opt in via
+  `pipeline_mode: "adaptive_flat"` / `adaptive_flat: true`; this forces
+  `pipeline=[]` and passes `LOOP_MODEL_ROUTING` into the agent wrapper.
+- `swarm/api_snapshots.py`: clone API support for `pipeline:
+  "adaptive-flat"`. This stamps cloned tasks and project config with the
+  adaptive-flat treatment and preserves the routing metadata through clone
+  reset.
+- `swarm/experiment_metadata.py`: future graph-created tasks inherit
+  `pipeline_mode: "adaptive_flat"`, `adaptive_flat: true`, and
+  `loop_model_routing` so the graph does not silently fall back to a default
+  pipeline mid-run.
+
+Expected config shape:
+
+```json
+{
+  "project_pipelines": {
+    "void-patrol-adaptive-flat-run9": {
+      "*": [],
+      "_flat_provider": "minimax",
+      "_experiment": {
+        "pipeline_mode": "adaptive_flat"
+      },
+      "_loop_model_routing": {
+        "enabled": true,
+        "fast_provider": "minimax-fast",
+        "strong_provider": "minimax",
+        "cheap_phase": "scout",
+        "max_consecutive_cheap_loops": 3
+      }
+    }
+  }
+}
+```
+
+Cleanup decision after run 9: either promote this into a first-class production
+mode, merge the useful parts into the normal flat loop, or remove the special
+paths above. Do not leave `adaptive_flat` as an undocumented hidden branch.
+
+Metrics to inspect before deciding:
+
+- `adaptive_flat.cheap_loops`, `strong_loops`, `model_switches`, and
+  `cheap_completion_blocks` in `agent_<task_id>_tokens.json`
+- completion/cancellation rates by task type
+- artifact quality versus run 7 E and run 8 F/F-tail
+- provider error rates split by fast and strong model
+- whether cheap loops reduced cost/time without increasing rework,
+  continuation tasks, or qualitative-gate failures
+
+Smoke-test note, 2026-06-15:
+
+- `void-patrol-adaptive-flat-run8-smoke` was created before the server restart
+  and is contaminated by one old flat-loop task attempt. Leave it excluded from
+  analysis.
+- `void-patrol-adaptive-flat-run8-smoke2` is the clean adaptive-flat smoke arm.
+  The first manual spawn found a wrapper-generation bug before any LLM call:
+  `rt.LOOP_MODEL_ROUTING` was emitted with JSON booleans (`true`) instead of
+  Python booleans (`True`). The task was reset to `pending`/`attempts=0` after
+  fixing `swarm_runner.py` to emit Python literals for that config.
+- This failure is classified as a controller smoke-test failure, not model or
+  provider behavior. Retry requires a server restart so generated wrappers use
+  the fixed code.
+- The second smoke attempt proved adaptive-flat wrapper/runtime execution and
+  stats recording, but exposed a router-policy issue: `minimax-fast` requests
+  still reached shrimp-router with `X-Task-Type: feature`, so the router's
+  task-type policy selected the `minimax` backend and returned MiniMax-M3.
+  Adaptive-flat cheap loops now support `loop_model_routing.cheap_phase`; the
+  smoke config uses `cheap_phase: "scout"` so shrimp-router phase routing can
+  select the cheap backend before task-type routing.
+- After server restart with the phase-header patch, the clean smoke task
+  `void-patrol-adaptive-1781539405418-0001` started successfully. Loop 1 used
+  `minimax`/MiniMax-M3 as the strong intent-setting call. Loop 2 selected
+  `minimax-fast` with `X-Phase: scout` and returned from MiniMax-M2.7 for
+  read-only follow-up. The token artifact recorded `strong_loops=1`,
+  `cheap_loops=1`, and `model_switches=1`, so adaptive-flat routing and metric
+  persistence are functioning.
+
 ### Metrics
 
 Per completed task, record:

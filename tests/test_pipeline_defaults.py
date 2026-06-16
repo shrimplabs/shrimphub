@@ -148,6 +148,20 @@ class TestPlanFallback:
 
         assert any("plan" in e and "fallback" in e for e in result.errors)
 
+    def test_plan_loop_limit_can_be_overridden(self, tmp_path):
+        """Experiment arms can extend the plan phase without changing global defaults."""
+        from swarm.phases.plan import PlanPhase
+
+        bad_response = "PLAN_COMPLETE\n{bad json}"
+        state = self._make_state(tmp_path)
+        with patch("swarm.llm_utils.call_llm", return_value=(bad_response, {}, [])) as call_llm:
+            phase = PlanPhase(config={"data_dir": str(tmp_path), "phase_loop_limits": {"plan": 3}})
+            result = phase.run(state)
+
+        assert result.failed is False
+        assert result.phase_loops["plan"] == 3
+        assert call_llm.call_count == 3
+
     def test_plan_fallback_pipeline_continues_to_next_phase(self, tmp_path):
         """After plan fallback, pipeline should run scout (or next phase) without stopping."""
         from swarm.pipeline import Phase, register_phase, PHASE_REGISTRY
