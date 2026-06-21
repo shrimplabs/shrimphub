@@ -30,6 +30,7 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then
 else
     rm -f "$PID_FILE"
     echo "→ Starting swarm controller..."
+    ulimit -n 65536
     nohup .venv/bin/python3 swarm_runner.py api > data/swarm.log 2>&1 &
     echo $! > "$PID_FILE"
     echo "✓ Swarm started (PID $(cat $PID_FILE))"

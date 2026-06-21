@@ -1,145 +1,185 @@
 ---
-name: swarm-project-creator
-description: Create and set up new projects (Godot, Python, TypeScript) ready for swarm agent work. Helps with project structure, initial files, git setup, and swarm configuration.
+name: swarm-project
+description: Create and onboard a new project into the swarm controller. Handles git init, Gitea repo, managed_projects registration, genesis anchor, and initial task batch. Invoke with /swarm-project [project name and description].
+argument-hint: "[project-name] [description of what the project does and what to build first]"
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
-# Swarm Project Creator Skill
+# Swarm Project Creation
 
-Set up new projects for the swarm controller to build and maintain. Supports Godot, Python, and TypeScript projects.
+You are creating a new project in the swarm controller. Follow these steps exactly to avoid the common mistakes that cause projects to not appear in the dashboard or have broken dependency chains.
 
-## When to Use
+The user said: $ARGUMENTS
 
-- Create a new project from scratch
-- Prepare an existing project for swarm management
-- Initialize git repositories
-- Add a project to swarm config
+## Step 1 — Gather information
 
-## Project Types
+If any of the following are unclear from the user's message, ask before proceeding:
+- **Project name**: must be kebab-case, e.g. `aquarium-monitor`
+- **Project type**: `godot` (Godot 4 game), `python` (Python service/tool), or `expo` (React Native / Expo app)
+- **Overview**: one paragraph describing what the project does
+- **Initial tasks**: what should agents build first? (list 3–10 concrete deliverables)
 
-| Type | Detection | Validation |
-|------|-----------|------------|
-| Godot | `project.godot` exists | `godot --headless --script res://check_scripts.gd` |
-| Python | `requirements.txt`, `pyproject.toml`, or Python sources | prefer project-local `pytest` when tests exist, otherwise `python -m py_compile` |
-| TypeScript | `package.json` exists | `tsc --noEmit` |
+## Step 2 — Check current state
 
-## Project Creation Workflow
+!`curl -s http://localhost:5001/api/health 2>/dev/null | python3 -c "import json,sys; h=json.load(sys.stdin); print('Swarm:', 'OK' if h.get('ok') else 'DOWN')" 2>/dev/null || echo "Swarm: not responding"`
 
-### Step 1: Create the project directory and files
+Check if project already exists:
+!`curl -s http://localhost:5001/api/projects 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); ps=d.get('projects',{}); [print(f'EXISTS: {n}') for n in ps if '$ARGUMENTS'.split()[0].lower() in n.lower()]" 2>/dev/null || true`
 
-**Godot project:**
+Check if auto mode is on:
+!`curl -s http://localhost:5001/api/auto-mode 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print('Auto mode:', 'ON' if d.get('enabled') else 'OFF')" 2>/dev/null || echo "Auto mode: unknown"`
+
+## Step 3 — Create the project
+
+Use the `swarm_create_project` MCP tool if git init + Gitea setup is wanted:
+
 ```
-my-game/
-├── project.godot
-├── main.tscn
-├── scripts/
-│   └── main.gd
-├── scenes/
-├── assets/
-└── .gitignore
-```
-
-**Python project:**
-```
-my-app/
-├── main.py
-├── requirements.txt
-├── .gitignore
-└── README.md
+swarm_create_project(
+  name="project-name",
+  type="python",   # or "godot" or "expo"
+  overview="One paragraph describing the project goal.",
+  tasks=[
+    {"type": "feature", "description": "...", "priority": 50},
+    {"type": "feature", "description": "...", "priority": 50, "depends_on": [0]},
+  ]
+)
 ```
 
-### Step 2: Initialize git
+**Godot projects**: `swarm_create_project` automatically runs `_bootstrap_godot_project_support()` which installs GUT, state_server.gd, test_harness.gd, check_scripts.gd, project.godot, and main.tscn. **Do NOT add a "scaffold" or "setup" task** — it's redundant and creates a phantom root. Start your task list with the first real gameplay feature (e.g. "Single Tower Battlefield" or "Player ship and basic movement").
+
+**If the repo already exists** (e.g. you already cloned it), use:
+```
+swarm_register_project(name="project-name", managed=True)
+```
+Then run `POST /api/wizard/create` (or call `_bootstrap_godot_project_support()` via the wizard) to install the Godot scaffold on the existing repo before seeding tasks. Create tasks separately.
+
+## Step 4 — Create the initial task batch correctly
+
+This is where mistakes commonly happen. Follow these rules:
+
+### Rules for task batches
+
+1. **One root task per batch** — identify which task nothing else depends on. This becomes the chain anchor.
+2. **Use `depends_on` indices** — always use integer indices into the task array, not hardcoded IDs.
+3. **Use `POST /api/tasks/batch`** with the `chain: false` body format (indices handle sequencing):
+
+```python
+import requests, json
+
+tasks = [
+  # For Godot: start with first real gameplay feature — NO scaffold task (bootstrap is automatic)
+  # For Python: a setup/scaffold task is fine here
+  {"type": "feature", "description": "First real feature", "priority": 50},
+  {"type": "feature", "description": "Core module A", "priority": 50, "depends_on": [0]},
+  {"type": "feature", "description": "Core module B", "priority": 50, "depends_on": [0]},
+  {"type": "feature", "description": "Integration", "priority": 50, "depends_on": [1, 2]},
+]
+
+resp = requests.post("http://localhost:5001/api/tasks/batch", json={
+    "project": "project-name",
+    "tasks": tasks,
+})
+data = resp.json()
+print("Created:", data.get("created"), "tasks")
+print("ID map:", json.dumps(data.get("id_map", {}), indent=2))
+```
+
+4. **Do NOT mix shell variable interpolation with JSON** — always use Python requests or a heredoc with literal IDs.
+5. **After batch creation**, verify with:
 
 ```bash
-cd /path/to/project
-git init
-git add -A
-git commit -m "Initial commit"
+curl -s "http://localhost:5001/api/tasks?project=project-name" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+tasks = data if isinstance(data, list) else data.get('tasks', [])
+by_status = {}
+for t in tasks:
+    if t.get('project') == 'project-name':
+        s = t.get('status','?')
+        by_status[s] = by_status.get(s, 0) + 1
+print(by_status)
+"
 ```
 
-### Step 3: Add to swarm config
+## Step 5 — Verify the genesis anchor
 
-Update `swarm-controller/config.json`:
-```json
-{
-  "workspace": "/path/to/projects-directory",
-  "managed_projects": ["my-game"]
-}
-```
-
-### Step 4: Register with swarm API
+After creating tasks, check the project head is set:
 
 ```bash
-# Rescan to pick up the new project
-curl -X POST http://localhost:5001/api/rescan
+curl -s http://localhost:5001/api/projects | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+p = data.get('projects', {}).get('project-name', {})
+print('head_task_id:', p.get('head_task_id'))
+print('managed:', p.get('managed'))
+"
+```
 
-# Or explicitly add it
-curl -X POST http://localhost:5001/api/projects \
+If `head_task_id` is null or missing, force a reconcile:
+
+```bash
+curl -s -X POST http://localhost:5001/api/dependencies/integrity \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-game"}'
+  -d '{"action": "reconcile_heads"}'
 ```
 
-### Step 5: Add initial tasks
+## Step 6 — Add to managed_projects
 
 ```bash
-curl -X POST http://localhost:5001/api/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project": "my-game",
-    "type": "feature",
-    "description": "Implement player movement with WASD controls",
-    "priority": 50
-  }'
+curl -s http://localhost:5001/api/managed-projects | python3 -c "
+import json, sys; d=json.load(sys.stdin)
+print('Currently managed:', d.get('managed_projects', []))
+"
 ```
 
-## Godot .gitignore
+If the project is not in the list, add it:
 
-```gitignore
-# Godot 4 .gitignore
-.godot/
-*.uid
-export_presets.cfg
+```bash
+# Get current list first, then add
+CURRENT=$(curl -s http://localhost:5001/api/managed-projects | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('managed_projects',[])))")
+# Then POST the updated list
+python3 -c "
+import requests, json
+current = $CURRENT
+if 'project-name' not in current:
+    current.append('project-name')
+resp = requests.post('http://localhost:5001/api/managed-projects', json={'managed_projects': current})
+print(resp.json())
+"
 ```
 
-## Python .gitignore
+## Step 7 — Confirm and spawn
 
-```gitignore
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-*.egg-info/
-dist/
-.env
+```bash
+# Confirm the project appears with tasks
+curl -s http://localhost:5001/api/tasks | python3 -c "
+import json, sys
+tasks = json.load(sys.stdin)
+tasks = tasks if isinstance(tasks, list) else tasks.get('tasks', [])
+mine = [t for t in tasks if t.get('project') == 'project-name']
+pending = sum(1 for t in mine if t['status'] in ('pending','in_progress'))
+print(f'{len(mine)} total tasks, {pending} actionable')
+"
 ```
 
-## Post-Creation Checklist
+If auto mode is ON, agents will spawn automatically. If OFF, tell the user they can re-enable auto mode or manually spawn with:
 
-- [ ] Git initialized with initial commit
-- [ ] Project added to `config.json` `managed_projects`
-- [ ] Swarm rescanned (`POST /api/rescan`)
-- [ ] Initial tasks added via API
-- [ ] Swarm started: `python swarm_runner.py api`
-- [ ] For Godot projects, verify `docs/new_project_setup.md` requirements are satisfied
+```
+swarm_spawn(project="project-name")
+```
 
-## GUT Auto-Setup (Godot projects)
+## Common mistakes to avoid
 
-When a managed Godot project is rescanned and `addons/gut/` is missing, the
-controller can create a `setup-gut-<project>` task to install it. Treat this as
-an automated bootstrap helper, not a replacement for the full checklist in
-`docs/new_project_setup.md`.
+- **Never delete the batch root task** — it breaks all downstream deps
+- **Never use `POST /api/projects/{name}/head`** — that endpoint does not exist; use the integrity repair endpoint instead
+- **Never mix curl shell vars and JSON** — use Python requests for complex JSON bodies
+- **Do not create a separate "genesis" task manually** — `ensure_project_head` auto-creates one when needed; manual genesis tasks with wrong deps cause floating chains
+- **Check agents are not already running** before resetting task statuses — `curl -s http://localhost:5001/api/agents`
 
-The task will:
-1. Copy pinned GUT from the local controller cache, or populate the cache from the configured source
-2. Enable the plugin in `project.godot`
-3. Create the `tests/` directory
-4. Leave the project in a validation-ready state
+## After completion
 
-This fires once per project. If GUT is already present, the task is skipped.
-
-## Tips
-
-- Keep project names lowercase with hyphens: `my-awesome-game`
-- Start with minimal MVP scope — let the swarm build it out
-- The swarm auto-generates refactor tasks for files exceeding `max_lines` (default 5000)
-- Post-task validation runs automatically; failures spawn priority-100 bug tasks
+Tell the user:
+1. The project name and how many tasks were created
+2. Whether auto mode is on (tasks will start automatically) or off (they need to enable it)
+3. The URL to view the project: `http://localhost:5001` → select project from sidebar
+4. Any caveats about the task chain (e.g. parallel roots, external dependencies needed)

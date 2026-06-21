@@ -297,6 +297,42 @@ Metrics to inspect before deciding:
 - whether cheap loops reduced cost/time without increasing rework,
   continuation tasks, or qualitative-gate failures
 
+Run 9 qualitative gameplay note, 2026-06-18:
+
+- Human-playable game quality is the end goal for these experiments. Controller
+  completion, loop counts, and validation pass rates are useful diagnostics, but
+  they are secondary to whether the resulting game is understandable, playable,
+  and enjoyable for a human.
+- On that primary goal, run 9 was a clear success relative to prior runs: it
+  produced more human-playable games and higher overall artifact quality than
+  earlier batches.
+- `void-patrol-adaptive-flat-run9` was the most playable artifact by human
+  inspection in run 9. It had the fanciest graphics in the run, working ship
+  movement, enemies, and power-ups. It also had a critical gameplay bug that
+  prevented normal play for much of the session, so this should be treated as
+  strong artifact-quality signal but not as a clean robustness win.
+- `void-patrol-variant-f-tail-run9` was less graphically intense than adaptive
+  flat, but appeared more robust bug-wise. It also seemed to contain the most
+  complete feature set. This matches the quantitative pattern: F-tail stayed
+  closer to the run 4 F recipe of contiguous flat implementation plus quality
+  gates, while adaptive flat spent much more graph effort on iterative
+  art/polish/QA recovery.
+- Comparison to `void-patrol-variant-f-run4`: the shared winning traits are
+  flat-family execution, MiniMax main work, full source-feature completion, and
+  real art/polish/QA pressure. The likely differentiator for artifact quality is
+  not flat execution alone; it is flat execution with enough uninterrupted loops
+  and repeated visual/UX passes that inspect and improve the running game.
+- Token/time analysis was exported to
+  `data/experiment_exports/token-time-analysis-20260618/`. Recorded token data
+  is usable for runs 6-9 and undercounted before that. In run 9,
+  `void-patrol-adaptive-flat-run9` was both the strongest human-playability
+  signal and the most expensive recorded variant: about 258.3M recorded tokens,
+  roughly 4.0x `F-tail` and 6.0x `F-tail parallel`. This supports the idea that
+  adaptive flat bought quality through much heavier iterative art/polish/QA and
+  recovery work, while `F-tail` remains the more efficient robust baseline.
+- Presentation-ready cross-run findings are summarized in
+  `docs/experiment-designs/run6-run9-presentation-findings.md`.
+
 Smoke-test note, 2026-06-15:
 
 - `void-patrol-adaptive-flat-run8-smoke` was created before the server restart

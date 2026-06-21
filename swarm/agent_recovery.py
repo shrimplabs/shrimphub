@@ -222,12 +222,58 @@ def _soft_complete_quality_gate(
 
 
 def _is_infrastructure_failure(output: str) -> bool:
-    """Return True for provider/router failures that should not count as task attempts."""
+    """Return True for provider/router failures that should not count as task attempts.
+
+    The naive approach of scanning the *entire* log for provider-error markers
+    produces false positives: an agent can hit a transient 502 mid-run (which it
+    retries through successfully) and then fail for a real reason later (e.g. a
+    Godot parse error caught in validation). The full log contains both signals,
+    so a whole-log scan wrongly classifies the run as infrastructure and resets
+    the task without consuming an attempt — tasks then loop dozens of times
+    without ever exhausting ``max_attempts`` to spawn a research feeder.
+
+    The fix is to look at the *terminal* state of the run, not the whole log:
+
+    1. An explicit ``failure_kind=infrastructure_exception`` marker is
+       authoritative — the pipeline itself classified the failure as infra.
+    2. If the pipeline ran to completion and then reported a real failure
+       (``[Pipeline] Done. FAILED``, validation errors, etc.), it is NOT an
+       infrastructure failure regardless of any earlier transient 502s.
+    3. Otherwise transient provider markers only count as infrastructure when
+       they appear in the *tail* of the log — i.e. the run actually died on a
+       provider error rather than recovering from one earlier.
+
+    Conservative by design: when in doubt, return False (consume the attempt).
+    A real failure mislabelled as infra loops forever; the opposite merely costs
+    one retry.
+    """
     text = (output or "").lower()
     if not text:
         return False
-    markers = (
-        "failure_kind=infrastructure_exception",
+
+    # (1) Authoritative pipeline classification — trust it unconditionally.
+    if "failure_kind=infrastructure_exception" in text:
+        return True
+
+    # (2) The pipeline ran to completion (reached validate/repair) and then
+    # failed for a real reason. Earlier transient 502s are irrelevant.
+    real_failure_markers = (
+        "[pipeline] done. failed",
+        "postvalidation] script check failed",
+        "[pipeline:validate] validation failed",
+        "script error:",
+        "validation_failed",
+        "validation failed",
+        "parse error:",
+    )
+    if any(marker in text for marker in real_failure_markers):
+        return False
+
+    # (3) Pure infrastructure failure: provider/network error with no pipeline
+    # completion. Only count markers that appear in the terminal portion of the
+    # log so a mid-run-and-recovered 502 doesn't trigger a false positive.
+    tail = text[-2000:]
+    infra_markers = (
         "all backends failed",
         "no backends available",
         "rate limited after",
@@ -238,7 +284,7 @@ def _is_infrastructure_failure(output: str) -> bool:
         "overloaded_error",
         "llm call failed: error:",
     )
-    return any(marker in text for marker in markers)
+    return any(marker in tail for marker in infra_markers)
 
 
 # ---------------------------------------------------------------------------

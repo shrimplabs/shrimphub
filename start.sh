@@ -15,6 +15,7 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 echo "Starting swarm controller..."
+ulimit -n 65536
 nohup .venv/bin/python3 swarm_runner.py api > data/swarm.log 2>&1 &
 echo $! > "$PID_FILE"
 echo "Started (PID $(cat $PID_FILE)). Logs: data/swarm.log"

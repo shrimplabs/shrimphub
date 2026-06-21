@@ -4,6 +4,10 @@
 
 # Local config (copy from config.example.json)
 config.json
+config.json.bak-*
+
+# Media / screenshots from experiment runs
+*.gif
 
 # Virtual environment
 .venv/
