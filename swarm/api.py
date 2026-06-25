@@ -409,6 +409,16 @@ def create_app(
     _last_monitor_tick = [time.time()]  # mutable container for closure
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
+    # In-memory set of already-archived rl_event lines — avoids re-reading the archive
+    # file every monitor cycle (was O(n²) on a 14k-line file). Seeded from existing
+    # archive on startup so restarts don't re-append old events.
+    _rl_archive_file_seed = data_dir / "rl_events_archive.jsonl"
+    try:
+        _rl_archived_set: set = set(
+            l.strip() for l in _rl_archive_file_seed.read_text().splitlines() if l.strip()
+        ) if _rl_archive_file_seed.exists() else set()
+    except Exception:
+        _rl_archived_set: set = set()
     _ghost_sweep_counter = [0]           # incremented each cycle; sweep runs every 20 cycles (~100s)
     _orphan_godot_sweep_counter = [0]    # incremented each cycle; orphan Godot sweep runs every 60 cycles (~5 min)
     _worktree_cleanup_counter = [0]      # incremented each cycle; worktree cleanup runs every 720 cycles (~1 hour)
@@ -557,8 +567,15 @@ def create_app(
                 time.sleep(sleep_secs)
 
                 _last_monitor_tick[0] = time.time()
+                # Pre-fetch shared state once per cycle to avoid redundant full-table
+                # scans across check_dep_violations, fill_slots, etc.
+                _cycle_completed_ids = db.task_get_completed_ids()
+                _cycle_all_task_ids = {t["id"] for t in db.task_get_all()}
                 orchestrator.check_ghost_merge_tasks()
-                orchestrator.check_dep_violations()
+                orchestrator.check_dep_violations(
+                    completed_ids=_cycle_completed_ids,
+                    all_task_ids=_cycle_all_task_ids,
+                )
                 orchestrator.check_agent_status()
 
                 # Periodic ghost dep sweep: remove dep edges pointing to IDs that
@@ -624,19 +641,14 @@ def create_app(
                                     _recent_429_count += 1
                             except Exception:
                                 pass
-                        # Archive new events to rl_events_archive.jsonl (never trimmed)
+                        # Archive new events: only append lines not yet seen (tracked in memory).
+                        # Never read the archive file back — that was O(n²) on a 14k-line file.
                         _archive_file = data_dir / "rl_events_archive.jsonl"
-                        _existing_archive = set()
-                        if _archive_file.exists():
-                            for _al in _archive_file.read_text().splitlines():
-                                try:
-                                    _existing_archive.add(_al.strip())
-                                except Exception:
-                                    pass
-                        _new_lines = [_l for _l in _rl_lines if _l.strip() and _l.strip() not in _existing_archive]
+                        _new_lines = [_l for _l in _rl_lines if _l.strip() and _l.strip() not in _rl_archived_set]
                         if _new_lines:
                             with open(_archive_file, "a") as _af:
                                 _af.write("\n".join(_new_lines) + "\n")
+                            _rl_archived_set.update(_l.strip() for _l in _new_lines)
                         # Trim rolling file (keep last 200 lines)
                         if len(_rl_lines) > 200:
                             _rl_file.write_text("\n".join(_rl_lines[-200:]) + "\n")

@@ -304,12 +304,9 @@ def cleanup_orphaned_worktrees(workspace: Optional[Path] = None):
 
 def check_ghost_merge_tasks():
     """Complete any pending bug-merge-* tasks whose worktree no longer exists."""
-    all_tasks = db.task_get_all()
+    all_tasks = db.task_get_by_id_prefix("bug-merge-", statuses=("pending", "in_progress"))
     for t in all_tasks:
-        if (
-            t.get("id", "").startswith("bug-merge-")
-            and t.get("status") in ("pending", "in_progress")
-        ):
+        if True:
             wt_path = (t.get("metadata") or {}).get("worktree_path")
             if wt_path and not Path(wt_path).exists():
                 print(f"[Swarm] Ghost merge task {t['id']}: worktree {wt_path} gone — auto-completing")

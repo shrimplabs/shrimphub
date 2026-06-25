@@ -401,12 +401,16 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
 # (Agent completion pipeline is in swarm/agent_finish.py)
 # ---------------------------------------------------------------------------
 
-def check_dep_violations():
+def check_dep_violations(completed_ids=None, all_task_ids=None):
     """Kill any running agent whose task dependencies are not yet satisfied.
 
     This catches the race where deps are patched after an agent was already
     spawned, or where fill_slots incorrectly picked a task before its deps
     completed.
+
+    *completed_ids* and *all_task_ids* may be pre-fetched by the caller (the
+    monitor loop) to avoid redundant full-table scans when several checks run
+    in the same cycle.
     """
     _lazy_imports()
 
@@ -416,8 +420,10 @@ def check_dep_violations():
     # been called yet when this check runs.
     db.backfill_completed_task_ids()
 
-    completed_ids = db.task_get_completed_ids()
-    all_task_ids = {t["id"] for t in db.task_get_all()}
+    if completed_ids is None:
+        completed_ids = db.task_get_completed_ids()
+    if all_task_ids is None:
+        all_task_ids = {t["id"] for t in db.task_get_all()}
 
     with _handle_lock:
         handles_snapshot = list(_active_handles.items())

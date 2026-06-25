@@ -515,6 +515,21 @@ def task_get_all(exclude_statuses: tuple = ()) -> List[Dict]:
     return [_task_row(r) for r in rows]
 
 
+def task_get_by_id_prefix(prefix: str, statuses: tuple = ()) -> List[Dict]:
+    """Return tasks whose ID starts with *prefix*, optionally filtered by status."""
+    if statuses:
+        placeholders = ",".join("?" * len(statuses))
+        rows = _connect().execute(
+            f"SELECT * FROM tasks WHERE id LIKE ? AND status IN ({placeholders})",
+            (prefix + "%", *statuses),
+        ).fetchall()
+    else:
+        rows = _connect().execute(
+            "SELECT * FROM tasks WHERE id LIKE ?", (prefix + "%",)
+        ).fetchall()
+    return [_task_row(r) for r in rows]
+
+
 def task_get(task_id: str) -> Optional[Dict]:
     row = _connect().execute(
         "SELECT * FROM tasks WHERE id=?", (task_id,)
