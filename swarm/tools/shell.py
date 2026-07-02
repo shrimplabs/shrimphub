@@ -293,6 +293,11 @@ def git_commit(message: str, files: list = None) -> dict:
                 return {"ok": False, "error": f"git add {f} failed: {err}"}
     else:
         code, out, err = run("git add -A")
+        if code == 0:
+            # Unstage broadcast claim files — they are ephemeral coordination state,
+            # not project artifacts. Committing them causes stale locks to accumulate
+            # across agent runs and block future commits.
+            run("git reset HEAD -- agent/broadcast/")
     if code != 0:
         return {"ok": False, "error": f"git add failed: {err}"}
     code, out, err = run(f'git commit -m "{message}"')

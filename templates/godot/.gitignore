@@ -1,0 +1,25 @@
+# Godot editor cache and generated files
+.godot/
+*.uid
+
+# Imported assets (regenerated from source)
+.import/
+
+# Export artifacts
+export.cfg
+export_presets.cfg
+*.apk
+*.aab
+*.ipa
+*.exe
+*.pck
+*.zip
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Swarm agent coordination files (ephemeral, must not be committed)
+agent/broadcast/
