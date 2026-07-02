@@ -1,5 +1,7 @@
 # Pipeline A/B Experiment Design
 
+> **Tooling**: Use the `/swarm-experiment` Claude Code skill (`~/.claude/skills/swarm-experiment/SKILL.md`) to launch new experiment runs. It includes run history summaries, arm pattern templates, and the run lifecycle checklist.
+
 ## Goal
 
 Empirically determine the optimal pipeline phase composition and ordering for

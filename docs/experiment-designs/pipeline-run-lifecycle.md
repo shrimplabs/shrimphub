@@ -1,5 +1,7 @@
 # Pipeline Experiment Run Lifecycle
 
+> **Tooling**: Use the `/swarm-experiment` Claude Code skill (`~/.claude/skills/swarm-experiment/SKILL.md`) to design and launch new experiment runs. It codifies arm patterns, flat adaptive config, run history, and the checklist below. Invoke with `/swarm-experiment [run name and hypothesis]`.
+
 This is the repeatable process for freezing a pipeline experiment run, preserving
 its data, disabling the old projects, and starting a fresh batch.
 
