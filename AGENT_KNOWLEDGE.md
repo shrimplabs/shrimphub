@@ -367,3 +367,27 @@ Test passes in isolation and in single-worker mode. Failure only observed in ful
 **Duplicated-task warning**: Bug tasks requesting this fix (e.g., `bug-106400608-0182`, `bug-106264195-0141`) are duplicates. If a task description matches this exact fix, verify with `grep -n "history_ids\\|task-history.jsonl" swarm/api.py` — only docstring/comment hits should remain. If both hits are in comments, the fix is already applied and no source-code change is needed.
 
 **Sibling**: `bug-106264195-0141` completed this fix on 2026-07-03 15:27 UTC.
+
+---
+## iter_lines mock regression — already-fixed pattern (2026-07-03)
+
+### Pattern
+Swarm stream-parser functions MUST wrap `resp.iter_lines(...)` with `iter(...)` before calling `next()`:
+```python
+# CORRECT
+line_iter = iter(resp.iter_lines(chunk_size=8192))
+raw_line = next(line_iter)
+
+# WRONG — breaks every test that mocks iter_lines as a list
+line_iter = resp.iter_lines(chunk_size=8192)
+raw_line = next(line_iter)
+```
+
+### Why
+Production `requests` returns a generator from `iter_lines`, so `next()` works directly. Test mocks usually return `iter_lines.return_value = [list]`, and `next(<list>)` raises `TypeError` (not `StopIteration`), which the parser catches as `stream interrupted` and triggers the 7-attempt retry loop → 20+ failing tests.
+
+### Locations applied
+- `swarm/llm_utils.py:499` — primary stream parser (commit 3a4b9215)
+
+### Check before claiming
+Always `grep -n 'iter_lines' <file>` and check whether the assignment uses `iter(...)` already — if yes, the bug is fixed and no commit is needed.
