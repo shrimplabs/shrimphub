@@ -442,3 +442,24 @@ Regression test added commit da630671 in tests/test_db.py.
 **Worktree gotcha**: pytest had 1 unrelated failure in `test_dispatches_list_files` due to a missing `.` in `/private/var/folders/.../pytest-of-costas/pytest-212/test_worktree_tasks_do_not_pul0/worktree/.` -- not related to this task. Skip with `--ignore=tests/test_agent_runtime.py` or pytest-xdist single worker if needed.
 
 **Duplicated-task warning (updated)**: Future tasks requesting this fix should `grep -rn "_task_history_lookup" swarm/ tests/ --include='*.py'` first. Zero hits => no-op.
+
+---
+## SQL injection whitelist in swarm/db.py — already fixed in HEAD 20d9d239 (bug-107344794-0964)
+
+Bug: `agent_update_status`, `task_update`, `task_update_status`, `project_update` interpolated dict keys directly into SQL.
+
+Fix (already in HEAD commit 20d9d239):
+- File: `swarm/db.py` lines 26-44
+- Added module-level `ALLOWED_TASK_COLS`, `ALLOWED_PROJECT_COLS`, `ALLOWED_AGENT_COLS` sets.
+- Added `bad = [k for k in fields if k not in ALLOWED_*]; if bad: raise ValueError(...)` at the top of each update function (lines 728, 766, 1061, 1403).
+- Each `bad` block raises `ValueError("Invalid <entity> column(s): {bad}")` with the unknown key list.
+
+Tests:
+- `tests/test_db.py::test_task_update_rejects_unknown_column` — verifies `task_update` and `task_update_status` reject unknown columns and SQL-injection attempts (e.g., `{"status; DROP TABLE tasks; --": "x"}`).
+- `tests/test_db.py::test_project_update_rejects_unknown_column` — verifies `project_update`.
+- `tests/test_db.py::test_agent_update_status_rejects_unknown_column` — verifies `agent_update_status`.
+- 42/42 tests in `tests/test_db.py` pass.
+
+Duplicated-task warning: Future tasks requesting this fix should `grep -n "ALLOWED_.*_COLS\|Invalid.*column" swarm/db.py` first. Existing hits at lines 26-44 + update-function guards = already fixed, no-op.
+
+Sibling: bug-107344794-0964 broadcast no-op on 2026-07-03 17:44.

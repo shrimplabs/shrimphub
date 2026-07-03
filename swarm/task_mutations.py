@@ -117,3 +117,54 @@ def cancel_task_with_metadata(db: Any, task_id: str, extra_metadata: Mapping[str
     metadata.update(dict(extra_metadata or {}))
     db.task_update(task_id, {"status": "cancelled", "metadata": metadata})
     return metadata
+
+
+def _fire_task_webhook(event: str, *, webhook_url: str = "", **kwargs):
+    """Fire a task-level webhook event if a URL is configured.
+
+    The caller is responsible for providing ``webhook_url`` (typically the
+    module-level ``WEBHOOK_URL`` constant in ``swarm.agent_lifecycle``). This
+    keeps the helper module-agnostic while preserving historical behavior of
+    the per-module WEBHOOK_URL global.
+    """
+    if not webhook_url:
+        return
+    import urllib.request
+    import json as _json
+    try:
+        url = webhook_url
+        project = kwargs.get("project", "")
+        desc = kwargs.get("description", "")
+        ttype = kwargs.get("task_type", "")
+        if event == "task_completed":
+            diff = kwargs.get("diff_stat", "")
+            title = f"\u2705 Task completed -- {project}"
+            body_s = f"{ttype}: {desc}" + (f"\n`{diff.splitlines()[-1]}`" if diff else "")
+            color = 0x3fb950
+            ntfy_tag = "white_check_mark"
+        else:  # task_failed
+            attempts = kwargs.get("attempts", 0)
+            max_att = kwargs.get("max_attempts", 3)
+            title = f"\u274c Task failed -- {project}"
+            body_s = f"{ttype}: {desc} (attempt {attempts}/{max_att})"
+            color = 0xf85149
+            ntfy_tag = "x"
+
+        if "discord.com/api/webhooks" in url:
+            body = _json.dumps({"embeds": [{"title": title, "description": body_s, "color": color}]}).encode()
+            headers = {"Content-Type": "application/json"}
+        elif "hooks.slack.com" in url:
+            body = _json.dumps({"text": f"*{title}*\n{body_s}"}).encode()
+            headers = {"Content-Type": "application/json"}
+        elif "ntfy.sh" in url:
+            body = body_s.encode()
+            headers = {"Content-Type": "text/plain", "Title": title, "Tags": ntfy_tag}
+        else:
+            body = _json.dumps({"event": event, "title": title, "summary": body_s, **kwargs}).encode()
+            headers = {"Content-Type": "application/json"}
+
+        headers["User-Agent"] = "Mozilla/5.0 (compatible; SwarmController/1.0)"
+        req = urllib.request.Request(url, data=body, headers=headers)
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print(f"[Webhook] Failed to send {event}: {e}")
