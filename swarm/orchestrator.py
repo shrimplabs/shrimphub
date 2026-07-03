@@ -398,7 +398,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
         if _sprint_over_quota:
             print("[Swarm] Sprint QA/planner spawn skipped -- over quota")
         if _plan_candidates:
-            all_tasks = db.task_get_all()
+            all_tasks = db.task_get_all(projects=list(_plan_candidates))
             projects_with_tasks = {t["project"] for t in all_tasks}
             for proj in _plan_candidates:
                 if proj in projects_with_tasks:
@@ -810,7 +810,10 @@ _META_TASK_TYPES = frozenset({
 def _get_next_task(exclude_ids: set | None = None) -> Optional[Dict]:
     """Select the next pending task with met dependencies, using TASK_SELECTION_STRATEGY."""
     db.backfill_completed_task_ids()
-    all_tasks = db.task_get_all()
+    # Scope to managed projects when set — avoids scanning thousands of historical
+    # tasks from dead experiment runs (old void-patrol-runN arms) on every cycle.
+    _managed = list(MANAGED_PROJECTS) if MANAGED_PROJECTS else None
+    all_tasks = db.task_get_all(projects=_managed)
     pending = [t for t in all_tasks if t["status"] == "pending"]
 
     # Meta agents must not run when over quota — they consume LLM calls and

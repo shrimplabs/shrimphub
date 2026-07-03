@@ -501,17 +501,23 @@ def _migrate(conn: sqlite3.Connection, json_files: Dict[str, Path]):
 # Task operations
 # ---------------------------------------------------------------------------
 
-def task_get_all(exclude_statuses: tuple = ()) -> List[Dict]:
+def task_get_all(exclude_statuses: tuple = (), projects: list = None) -> List[Dict]:
+    conn = _connect()
+    conditions = []
+    params: list = []
     if exclude_statuses:
         placeholders = ",".join("?" * len(exclude_statuses))
-        rows = _connect().execute(
-            f"SELECT * FROM tasks WHERE status NOT IN ({placeholders}) ORDER BY priority DESC, created ASC",
-            exclude_statuses,
-        ).fetchall()
-    else:
-        rows = _connect().execute(
-            "SELECT * FROM tasks ORDER BY priority DESC, created ASC"
-        ).fetchall()
+        conditions.append(f"status NOT IN ({placeholders})")
+        params.extend(exclude_statuses)
+    if projects:
+        placeholders = ",".join("?" * len(projects))
+        conditions.append(f"project IN ({placeholders})")
+        params.extend(projects)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = conn.execute(
+        f"SELECT * FROM tasks {where} ORDER BY priority DESC, created ASC",
+        params,
+    ).fetchall()
     return [_task_row(r) for r in rows]
 
 
@@ -792,19 +798,23 @@ def backfill_completed_task_ids() -> list[str]:
     return inserted
 
 
-def task_get_completed_ids() -> set:
-    """Return all ever-completed task IDs.
+def task_get_completed_ids(projects: list = None) -> set:
+    """Return completed task IDs, optionally scoped to a list of projects.
 
-    Now that completed tasks stay in the tasks table, this is the union of:
-    - completed tasks in the live tasks table (primary source)
-    - legacy completed_task_ids shadow table (pre-migration fallback)
+    Scoping to managed projects avoids scanning thousands of historical tasks
+    from dead experiment runs on every monitor cycle.
     """
     conn = _connect()
-    rows = conn.execute("SELECT id FROM tasks WHERE status='completed'").fetchall()
+    if projects:
+        placeholders = ",".join("?" * len(projects))
+        rows = conn.execute(
+            f"SELECT id FROM tasks WHERE status='completed' AND project IN ({placeholders})",
+            projects,
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM tasks WHERE status='completed'").fetchall()
     ids = {r["id"] for r in rows}
     # DEPRECATED: legacy fallback for pre-migration completed tasks.
-    # The completed_task_ids shadow table is redundant now that completed tasks
-    # stay in the tasks table. Remove this fallback after 2025-07-01.
     rows2 = conn.execute("SELECT id FROM completed_task_ids").fetchall()
     ids |= {r["id"] for r in rows2}
     return ids
