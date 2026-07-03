@@ -409,7 +409,7 @@ def create_app(
     _last_monitor_tick = [time.time()]  # mutable container for closure
     _rate_limit_cooldown_until = [0.0]   # timestamp until which spawning is paused
     _rate_limit_cooldown_secs = 300      # 5-minute cooldown on rate-limit exhaustion
-    # In-memory set of already-archived rl_event lines — avoids re-reading the archive
+    # In-memory set of already-archived rl_event lines -- avoids re-reading the archive
     # file every monitor cycle (was O(n²) on a 14k-line file). Seeded from existing
     # archive on startup so restarts don't re-append old events.
     _rl_archive_file_seed = data_dir / "rl_events_archive.jsonl"
@@ -444,33 +444,14 @@ def create_app(
         active_ids = {t["id"] for t in all_tasks}
         completed_ids = db.task_get_completed_ids()
 
-        # Load history IDs (completed/failed tasks whose live row was pruned)
-        history_ids: set = set()
-        history_file = data_dir / "task-history.jsonl"
-        if history_file.exists():
-            try:
-                for line in history_file.read_text().splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                        if rec.get("id"):
-                            history_ids.add(rec["id"])
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # Skip the 93MB JSONL read — completed tasks stay in DB now, so
-        # active_ids | completed_ids is sufficient. history_ids only matters
-        # for pre-migration tasks which are effectively zero at this point.
+        # Skip the 102MB JSONL read of task-history.jsonl -- completed tasks
+        # stay in the DB now, so active_ids | completed_ids is sufficient.
         known_ids = active_ids | completed_ids
 
         pruned = []
 
         for task in all_tasks:
-            # Check all non-completed statuses — in_progress tasks with ghost deps
+            # Check all non-completed statuses -- in_progress tasks with ghost deps
             # get killed by the dep violation checker, so catch them here first.
             if task.get("status") in ("completed", "cancelled", "archived"):
                 continue
@@ -645,7 +626,7 @@ def create_app(
                             except Exception:
                                 pass
                         # Archive new events: only append lines not yet seen (tracked in memory).
-                        # Never read the archive file back — that was O(n²) on a 14k-line file.
+                        # Never read the archive file back -- that was O(n²) on a 14k-line file.
                         _archive_file = data_dir / "rl_events_archive.jsonl"
                         _new_lines = [_l for _l in _rl_lines if _l.strip() and _l.strip() not in _rl_archived_set]
                         if _new_lines:
@@ -822,7 +803,7 @@ def create_app(
                         if freeze_started:
                             frozen_secs = now - freeze_started
                             data["started"] = data.get("started", now) + frozen_secs
-                            print(f"[Quota] Agent {agent_id[:8]} unfrozen after {frozen_secs:.0f}s — timeout clock adjusted")
+                            print(f"[Quota] Agent {agent_id[:8]} unfrozen after {frozen_secs:.0f}s -- timeout clock adjusted")
 
             # Also cover DB-tracked agents not in _active_handles (orphans from prior session)
             for agent in db.agent_get_active():

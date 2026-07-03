@@ -496,7 +496,7 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
         _routed_model_logged = False
 
         try:
-          line_iter = resp.iter_lines(chunk_size=8192)
+          line_iter = iter(resp.iter_lines(chunk_size=8192))
         except Exception as _ie:
           return f"Error: stream init failed: {_ie}", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
 

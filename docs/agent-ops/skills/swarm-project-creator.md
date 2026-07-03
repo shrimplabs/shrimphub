@@ -44,9 +44,16 @@ Check auto mode:
 
 ## Step 3 — Create the project
 
+> ⚠️ **Critical**: Swarm agents write files and then `git commit`. If there is no git repo on disk, all file writes evaporate — the task completes with `commit=None` and nothing is saved. **Always use `swarm_create_project` for new projects.** Never seed tasks via `POST /api/tasks/batch` alone without a repo on disk first.
+
 ### Option A — New project (git init + Gitea repo + bootstrap + task seed)
 
-Use `swarm_create_project`. Pass all tasks upfront — it seeds them atomically with correct dep wiring:
+**This is the only correct path for a new project.** `swarm_create_project` atomically:
+1. Runs `git init` and creates the repo on disk at `$WORKSPACE/project-name/`
+2. Creates and pushes to a Gitea remote
+3. For Godot: installs GUT, state_server.gd, check_scripts.gd, project.godot, main.tscn
+4. Seeds all tasks with correct dep wiring
+5. Registers the project in managed_projects
 
 ```
 swarm_create_project(
@@ -60,18 +67,33 @@ swarm_create_project(
 )
 ```
 
-### Option B — Existing repo (already cloned/initialised)
+**Never do this instead:**
+```python
+# ❌ WRONG — no git repo exists, agents will write files that vanish on commit
+requests.post("http://localhost:5001/api/tasks/batch", json={"project": "new-project", "tasks": [...]})
+```
+
+### Option B — Existing repo (already cloned/initialised on disk)
+
+Only use this if the repo already exists at `$WORKSPACE/project-name/` with a git history:
 
 ```
 swarm_register_project(name="project-name", managed=True)
 ```
 
-Then create tasks separately (Step 4). For Godot: also run the wizard bootstrap to install state_server.gd, check_scripts.gd, GUT, etc.:
+Then verify the repo exists before creating tasks:
+```bash
+ls $WORKSPACE/project-name/.git  # must exist
+```
+
+For Godot: also run the wizard bootstrap to install state_server.gd, check_scripts.gd, GUT, etc.:
 ```bash
 curl -s -X POST http://localhost:5001/api/wizard/create \
   -H "Content-Type: application/json" \
   -d '{"project": "project-name", "bootstrap_only": true}'
 ```
+
+Then create tasks (Step 4).
 
 ---
 
@@ -81,7 +103,7 @@ curl -s -X POST http://localhost:5001/api/wizard/create \
 - `swarm_create_project` auto-runs `_bootstrap_godot_project_support()`: installs GUT, state_server.gd, test_harness.gd, check_scripts.gd, project.godot, main.tscn
 - **NEVER add a scaffold/setup task** — it creates a phantom root and wastes an agent slot
 - First task = first real gameplay feature (e.g. "Player ship with basic movement and shooting")
-- End the DAG with a `harness_qa` or `qa` task as the final gate
+- End the DAG with a `harness_qa` or `qa` task as the final gate (**Godot only** — `harness_qa` runs Godot's TestHarness checkpoint system; use `feature` type with validation-framing for non-game projects)
 - Good task granularity: one system per task (player, enemies, scoring, HUD — not "build the whole game")
 
 Example Godot task list:
@@ -119,6 +141,19 @@ tasks = [
 - Scaffold task: `cargo init`, add dependencies to `Cargo.toml`, create module structure
 - Agents run `cargo check` for validation
 - Specify edition (2021) and async runtime (tokio/async-std) in scaffold description
+
+### Task type for QA/validation gates
+
+| Project type | Final gate task type | Why |
+|---|---|---|
+| `godot` | `harness_qa` or `qa` | Runs TestHarness checkpoints + GUT tests + check_scripts.gd |
+| `python` | `feature` (validation-framing) | Runs pytest + py_compile; `harness_qa` prompt is Godot-specific |
+| `typescript` / web | `feature` (validation-framing) | Runs tsc + docker build + curl health; `harness_qa` will try to find Godot |
+| `rust` | `feature` (validation-framing) | Runs cargo check/test |
+
+For non-Godot projects, frame the final task as: *"Run these checks in order: [tsc/pytest/cargo], [docker build], [health endpoint]. If all pass, mark complete. If any fail, create a bug task."*
+
+---
 
 ### General programming (Go, C#, Swift, etc.)
 - Use `type="python"` (closest validation match)
@@ -243,6 +278,41 @@ Good: `"Add JWT authentication in src/auth/jwt.py. POST /auth/login accepts {ema
 
 ---
 
+## Swarm is overkill for small projects
+
+The swarm earns its keep on projects with: (a) many parallel tasks, (b) long-running work that would consume Claude Code context, or (c) things you don't want to think about. For small bounded projects (< 1000 lines, one screen, one container), Claude Code directly is faster and gives you more control.
+
+**Good swarm candidates:** Godot games, multi-service backends, projects with 10+ parallel tasks, large refactors across many files.
+
+**Poor swarm candidates:** Single-page web apps, small CLI tools, projects where you want to review every decision. Build these in Claude Code directly.
+
+When in doubt: if a senior dev could finish it in a day, do it in Claude Code.
+
+---
+
+## After batch creation — always add to managed_projects
+
+`swarm_create_project` handles this automatically. When using `POST /api/tasks/batch` directly (without `swarm_create_project`), the project won't appear in the dashboard until you add it:
+
+```python
+import requests
+d = requests.get("http://localhost:5001/api/managed-projects").json()
+current = d.get("managed_projects", [])
+if "project-name" not in current:
+    current.append("project-name")
+    requests.post("http://localhost:5001/api/managed-projects", json={"managed_projects": current})
+    print("Added to managed projects")
+```
+
+**Also verify head_task_id is set** — if null, trigger reconcile:
+```bash
+curl -s -X POST http://localhost:5001/api/dependencies/integrity \
+  -H "Content-Type: application/json" \
+  -d '{"action": "reconcile_heads"}'
+```
+
+---
+
 ## Common mistakes to avoid
 
 - **Godot: never add a scaffold task** — bootstrap is automatic, it creates a phantom root
@@ -252,6 +322,9 @@ Good: `"Add JWT authentication in src/auth/jwt.py. POST /auth/login accepts {ema
 - **Never use `POST /api/projects/{name}/head`** — that endpoint does not exist
 - **Never manually create a genesis task** — `ensure_project_head` handles it; manual ones break chains
 - **Check agents aren't already running** before resetting statuses: `curl -s http://localhost:5001/api/agents`
+- **Don't run task creation in background shell** — python3 commands get backgrounded and duplicates sneak through; use curl with inline python3 -c or run synchronously
+- **Never seed tasks before the repo exists on disk** — agents commit as their persistence mechanism; without a git repo, all file writes evaporate and tasks complete with `commit=None`. Always `swarm_create_project` first for new projects.
+- **`POST /api/tasks/batch` alone is not enough for a new project** — it creates tasks but does not create the git repo. Agents will appear to succeed but produce nothing.
 
 ---
 
