@@ -833,7 +833,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
                     original = db.task_get(original_failed_id)
                     if original and original.get("status") == "failed":
                         db.task_update_status(original_failed_id, "completed",
-                                              completed=__import__("datetime").datetime.now().isoformat())
+                                              completed=datetime.now(timezone.utc).isoformat())
                         db.task_record_completed(original_failed_id, project or "")
                         print(f"[Swarm] Marked original failed task {original_failed_id[:16]} completed "
                               f"(continuation {task_id[:16]} succeeded)")

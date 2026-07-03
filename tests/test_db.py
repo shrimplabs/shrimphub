@@ -603,3 +603,36 @@ def test_concurrent_task_writes():
 
     assert errors == []
     assert len(db.task_get_all()) == 20
+
+
+def test_task_update_rejects_unknown_column():
+    """task_update must refuse unknown columns to prevent SQL injection."""
+    db.task_upsert(_task("t1"))
+    with pytest.raises(ValueError, match="Invalid task column"):
+        db.task_update("t1", {"status; DROP TABLE tasks; --": "x"})
+    with pytest.raises(ValueError, match="Invalid task column"):
+        db.task_update_status("t1", "pending", bogus_col="x")
+    db.task_update("t1", {"status": "completed"})
+    assert db.task_get("t1")["status"] == "completed"
+
+
+def test_project_update_rejects_unknown_column():
+    """project_update must refuse unknown columns."""
+    db.project_upsert(_project("p1"))
+    with pytest.raises(ValueError, match="Invalid project column"):
+        db.project_update("p1", {"name = name; DROP TABLE projects; --": "x"})
+    with pytest.raises(ValueError, match="Invalid project column"):
+        db.project_update("p1", {"bogus_col": 1})
+    db.project_update("p1", {"closure_status": "green"})
+    assert db.project_get("p1")["closure_status"] == "green"
+
+
+def test_agent_update_status_rejects_unknown_column():
+    """agent_update_status must refuse unknown columns."""
+    db.agent_upsert(_agent("a1"))
+    with pytest.raises(ValueError, match="Invalid agent column"):
+        db.agent_update_status("a1", "completed", bogus_col="x")
+    with pytest.raises(ValueError, match="Invalid agent column"):
+        db.agent_update_status("a1", "running", **{"status; DROP TABLE agents; --": "x"})
+    db.agent_update_status("a1", "completed", exit_code=0)
+    assert db.agent_get("a1")["exit_code"] == 0

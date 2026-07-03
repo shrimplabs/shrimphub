@@ -15,7 +15,7 @@ import re
 import shutil
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -636,7 +636,7 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
             loop_model_routing = {}
         experiment_id = (
             data.get("experiment_id")
-            or f"{project_name}-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
+            or f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
         )
 
         if not tag:

@@ -23,6 +23,28 @@ from typing import Dict, List, Optional
 _db_path: Optional[Path] = None
 _local = threading.local()
 
+ALLOWED_TASK_COLS = {
+    "id", "project", "type", "description", "priority", "status",
+    "created", "started", "completed", "agent_id", "dependencies",
+    "metadata", "acceptance_test", "attempts", "max_attempts",
+    "run_after", "plan_id",
+}
+ALLOWED_PROJECT_COLS = {
+    "name", "status", "managed", "locked", "locked_at", "unlocked_at",
+    "last_update", "files", "sprint", "recent_commits", "last_commit",
+    "last_commit_msg", "file_locks", "profile", "notes", "head_task_id",
+    "closure_mode", "closure_status", "closure_spec",
+    "last_verification_at", "last_verification_status",
+    "open_regression_count", "stall_count",
+}
+ALLOWED_AGENT_COLS = {
+    "id", "project", "task_type", "status", "spawned_at", "completed_at",
+    "pid", "exit_code", "task_id", "log_path", "script_path", "output",
+    "metadata", "input_tokens", "output_tokens", "loop_count",
+    "cache_read_tokens", "cache_write_tokens", "provider", "model",
+    "estimated_cost_usd",
+}
+
 
 def _json_dumps(value, default):
     if value is None:
@@ -703,6 +725,9 @@ def _apply_status_invariants(conn: sqlite3.Connection, task_id: str, fields: Dic
 def task_update(task_id: str, fields: dict):
     """Partial update of any task columns by dict."""
     import json as _json
+    bad = [k for k in fields if k not in ALLOWED_TASK_COLS]
+    if bad:
+        raise ValueError(f"Invalid task column(s): {bad}")
     with _task_write_lock:
         conn = _connect()
         row = {}
@@ -738,6 +763,9 @@ def task_update_status(task_id: str, status: str, **kwargs):
     task_update() and task_upsert().
     """
     import json as _json
+    bad = [k for k in kwargs if k not in ALLOWED_TASK_COLS]
+    if bad:
+        raise ValueError(f"Invalid task column(s): {bad}")
     with _task_write_lock:
         conn = _connect()
         fields = {"status": status}
@@ -1030,6 +1058,9 @@ def project_upsert(project: Dict):
 
 
 def project_update(name: str, fields: Dict):
+    bad = [k for k in fields if k not in ALLOWED_PROJECT_COLS]
+    if bad:
+        raise ValueError(f"Invalid project column(s): {bad}")
     conn = _connect()
     row = {}
     for key, value in fields.items():
@@ -1369,6 +1400,9 @@ def agent_upsert(agent: Dict):
 
 def agent_update_status(agent_id: str, status: str, **kwargs):
     """Update agent status plus any extra columns passed as kwargs."""
+    bad = [k for k in kwargs if k not in ALLOWED_AGENT_COLS]
+    if bad:
+        raise ValueError(f"Invalid agent column(s): {bad}")
     conn = _connect()
     fields = {"status": status, **kwargs}
     set_sql = ", ".join(f"{k}=:{k}" for k in fields)
