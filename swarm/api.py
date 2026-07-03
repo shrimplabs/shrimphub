@@ -676,42 +676,8 @@ def create_app(
                     elif orchestrator.get_active_count() < config.get("max_active_agents", 3):
                         print(f"[Monitor] fill_slots idle (active={orchestrator.get_active_count()}, no runnable tasks)")
 
-                # Run auto-replan for projects with auto-replan enabled
-                for _proj in config.get("auto_replan_projects", []):
-                    _queue_empty = (len(db.task_get_by_status("pending")) == 0 or
-                                    not any(t.get("project") == _proj for t in db.task_get_by_status("pending")))
-                    if _queue_empty and orchestrator.get_active_count() == 0:
-                        with auto_mode_state["lock"]:
-                            mode_on = auto_mode_state["enabled"]
-                        if mode_on:
-                            try:
-                                _already = any(
-                                    t.get("project") == _proj and t.get("type") == "project_plan"
-                                    for t in db.task_get_by_status("pending") + db.task_get_by_status("in_progress")
-                                )
-                                if not _already:
-                                    import time as _time
-                                    _plan_id = f"project-plan-{_proj}-{int(_time.time())}"
-                                    db.task_upsert({
-                                        "id": _plan_id,
-                                        "project": _proj,
-                                        "type": "project_plan",
-                                        "description": (
-                                            f"Generate a dependency-ordered task plan for {_proj}. "
-                                            f"Read GAME_DESIGN.md and the existing codebase, then create all "
-                                            f"necessary tasks via the API with proper dependencies so systems "
-                                            f"are built and wired together in the correct order."
-                                        ),
-                                        "priority": 100,
-                                        "status": "pending",
-                                        "attempts": 0,
-                                        "max_attempts": 2,
-                                        "dependencies": chain_to_project_head(db, _proj, task_id=_plan_id, ensure_head=True),
-                                        "metadata": {},
-                                    })
-                                    print(f"[Auto] Spawned project_plan task {_plan_id} for {_proj} (chained after project head)")
-                            except Exception as _e:
-                                print(f"[Auto] Error in auto-replan for {_proj}: {_e}")
+                # Auto-replan is now handled solely by orchestrator.fill_slots sprint cycle
+                # (removed duplicate monitor-thread block per bug-106264195-0537, bead swarm-controller-ojf6).
 
                 # Daily audit_learnings: surface swarm health patterns across all projects.
                 # Runs at most once every 24 hours; writes AUDIT_LEARNINGS_REPORT.md.
