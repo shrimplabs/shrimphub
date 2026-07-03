@@ -345,6 +345,11 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
         spawned: List[str] = []
         skipped: List[str] = []
         limit = max_spawn if max_spawn is not None else 9999
+        # Projects we already triggered idle closure verification for in this
+        # call -- the bottom-of-function _run_idle_closure_verification_cycle
+        # should skip them to avoid double-triggering the same project in one
+        # fill_slots call.
+        skipped_projects_for_idle_verification: set[str] = set()
 
         # Sprint cycle for auto_replan projects:
         #   queue empty → QA → bugs fixed → queue empty → planner → next sprint
@@ -461,6 +466,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                     except Exception as exc:
                         print(f"[Swarm] Idle closure verification failed for {project}: {exc}")
                     _tried_task_ids.add(task["id"])
+                    skipped_projects_for_idle_verification.add(project)
                     break
 
             _tried_task_ids.add(task["id"])
@@ -483,7 +489,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
         if not _over_quota:
             _fire_idle_librarian()
             if not spawned and get_active_count() == 0:
-                _run_idle_closure_verification_cycle()
+                _run_idle_closure_verification_cycle(skipped_projects_for_idle_verification)
                 _fire_idle_gardener()
                 _fire_weekly_auditor()
                 _fire_idle_archaeologist()
@@ -493,7 +499,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
         return spawned, skipped
 
 
-def _run_idle_closure_verification_cycle() -> list[str]:
+def _run_idle_closure_verification_cycle(projects_already_verified: set | None = None) -> list[str]:
     """Opportunistically verify projects when the controller is otherwise idle.
 
     This is intentionally conservative: it only touches managed, unpaused projects
@@ -509,6 +515,8 @@ def _run_idle_closure_verification_cycle() -> list[str]:
         if not project_row.get("managed", True):
             continue
         if project_row.get("locked"):
+            continue
+        if project_name in projects_already_verified:
             continue
         if (
             project_row.get("last_verification_at")
