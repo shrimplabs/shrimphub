@@ -16,7 +16,7 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -634,7 +634,7 @@ def _write_experiment_metrics(
 ) -> None:
     """Append one line to data/experiment_metrics.jsonl for A/B pipeline analysis.
 
-    Only writes when a pipeline_variant is present in task metadata — i.e. only
+    Only writes when a pipeline_variant is present in task metadata -- i.e. only
     for tasks that ran under an explicit pipeline configuration. Tasks without a
     pipeline_variant are skipped to keep the metrics file clean.
     """
@@ -676,7 +676,7 @@ def _write_experiment_metrics(
     except Exception:
         pass
 
-    completed_at = datetime.utcnow().isoformat() + "Z"
+    completed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     record = {
         "timestamp": completed_at,
         "experiment_id": metadata.get("experiment_id", ""),
@@ -707,7 +707,7 @@ def _write_experiment_metrics(
         "started_at": task_snapshot.get("started"),
         "completed_at": completed_at,
         "pipeline_state_path": str(pipeline_state_path) if pipeline_state else "",
-        # Terminal task status — needed by source-task aggregator to detect failed source tasks
+        # Terminal task status -- needed by source-task aggregator to detect failed source tasks
         "status": task_snapshot.get("status", ""),
         # WS4/WS6: failure classification and repair tracking
         "failure_kind": pipeline_state.get("failure_kind", ""),
