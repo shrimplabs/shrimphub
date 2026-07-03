@@ -463,3 +463,20 @@ Tests:
 Duplicated-task warning: Future tasks requesting this fix should `grep -n "ALLOWED_.*_COLS\|Invalid.*column" swarm/db.py` first. Existing hits at lines 26-44 + update-function guards = already fixed, no-op.
 
 Sibling: bug-107344794-0964 broadcast no-op on 2026-07-03 17:44.
+
+---
+## bug-106264195-0616 re-verification (2026-07-03 21:50 UTC, retry attempt 1)
+
+**Trigger**: Retry of bug-106264195-0616 after infrastructure/provider 502 failure on attempt 0. Retry did not charge an attempt.
+
+**Re-verification on HEAD d6251d0e**:
+- `grep -rn '_task_history_lookup' swarm/ tests/` -> zero hits (no source, no .pyc noise either)
+- `grep -n '_replacement_task_dependencies\|task_get_completed_record' swarm/agent_recovery.py` -> hits at lines 444, 506, 516, 585, 837 (replacement path wired)
+- `git log --oneline` shows 966dedd4 reachable in HEAD, with 5 later commits (da630671, 2b3970b7, 8239864c, 64ca05b0, 20d9d239, d6251d0e) — none re-introduce the legacy fallback
+- `git status` -> working tree clean
+- `.venv/bin/pytest tests/test_db.py tests/test_lifecycle.py tests/test_improvements.py -x` -> 147/147 pass
+- `pytest tests/test_agent_recovery.py -x` -> collection error (file does not exist; confirmed via `ls tests/ | grep -i recovery` -> zero matches)
+
+**Outcome**: Task already `completed` (status field in DB) with `completed_at=2026-07-03T17:17:25.178655`, `archived=true`, `infrastructure_retry_pending=true` flag noted in metadata. PATCH `{"status":"completed"}` was idempotent — status confirmed at `completed`.
+
+**Status**: NO-OP duplicate (third re-broadcast), sibling of bug-107344794-0964. No commit needed.
