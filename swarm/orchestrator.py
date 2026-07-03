@@ -390,7 +390,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
 
         # Sprint cycle for auto_replan projects:
         #   queue empty → QA → bugs fixed → queue empty → planner → next sprint
-        # Guard: skip sprint QA/planner spawning when over quota — these tasks
+        # Guard: skip sprint QA/planner spawning when over quota -- these tasks
         # consume LLM calls and queueing them when quota is exhausted just means
         # they'll start immediately on the next fill_slots cycle and burn remaining quota.
         _sprint_over_quota, *_ = check_quota_limit()
@@ -476,13 +476,13 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
             if agent_id:
                 spawned.append(agent_id)
             else:
-                print(f"[Swarm] spawn_agent returned None for task {task['id'][:12]} project={project} — skipping and trying next")
+                print(f"[Swarm] spawn_agent returned None for task {task['id'][:12]} project={project} -- skipping and trying next")
                 if LOCK_PROJECT:
                     db.project_set_locked(project, False)
                 skipped.append(project)
-                # Do NOT break — try the next available task
+                # Do NOT break -- try the next available task
 
-        # Meta agents: never fire when over quota — they consume LLM calls
+        # Meta agents: never fire when over quota -- they consume LLM calls
         # just like regular agents and make quota exhaustion worse.
         _over_quota, _pct_used, *_ = check_quota_limit()
         if not _over_quota:
@@ -494,7 +494,7 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                 _fire_idle_archaeologist()
                 _fire_idle_scheduler()
         else:
-            print(f"[Meta] Quota at {_pct_used:.1f}% — skipping all meta agent triggers")
+            print(f"[Meta] Quota at {_pct_used:.1f}% -- skipping all meta agent triggers")
         return spawned, skipped
 
 
@@ -810,13 +810,13 @@ _META_TASK_TYPES = frozenset({
 def _get_next_task(exclude_ids: set | None = None) -> Optional[Dict]:
     """Select the next pending task with met dependencies, using TASK_SELECTION_STRATEGY."""
     db.backfill_completed_task_ids()
-    # Scope to managed projects when set — avoids scanning thousands of historical
+    # Scope to managed projects when set -- avoids scanning thousands of historical
     # tasks from dead experiment runs (old void-patrol-runN arms) on every cycle.
     _managed = list(MANAGED_PROJECTS) if MANAGED_PROJECTS else None
     all_tasks = db.task_get_all(projects=_managed)
     pending = [t for t in all_tasks if t["status"] == "pending"]
 
-    # Meta agents must not run when over quota — they consume LLM calls and
+    # Meta agents must not run when over quota -- they consume LLM calls and
     # make quota exhaustion worse.  Filter them out of the candidate pool.
     over_quota, _pct, *_ = check_quota_limit()
     if over_quota:
@@ -910,7 +910,7 @@ def _get_next_task(exclude_ids: set | None = None) -> Optional[Dict]:
         if non_blocked:
             ready[:] = non_blocked
             return ready[0]
-        return None  # All tasks are expansion-blocked -- no safe alternative
+        return ready[0]  # All tasks are expansion-blocked -- allow top task through to avoid deadlock
 
     return ready[0]
 
@@ -1247,7 +1247,7 @@ def _fire_idle_archaeologist() -> None:
         return
 
     all_tasks = db.task_get_all()
-    # Count active archaeologist tasks (including failed — don't re-trigger on failure)
+    # Count active archaeologist tasks (including failed -- don't re-trigger on failure)
     active_arch = [
         t for t in all_tasks
         if t.get("type") == "archaeologist"

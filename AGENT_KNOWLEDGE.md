@@ -350,3 +350,20 @@ Test passes in isolation and in single-worker mode. Failure only observed in ful
 - Trends vs 2026-06-05 (116 projects / 508 files): +16 projects / +30 files. hybrid_qa still 100% failing (chronic). qa stable at 27 failed. feature steady at 50. bug steady at 36. Stable signal across the board.
 - Marked completed via `PATCH /api/tasks/audit-learnings-1780790637` with `{"status":"completed"}`
 - Working tree has 20+ unrelated modifications from sibling work (dashboard, swarm modules, tests) — NOT touched by this task; no commit required
+
+---
+## Already-applied fix: drop task-history.jsonl read in _sweep_ghost_deps
+
+**Bug**: `swarm/api.py` `_sweep_ghost_deps` previously read and JSON-parsed the full 102MB `data/task-history.jsonl` on startup and every 100s in the monitor thread, building an unused `history_ids` set.
+
+**Fix (already in HEAD, commit 3a4b9215)**:
+- File: `swarm/api.py` lines 444–448
+- Removed the JSONL-read block that built `history_ids`.
+- `known_ids = active_ids | completed_ids` retained unchanged.
+- Added a comment: `# Skip the 102MB JSONL read of task-history.jsonl -- completed tasks stay in the DB now, so active_ids | completed_ids is sufficient.`
+
+**Verification**: `.venv/bin/pytest tests/test_api.py -x -k ghost` passes 2/2.
+
+**Duplicated-task warning**: Bug tasks requesting this fix (e.g., `bug-106400608-0182`, `bug-106264195-0141`) are duplicates. If a task description matches this exact fix, verify with `grep -n "history_ids\\|task-history.jsonl" swarm/api.py` — only docstring/comment hits should remain. If both hits are in comments, the fix is already applied and no source-code change is needed.
+
+**Sibling**: `bug-106264195-0141` completed this fix on 2026-07-03 15:27 UTC.
