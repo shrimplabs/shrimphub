@@ -1615,6 +1615,53 @@ depends-on: US-001
         assert r2.status_code == 400
         assert "Unknown dependency" in r2.json["error"]
 
+    def test_update_task_accepts_real_dependency(self, client):
+        """PATCH with a valid (existing) dependency ID must succeed (200)."""
+        dep = client.post("/api/tasks", json={
+            "project": "dep-proj", "type": "feature", "description": "parent"
+        }, content_type="application/json")
+        dep_id = dep.json["task"]["id"]
+
+        child = client.post("/api/tasks", json={
+            "project": "dep-proj", "type": "feature", "description": "child"
+        }, content_type="application/json")
+        child_id = child.json["task"]["id"]
+
+        r2 = client.patch(f"/api/tasks/{child_id}", json={
+            "dependencies": [dep_id]
+        }, content_type="application/json")
+        assert r2.status_code == 200
+        assert dep_id in r2.json["task"]["dependencies"]
+
+    def test_update_task_accepts_empty_dependencies_list(self, client):
+        """PATCH with dependencies=[] is the documented self-healing clear -- must succeed."""
+        dep = client.post("/api/tasks", json={
+            "project": "dep-proj", "type": "feature", "description": "parent"
+        }, content_type="application/json")
+        dep_id = dep.json["task"]["id"]
+
+        child = client.post("/api/tasks", json={
+            "project": "dep-proj", "type": "feature", "description": "child",
+            "dependencies": [dep_id],
+        }, content_type="application/json")
+        child_id = child.json["task"]["id"]
+        assert dep_id in child.json["task"]["dependencies"]
+
+        r2 = client.patch(f"/api/tasks/{child_id}", json={
+            "dependencies": []
+        }, content_type="application/json")
+        assert r2.status_code == 200
+        assert r2.json["task"]["dependencies"] == []
+
+    def test_create_task_rejects_unknown_dependency(self, client):
+        """POST /api/tasks with a non-existent dependency ID must return 400."""
+        r = client.post("/api/tasks", json={
+            "project": "dep-proj", "type": "feature", "description": "x",
+            "dependencies": ["phantom-task-id-does-not-exist"],
+        }, content_type="application/json")
+        assert r.status_code == 400
+        assert "unknown dependency" in r.json["error"].lower()
+
     def test_get_task_not_found(self, client):
         r = client.get("/api/tasks/ghost")
         assert r.status_code == 404
