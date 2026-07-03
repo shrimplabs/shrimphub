@@ -1,4 +1,4 @@
-"""Tests for swarm/db.py — SQLite storage layer."""
+"""Tests for swarm/db.py -- SQLite storage layer."""
 import json
 import sqlite3
 import threading
@@ -335,6 +335,26 @@ def test_backfill_completed_task_ids_archives_existing_completed_rows():
     inserted = db.backfill_completed_task_ids()
     assert inserted == ["legacy-completed"]
     assert "legacy-completed" in db.task_get_completed_ids()
+
+
+def test_task_get_completed_ids_scopes_legacy_archive_by_projects():
+    """Regression: completed_task_ids legacy fallback must respect projects filter."""
+    conn = db._connect()
+    conn.execute(
+        "INSERT INTO completed_task_ids (id, project, completed_at) VALUES (?, ?, ?)",
+        ("legacy-alpha", "alpha", "2026-01-01T00:00:00"),
+    )
+    conn.execute(
+        "INSERT INTO completed_task_ids (id, project, completed_at) VALUES (?, ?, ?)",
+        ("legacy-beta", "beta", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    unscoped = db.task_get_completed_ids()
+    assert "legacy-alpha" in unscoped
+    assert "legacy-beta" in unscoped
+    scoped = db.task_get_completed_ids(projects=["alpha"])
+    assert "legacy-alpha" in scoped
+    assert "legacy-beta" not in scoped
 
 
 def test_task_dependencies_serialised():
