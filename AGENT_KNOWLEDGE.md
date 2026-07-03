@@ -418,3 +418,11 @@ Note: tests/test_fill_slots.py has 3 tests asserting OLD buggy behavior (e.g. te
 **Duplicated-task warning**: Any future task requesting this fix is a duplicate. Verify with `grep -n _task_history_lookup swarm/agent_recovery.py swarm/agent_lifecycle.py` — should return zero hits before claiming.
 
 **Sibling**: Completed by `bug-106264195-0616` on 2026-07-03 (this task and the `bug-106264195-0141` task-history.jsonl deletion are sibling no-op cleanup tasks).
+
+---
+## task_get_completed_ids project scoping fix (already in HEAD 966dedd4)
+
+Bug: swarm/db.py task_get_completed_ids(projects=...) UNION'd legacy completed_task_ids without project filter.
+Fix in HEAD at swarm/db.py:819-827 wraps legacy SELECT in if projects: with WHERE project IN (?,...).
+Regression test added commit da630671 in tests/test_db.py.
+39/39 db tests pass.
