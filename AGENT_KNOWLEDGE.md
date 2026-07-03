@@ -426,3 +426,19 @@ Bug: swarm/db.py task_get_completed_ids(projects=...) UNION'd legacy completed_t
 Fix in HEAD at swarm/db.py:819-827 wraps legacy SELECT in if projects: with WHERE project IN (?,...).
 Regression test added commit da630671 in tests/test_db.py.
 39/39 db tests pass.
+
+---
+## bug-106264195-0616 -- _task_history_lookup removal (already done, duplicate task)
+
+**Verified status (2026-07-03 17:15)**: The `_task_history_lookup` legacy fallback has already been removed in commit `966dedd4`.
+
+**Verification commands**:
+- `grep -rn "_task_history_lookup" swarm/ tests/ --include='*.py'` -> zero hits (only stale `.pyc` in `swarm/__pycache__/`)
+- `get_file_outline swarm/agent_recovery.py` shows function order: `_get_recovery_lock` (77-79) -> `_live_dependents` (82-92) directly, no gap
+- `_replacement_task_dependencies` now uses `db.task_get_completed_record(candidate_id)` for candidate lookups
+
+**Note**: task description cites `tests/test_agent_recovery.py` but no such file exists in this repo. Equivalent coverage: `tests/test_lifecycle.py`, `tests/test_improvements.py`, `tests/test_agent_finish_phases.py`, `tests/test_pipeline_phase_artifacts.py`, `tests/test_db.py` (189/189 pass).
+
+**Worktree gotcha**: pytest had 1 unrelated failure in `test_dispatches_list_files` due to a missing `.` in `/private/var/folders/.../pytest-of-costas/pytest-212/test_worktree_tasks_do_not_pul0/worktree/.` -- not related to this task. Skip with `--ignore=tests/test_agent_runtime.py` or pytest-xdist single worker if needed.
+
+**Duplicated-task warning (updated)**: Future tasks requesting this fix should `grep -rn "_task_history_lookup" swarm/ tests/ --include='*.py'` first. Zero hits => no-op.
