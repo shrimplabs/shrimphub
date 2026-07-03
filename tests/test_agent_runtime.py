@@ -1661,7 +1661,7 @@ class TestMainLoop:
             capture_output=True,
             check=True,
         ).stdout.strip()
-        assert log == "Refactor: update art_note.txt"
+        assert log == "art: update art_note.txt"
 
     def test_python_project_uses_python_feature_prompt(self, tmp_path):
         proj = tmp_path / "workspace" / "test-proj"

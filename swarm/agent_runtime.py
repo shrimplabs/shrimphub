@@ -447,7 +447,7 @@ def main() -> int:
                     "validation": _final_state.validation,
                     "errors": list(_final_state.errors),
                     "failed": bool(_final_state.failed),
-                    # WS4/WS5 fields — must be present for experiment metrics to read them
+                    # WS4/WS5 fields -- must be present for experiment metrics to read them
                     "failure_kind": _final_state.failure_kind,
                     "failure_phase": _final_state.failure_phase,
                     "failure_exception_class": _final_state.failure_exception_class,
@@ -474,7 +474,7 @@ def main() -> int:
                 log(f"WARNING: failed to write pipeline metrics files: {_pipe_write_exc}")
             return 1 if _final_state.failed else 0
         except Exception as _pipe_exc:
-            log(f"[Pipeline] ERROR: {_pipe_exc} — falling back to legacy loop")
+            log(f"[Pipeline] ERROR: {_pipe_exc} -- falling back to legacy loop")
             import traceback
             log(traceback.format_exc())
             # Fall through to legacy loop below
@@ -944,7 +944,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 conversation = [
                     conversation[0],  # original user prompt
                     {"role": "user", "content": (
-                        f"[SCOUT RECON SUMMARY — {tool_loop_count} loops of read-only exploration]\n\n"
+                        f"[SCOUT RECON SUMMARY -- {tool_loop_count} loops of read-only exploration]\n\n"
                         f"{_scout_summary}\n\n"
                         "You are now in the implementation phase. Proceed with the changes."
                     )},
@@ -1019,7 +1019,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
         system_with_budget = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}]\n" + system_prompt
         if _scout_active and not _scout_handed_off:
-            system_with_budget += "\n\n[SCOUT MODE — read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
+            system_with_budget += "\n\n[SCOUT MODE -- read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
         response, tokens, thinking_blocks = call_llm(system_with_budget, conversation, provider=_active_provider)
         if _adaptive_flat_enabled:
             try:
@@ -1193,11 +1193,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             if TASK_TYPE in _VISION_CAP_TYPES and _tool_name in ("vision_query", "take_screenshot", "screenshot_burst"):
                 if _vision_calls_since_write >= _VISION_CAP_LIMIT:
                     _cap_msg = (
-                        f"[VISION CAP] vision_query/take_screenshot blocked — you have made "
+                        f"[VISION CAP] vision_query/take_screenshot blocked -- you have made "
                         f"{_vision_calls_since_write} visual assessment calls without a file change. "
                         "You must now make a concrete change: use write_file, patch_file, or run_command "
                         "to copy/modify an asset or scene file. After committing a change, your "
-                        "screenshot budget resets. Do NOT take more screenshots — act on what you already know."
+                        "screenshot budget resets. Do NOT take more screenshots -- act on what you already know."
                     )
                     log(f"[VisionCap] Blocked {_tool_name} after {_vision_calls_since_write} calls without write")
                     result = {"ok": False, "error": _cap_msg}
@@ -1573,13 +1573,15 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             if code == 0 and out.strip():
                 changed = [line[3:].strip() for line in out.strip().splitlines() if line.strip()]
                 new_files = [f for f in changed if not f.endswith(".md")]
+                prefixes = {"feature": "feat", "bug": "fix", "refactor": "refactor", "polish": "polish", "qa": "qa", "art_pass": "art"}
+                prefix = prefixes.get(TASK_TYPE, "chore")
                 if new_files:
                     names = ", ".join(os.path.basename(f) for f in new_files[:4])
                     if len(new_files) > 4:
                         names += f" (+{len(new_files) - 4} more)"
-                    auto_msg = f"Refactor: update {names}"
+                    auto_msg = f"{prefix}: update {names}"
                 else:
-                    auto_msg = f"Refactor: update plan for {PROJECT}"
+                    auto_msg = f"{prefix}: update plan for {PROJECT}"
                 result = git_commit(auto_msg)
                 if result.get("ok") and TASK_TYPE != "art_pass":
                     git_push()

@@ -402,3 +402,19 @@ Fix: `return None  # All tasks are expansion-blocked -- no safe alternative` -> 
 Status as of 2026-07-03: **Already in HEAD** (commit e1801839 "Refactor: update orchestrator.py"). tests/test_orchestrator.py 29/29 pass.
 
 Note: tests/test_fill_slots.py has 3 tests asserting OLD buggy behavior (e.g. test_stalled_project_blocks_expansion_when_no_repair_path_exists asserts `task is None`). These need updating to match correct behavior -- do NOT silently revert.
+
+---
+## _task_history_lookup legacy fallback — already removed in HEAD 966dedd4
+
+**Bug**: `swarm/agent_recovery.py` had a `_task_history_lookup(task_id)` function with comment "Remove this fallback after 2025-07-01". It is now 2026-07, over a year past the removal date.
+
+**Fix (already in HEAD, commit 966dedd4 dated 2026-07-03 16:14)**:
+- Removed `def _task_history_lookup(...)` at line 77
+- Removed the call site at line 115 (`or _task_history_lookup(candidate_id)`)
+- Commit title: "Refactor: update equirements.txt, agent_lifecycle.py, agent_recovery.py, db.py (+2 more)"
+
+**Verification**: `grep -rn _task_history_lookup swarm/ tests/` → no source matches (only stale `.pyc` bytecode matches).
+
+**Duplicated-task warning**: Any future task requesting this fix is a duplicate. Verify with `grep -n _task_history_lookup swarm/agent_recovery.py swarm/agent_lifecycle.py` — should return zero hits before claiming.
+
+**Sibling**: Completed by `bug-106264195-0616` on 2026-07-03 (this task and the `bug-106264195-0141` task-history.jsonl deletion are sibling no-op cleanup tasks).
