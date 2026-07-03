@@ -23,7 +23,7 @@ from swarm.experiment_metadata import stamp_experiment_metadata
 
 # Per-branch-root lock: serialises the check-then-create in _spawn_review_task
 # so concurrent daemon threads can't all race past the canonical_recovery guard.
-# Keyed by branch_root_id (more precise than project — unrelated failures in the
+# Keyed by branch_root_id (more precise than project -- unrelated failures in the
 # same project don't block each other).
 _recovery_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 _recovery_locks_guard = threading.Lock()
@@ -39,7 +39,7 @@ _MAX_RECOVERY_TASKS_PER_BRANCH = 3
 # on_exhaust: "research" → spawn a research feeder task
 #             "cancel"   → mark task cancelled, unblock dependents
 # This dict is the source of truth; config.json can override individual entries.
-# max_attempts values come from constants.py — do not hardcode here.
+# max_attempts values come from constants.py -- do not hardcode here.
 from swarm.constants import (
     DEFAULT_MAX_ATTEMPTS as _A,
     DEFAULT_MAX_ATTEMPTS_QA as _AQ,
@@ -215,7 +215,7 @@ def _soft_complete_quality_gate(
         db_live.task_update(dependent["id"], {"metadata": dep_meta})
 
     print(
-        f"[Swarm] {task_type} {task_id[:12]} exhausted but is a soft quality gate — "
+        f"[Swarm] {task_type} {task_id[:12]} exhausted but is a soft quality gate -- "
         "marked completed with quality risk metadata"
     )
     return True
@@ -229,18 +229,18 @@ def _is_infrastructure_failure(output: str) -> bool:
     retries through successfully) and then fail for a real reason later (e.g. a
     Godot parse error caught in validation). The full log contains both signals,
     so a whole-log scan wrongly classifies the run as infrastructure and resets
-    the task without consuming an attempt — tasks then loop dozens of times
+    the task without consuming an attempt -- tasks then loop dozens of times
     without ever exhausting ``max_attempts`` to spawn a research feeder.
 
     The fix is to look at the *terminal* state of the run, not the whole log:
 
     1. An explicit ``failure_kind=infrastructure_exception`` marker is
-       authoritative — the pipeline itself classified the failure as infra.
+       authoritative -- the pipeline itself classified the failure as infra.
     2. If the pipeline ran to completion and then reported a real failure
        (``[Pipeline] Done. FAILED``, validation errors, etc.), it is NOT an
        infrastructure failure regardless of any earlier transient 502s.
     3. Otherwise transient provider markers only count as infrastructure when
-       they appear in the *tail* of the log — i.e. the run actually died on a
+       they appear in the *tail* of the log -- i.e. the run actually died on a
        provider error rather than recovering from one earlier.
 
     Conservative by design: when in doubt, return False (consume the attempt).
@@ -251,7 +251,7 @@ def _is_infrastructure_failure(output: str) -> bool:
     if not text:
         return False
 
-    # (1) Authoritative pipeline classification — trust it unconditionally.
+    # (1) Authoritative pipeline classification -- trust it unconditionally.
     if "failure_kind=infrastructure_exception" in text:
         return True
 
@@ -390,41 +390,6 @@ def _validate_project_plan_subtasks(project: str, planner_task_id: str) -> list[
 
 
 # ---------------------------------------------------------------------------
-# Task history lookup
-# ---------------------------------------------------------------------------
-
-def _task_history_lookup(task_id: str) -> Optional[dict]:
-    if not task_id:
-        return None
-    # Check live DB first (completed/failed tasks now stay in the tasks table)
-    live = _db().task_get(task_id)
-    if live:
-        return live
-    # DEPRECATED: fall back to JSONL for pre-migration tasks only.
-    # Remove this fallback after 2025-07-01.
-    history_file = _lc()._get_data_dir() / "task-history.jsonl"
-    if not history_file.exists():
-        return None
-    latest_match: Optional[dict] = None
-    try:
-        with history_file.open() as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except Exception:
-                    continue
-                if record.get("id") != task_id:
-                    continue
-                latest_match = record
-    except Exception:
-        return None
-    return latest_match
-
-
-# ---------------------------------------------------------------------------
 # Branch failure history collector
 # ---------------------------------------------------------------------------
 
@@ -539,7 +504,6 @@ def _replacement_task_dependencies(
         candidate_task = (
             db.task_get(candidate_id)
             or db.task_get_completed_record(candidate_id)
-            or _task_history_lookup(candidate_id)
         )
         candidate_deps = _filter_completed(_normalized_deps(candidate_task))
         if candidate_deps:
@@ -680,7 +644,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
     failed_id = failed_task.get("id", "unknown")
     project = failed_task.get("project", "")
     if project in al.PAUSED_PROJECTS:
-        print(f"[Swarm] Skipping recovery task — {project} is paused")
+        print(f"[Swarm] Skipping recovery task -- {project} is paused")
         return
     orig_type = failed_task.get("type", "bug")
     orig_desc = failed_task.get("description", "")
@@ -692,7 +656,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
 
     # Serialise the check-then-create for this branch root.  Without this lock,
     # concurrent daemon threads all read the same stale task snapshot, see no
-    # existing recovery tasks, and each independently create one — causing an
+    # existing recovery tasks, and each independently create one -- causing an
     # exponential cascade of parallel recovery tasks.
     with _get_recovery_lock(branch_root_id):
         # Re-read inside the lock so we see any recovery tasks created by threads
@@ -719,7 +683,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         total_branch_tasks = len(all_branch_recovery_tasks)
         if total_branch_tasks >= _MAX_RECOVERY_TASKS_PER_BRANCH and orig_type not in {"qa", "harness_qa", "hybrid_qa"}:
             print(f"[Swarm] Recovery cap reached ({total_branch_tasks}/{_MAX_RECOVERY_TASKS_PER_BRANCH}) "
-                  f"for branch {branch_root_id[:12]} — forcing research escalation")
+                  f"for branch {branch_root_id[:12]} -- forcing research escalation")
             _recovery_depth = max(_recovery_depth, 1)  # ensure escalation triggers below
 
         # Find live (pending/in_progress) recovery OR research-escalation tasks for this branch.
@@ -774,7 +738,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
             latest_previous = previous_branch_tasks[-1]
             _linear_chain_deps = [latest_previous["id"]]
         else:
-            _linear_chain_deps = None  # first recovery — use normal dep logic below
+            _linear_chain_deps = None  # first recovery -- use normal dep logic below
 
         note = (
             f"NOTE: {len(dependents)} other task(s) are waiting on this work to complete."
@@ -807,7 +771,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
                 f"3. Identify exactly what is wrong and why previous attempts failed to fix it.\n"
                 f"4. Queue ONE well-scoped bug task with a precise description of the fix needed.\n"
                 f"   Include in that task: exact files to change, what to change, and why.\n"
-                f"5. Do NOT commit code yourself — diagnosis and task creation only.\n\n"
+                f"5. Do NOT commit code yourself -- diagnosis and task creation only.\n\n"
                 f"{note}"
             )
         elif orig_type in {"qa", "harness_qa", "hybrid_qa"}:
@@ -832,9 +796,9 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
                 f"LATEST FAILURE:\n{failure_excerpt}\n"
                 f"{chain_section}\n"
                 f"YOUR JOB:\n"
-                f"1. Read ALL failure history above — understand what was tried and why it didn't work.\n"
+                f"1. Read ALL failure history above -- understand what was tried and why it didn't work.\n"
                 f"2. Inspect the codebase to understand the current state.\n"
-                f"3. ACTUALLY COMPLETE the original task — implement the feature/fix.\n"
+                f"3. ACTUALLY COMPLETE the original task -- implement the feature/fix.\n"
                 f"   Do NOT just document the failure. The project is incomplete without this work.\n"
                 f"4. Avoid the mistakes from previous attempts (described in failure history above).\n"
                 f"5. Validate, commit, and push when done.\n\n"
@@ -888,7 +852,7 @@ def _spawn_review_task(failed_task: dict, attempts: int, last_output: str):
         }
         db.task_upsert(recovery_task)
         if escalate_to_research:
-            print(f"[Swarm] ESCALATED to research {recovery_id} for {project} — branch {branch_root_id[:12]} depth {_recovery_depth + 1}")
+            print(f"[Swarm] ESCALATED to research {recovery_id} for {project} -- branch {branch_root_id[:12]} depth {_recovery_depth + 1}")
         else:
             print(f"[Swarm] Created recovery task {recovery_id} for failed task {failed_id} (depth {_recovery_depth + 1})")
 
@@ -974,12 +938,12 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         db.task_update(failed_id, {"metadata": updated_meta})
         print(
             f"[Swarm] Research feeder cap reached for {failed_id[:12]} "
-            f"({cycles}/{MAX_RESEARCH_FEEDER_CYCLES}) — leaving exhausted task failed without spawning feeder"
+            f"({cycles}/{MAX_RESEARCH_FEEDER_CYCLES}) -- leaving exhausted task failed without spawning feeder"
         )
         return None
 
     if project in al.PAUSED_PROJECTS:
-        print(f"[Swarm] Skipping research feeder — {project} is paused; resetting task to pending so it retries on unpause")
+        print(f"[Swarm] Skipping research feeder -- {project} is paused; resetting task to pending so it retries on unpause")
         fresh = db.task_get(failed_id)
         if fresh:
             meta = dict(fresh.get("metadata") or {})
@@ -1016,12 +980,12 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
     ]
     if live_feeders:
         existing_id = live_feeders[0]["id"]
-        print(f"[Swarm] Research feeder {existing_id} already exists for {failed_id[:8]} (status={live_feeders[0].get('status')}) — skipping duplicate")
+        print(f"[Swarm] Research feeder {existing_id} already exists for {failed_id[:8]} (status={live_feeders[0].get('status')}) -- skipping duplicate")
         _block_original_on_existing_feeder(existing_id)
         return existing_id
 
     # Per-project cap: only one research feeder may be pending/in_progress per project
-    # at a time. Multiple concurrent failures often share the same root cause — letting
+    # at a time. Multiple concurrent failures often share the same root cause -- letting
     # them each spawn a feeder produces duplicate diagnosis chains and conflicting fix tasks.
     # The blocked tasks will be unblocked after the single feeder resolves.
     project_live_feeders = [
@@ -1032,7 +996,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
     ]
     if project_live_feeders:
         existing_id = project_live_feeders[0]["id"]
-        print(f"[Swarm] Research feeder {existing_id} already running for project {project} — holding {failed_id[:8]} until it completes")
+        print(f"[Swarm] Research feeder {existing_id} already running for project {project} -- holding {failed_id[:8]} until it completes")
         _block_original_on_existing_feeder(existing_id)
         return existing_id
 
@@ -1066,7 +1030,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         f"1. Read every file mentioned in the failure history above.\n"
         f"2. Understand exactly why previous attempts failed.\n"
         f"3. Identify the root cause and what a correct fix looks like.\n"
-        f"4. Write your findings to the scratchpad — be specific: exact files, exact lines, exact fix.\n"
+        f"4. Write your findings to the scratchpad -- be specific: exact files, exact lines, exact fix.\n"
         f"5. Do NOT commit code. Do NOT create new tasks. Your output feeds directly back into the "
         f"   original task so it can retry with your diagnosis as context.\n"
         f"6. End with TASK_COMPLETE.\n"
@@ -1091,7 +1055,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
         "project": project,
         "type": "research",
         "description": research_desc,
-        "priority": 85,  # high — unblocks the original task
+        "priority": 85,  # high -- unblocks the original task
         "status": "pending",
         "attempts": 0,
         "max_attempts": 2,
@@ -1120,7 +1084,7 @@ def _spawn_research_feeder(failed_task: dict, attempts: int, last_output: str) -
             "completed": None,
         })
 
-    print(f"[Swarm] Spawned research feeder {research_id} for {failed_id[:8]} (attempt {attempts}) — original task reset to pending, blocked on research")
+    print(f"[Swarm] Spawned research feeder {research_id} for {failed_id[:8]} (attempt {attempts}) -- original task reset to pending, blocked on research")
     return research_id
 
 
@@ -1227,7 +1191,7 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
 
     original_status = original_task.get("status")
     if original_status == "completed":
-        print(f"[Swarm] Research feeder {research_task_id[:8]} complete but original task {original_task_id[:12]} already completed — self-cancelling")
+        print(f"[Swarm] Research feeder {research_task_id[:8]} complete but original task {original_task_id[:12]} already completed -- self-cancelling")
         return
 
     # Summarise research output (bounded)
@@ -1249,7 +1213,7 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
     orig_deps = [d for d in orig_deps if d != research_task_id]
 
     # Cycle cap: track how many times this task has gone through the research feeder
-    # path. If it exceeds the cap, cancel instead of resetting — prevents infinite
+    # path. If it exceeds the cap, cancel instead of resetting -- prevents infinite
     # research→retry→fail→research loops on tasks with unfixable root causes.
     cycles = orig_meta.get("research_feeder_cycles", 0) + 1
     orig_meta["research_feeder_cycles"] = cycles
@@ -1293,7 +1257,7 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
         ):
             print(
                 f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_FEEDER_CYCLES}) reached for "
-                f"{original_task_id[:12]} — soft-completed qualitative gate so downstream QA can proceed"
+                f"{original_task_id[:12]} -- soft-completed qualitative gate so downstream QA can proceed"
             )
             return
         max_attempts = original_task.get("max_attempts") or 3
@@ -1307,7 +1271,7 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
         db_ref.task_update(original_task_id, update_payload)
         print(
             f"[Swarm] Research feeder cycle cap ({MAX_RESEARCH_FEEDER_CYCLES}) reached for "
-            f"{original_task_id[:12]} — marked failed so the graph can drain (cycle {cycles})"
+            f"{original_task_id[:12]} -- marked failed so the graph can drain (cycle {cycles})"
         )
         return
 
@@ -1323,18 +1287,18 @@ def _apply_research_feeder_result(research_task_id: str, research_output: str, d
             orig_meta["needs_human_review"] = True
             orig_meta["human_review_reason"] = (
                 f"Research feeder {research_task_id[:12]} exhausted all attempts without resolving. "
-                f"Agent and research both failed — needs human diagnosis."
+                f"Agent and research both failed -- needs human diagnosis."
             )
         run_after = _configured_snooze_until()
         if run_after:
             update["run_after"] = run_after
         print(
-            f"[Swarm] Research feeder {research_task_id[:8]} exhausted — "
+            f"[Swarm] Research feeder {research_task_id[:8]} exhausted -- "
             + ("flagged " + original_task_id[:12] + " needs_human_review, " if _human_review_enabled else "")
             + (f"snoozed until {run_after}" if run_after else "continuing without run_after")
         )
     else:
-        print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} — task reset to pending with research context")
+        print(f"[Swarm] Research feeder {research_task_id[:8]} result injected into {original_task_id[:12]} -- task reset to pending with research context")
 
     db_ref.task_update(original_task_id, update)
 
@@ -1369,7 +1333,7 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             "metadata": meta,
         })
         print(
-            f"[Swarm] Task {task_id} hit infrastructure/provider failure — "
+            f"[Swarm] Task {task_id} hit infrastructure/provider failure -- "
             "resetting to pending without consuming an attempt"
         )
         return
@@ -1398,14 +1362,14 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             "agent_id": None,
             "metadata": meta,
         })
-        print(f"[Swarm] Task {task_id} failed (attempt {attempts}/{max_attempts}) — retrying")
+        print(f"[Swarm] Task {task_id} failed (attempt {attempts}/{max_attempts}) -- retrying")
     else:
         db.task_update_status(
             task_id, "failed",
             attempts=attempts,
             completed=datetime.now().isoformat(),
         )
-        print(f"[Swarm] Task {task_id} failed after {attempts} attempts — giving up")
+        print(f"[Swarm] Task {task_id} failed after {attempts} attempts -- giving up")
         al._fire_task_webhook(
             "task_failed",
             project=project or "",
@@ -1423,15 +1387,15 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
         if task_meta.get("is_recovery_task") and task_type == "bug" and project:
             # Legacy recovery task (pre-feeder): redirect to research feeder instead of
             # spawning another terminal continuation. These have already gone through
-            # multiple recovery generations — research is the right next step.
-            print(f"[Swarm] Legacy recovery task {task_id} exhausted — escalating to research feeder")
+            # multiple recovery generations -- research is the right next step.
+            print(f"[Swarm] Legacy recovery task {task_id} exhausted -- escalating to research feeder")
             _spawn_research_feeder(task, attempts, agent_output)
         elif task_meta.get("is_recovery_task"):
-            # Legacy recovery task of a non-bug type — terminal continuation as before
+            # Legacy recovery task of a non-bug type -- terminal continuation as before
             _spawn_terminal_recovery_continuation(task, attempts, agent_output)
         elif task_meta.get("is_research_feeder"):
-            # Research feeder exhausted — mark cancelled, flag original for human review
-            print(f"[Swarm] Research feeder {task_id} exhausted {attempts} attempts — flagging original task for human review")
+            # Research feeder exhausted -- mark cancelled, flag original for human review
+            print(f"[Swarm] Research feeder {task_id} exhausted {attempts} attempts -- flagging original task for human review")
             db.task_update(task_id, {"status": "cancelled"})
             # Inject partial findings + human review flag into original
             _apply_research_feeder_result(task_id, agent_output, needs_human_review=True)
@@ -1453,7 +1417,7 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
             if dependents:
                 print(
                     f"[Swarm] Task {task_id} ({task_type}) exhausted with "
-                    f"{len(dependents)} dependent(s) — creating continuity task before cancellation"
+                    f"{len(dependents)} dependent(s) -- creating continuity task before cancellation"
                 )
                 _spawn_review_task(task, attempts, agent_output)
                 task = db.task_get(task_id) or task
@@ -1462,11 +1426,11 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
                 task_meta["cancel_continuity_repaired"] = True
                 task_meta["cancel_continuity_dependent_count"] = len(dependents)
                 db.task_update(task_id, {"status": "cancelled", "metadata": task_meta})
-                print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled after continuity repair")
+                print(f"[Swarm] Task {task_id} ({task_type}) exhausted -- cancelled after continuity repair")
             else:
                 # QA/research/plan types with no live dependents can stop cleanly.
                 db.task_update(task_id, {"status": "cancelled"})
-                print(f"[Swarm] Task {task_id} ({task_type}) exhausted — cancelled per escalation policy")
+                print(f"[Swarm] Task {task_id} ({task_type}) exhausted -- cancelled per escalation policy")
         elif project:
             # Fallback to legacy recovery for unknown types
             _spawn_review_task(task, attempts, agent_output)

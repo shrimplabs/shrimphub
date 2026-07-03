@@ -571,7 +571,7 @@ def task_get_by_project(project: str) -> List[Dict]:
 
 def task_get_active(statuses: tuple = ("pending", "in_progress", "failed"),
                     project: Optional[str] = None) -> List[Dict]:
-    """Fetch only the active working set — avoids full-table scan for the dashboard.
+    """Fetch only the active working set -- avoids full-table scan for the dashboard.
 
     statuses: which statuses to include (default: the dashboard working set)
     project:  optional project filter (uses idx_tasks_project index)
@@ -815,7 +815,16 @@ def task_get_completed_ids(projects: list = None) -> set:
         rows = conn.execute("SELECT id FROM tasks WHERE status='completed'").fetchall()
     ids = {r["id"] for r in rows}
     # DEPRECATED: legacy fallback for pre-migration completed tasks.
-    rows2 = conn.execute("SELECT id FROM completed_task_ids").fetchall()
+    # Apply the same project scoping as the main tasks query so callers
+    # filtering by `projects` don't get all-projects IDs back.
+    if projects:
+        placeholders = ",".join("?" * len(projects))
+        rows2 = conn.execute(
+            f"SELECT id FROM completed_task_ids WHERE project IN ({placeholders})",
+            projects,
+        ).fetchall()
+    else:
+        rows2 = conn.execute("SELECT id FROM completed_task_ids").fetchall()
     ids |= {r["id"] for r in rows2}
     return ids
 

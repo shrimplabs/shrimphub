@@ -35,7 +35,6 @@ from swarm.agent_recovery import (  # noqa: F401
     _match_plan_hint_to_task_ids,
     _validate_project_plan_subtasks,
     _spawn_review_task,
-    _task_history_lookup,
     _replacement_task_dependencies,
 )
 from swarm.agent_auto_tasks import (  # noqa: F401
@@ -641,7 +640,7 @@ def get_active_count() -> int:
         finishing = frozenset(_finishing_agents)
 
     # Count all DB-active agents not already tracked in-process or finishing.
-    # We do NOT filter by PID liveness here — a just-died pre-restart agent
+    # We do NOT filter by PID liveness here -- a just-died pre-restart agent
     # still holds a slot until the reconciler updates its DB status next cycle.
     # Checking PID liveness here creates a race window where a dying agent
     # is counted as neither in-process, finishing, nor persisted, causing

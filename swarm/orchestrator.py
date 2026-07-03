@@ -218,12 +218,13 @@ def check_quota_limit() -> Tuple[bool, float, float, int, int]:
     if not MINIMAX_API_KEY:
         return False, 0.0, 100.0, 0, 4500
     try:
+        import certifi
         import requests
         resp = requests.get(
             "https://www.minimax.io/v1/api/openplatform/coding_plan/remains",
             headers={"Authorization": f"Bearer {MINIMAX_API_KEY}"},
             timeout=10,
-            verify=False,  # macOS SSL cert chain issue; this is a read-only monitoring call
+            verify=certifi.where(),  # use certifi CA bundle to avoid macOS SSL chain issues
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -358,20 +359,6 @@ def _check_llm_connectivity() -> bool:
         return False
 
 
-
-# Configure agent_lifecycle module with our settings
-agent_lifecycle.configure(
-    workspace=WORKSPACE,
-    data_dir=DATA_DIR,
-    use_worktrees=USE_WORKTREES,
-    webhook_url=WEBHOOK_URL,
-    auto_replan_projects=AUTO_REPLAN_PROJECTS,
-    paused_projects=PAUSED_PROJECTS,
-    lock_project=LOCK_PROJECT,
-    max_active_agents=MAX_ACTIVE_AGENTS,
-    agent_timeout=AGENT_TIMEOUT,
-    qa_auto_threshold=QA_AUTO_THRESHOLD,
-)
 
 def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[List[str], List[str]]:
     """
