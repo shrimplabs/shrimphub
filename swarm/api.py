@@ -148,6 +148,12 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
         from swarm_runner import generate_task_script
         return generate_task_script, _runner_mod
     except Exception:
+        # Log the import failure so auto-mode-disabled states surface in server logs
+        # instead of silently never spawning agents.
+        import logging
+        logging.getLogger(__name__).exception(
+            "Failed to import swarm_runner -- auto-mode disabled"
+        )
         return None, None
 
 
@@ -836,6 +842,10 @@ def create_app(
             while True:
                 try:
                     time.sleep(10)
+                    # Guard: if swarm_runner import failed, _runner_mod is None.
+                    # Skip the watcher body to avoid AttributeError on _runner_mod.LLM_PROVIDER.
+                    if _runner_mod is None:
+                        continue
                     over_limit, pct_used, pct_remaining, *_ = orchestrator.check_quota_limit()
                     _log_tick += 1
 
