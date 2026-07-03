@@ -391,3 +391,14 @@ Production `requests` returns a generator from `iter_lines`, so `next()` works d
 
 ### Check before claiming
 Always `grep -n 'iter_lines' <file>` and check whether the assignment uses `iter(...)` already — if yes, the bug is fixed and no commit is needed.
+
+---
+## orchestrator.py _get_next_task deadlock fix (already in HEAD e1801839)
+
+Bug: At end of `_get_next_task`, when all ready tasks are expansion-blocked, the code returned `None` but the comment said "allow the top task through to avoid deadlock". Contradiction.
+
+Fix: `return None  # All tasks are expansion-blocked -- no safe alternative` -> `return ready[0]  # All tasks are expansion-blocked -- allow top task through to avoid deadlock`.
+
+Status as of 2026-07-03: **Already in HEAD** (commit e1801839 "Refactor: update orchestrator.py"). tests/test_orchestrator.py 29/29 pass.
+
+Note: tests/test_fill_slots.py has 3 tests asserting OLD buggy behavior (e.g. test_stalled_project_blocks_expansion_when_no_repair_path_exists asserts `task is None`). These need updating to match correct behavior -- do NOT silently revert.
