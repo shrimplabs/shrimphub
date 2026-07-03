@@ -302,6 +302,15 @@ def _build_work_prompt(state: TaskState) -> str:
             lines.append(f"  {kf[:300]}")
         lines.append("")
 
+    # Handoff hypotheses from prior phases (scout/synthesize/etc).
+    # Rendered even when scout_report also has findings so downstream agents
+    # see the most-upstream hypotheses alongside native findings.
+    if handoff.get("hypotheses"):
+        lines.append("HYPOTHESES (from scout):")
+        for h in handoff.get("hypotheses", []):
+            lines.append(f"  - {h}")
+        lines.append("")
+
     synthesis = state.synthesis
     if synthesis and synthesis.get("implementation_steps"):
         lines.append("IMPLEMENTATION BRIEF (from synthesize phase):")

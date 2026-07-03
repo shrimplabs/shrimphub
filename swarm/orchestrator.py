@@ -426,6 +426,43 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
                 break
 
             project = task["project"]
+
+            # When the only ready task for a project is an expansion task blocked by
+            # closure status (frozen/stalled with open regressions) and there is no
+            # recovery/repair alternative in the queue, do NOT spawn the agent --
+            # instead, opportunistically trigger closure verification for the project
+            # so triage/qa can clear the gate. This implements the
+            # "_fill_slots_triggers_idle_verification_when_only_frozen_expansion_remains"
+            # behavior without re-introducing the e1801839 deadlock fix: we only short-
+            # circuit here at the fill_slots caller level when the picked task itself
+            # is expansion-blocked, leaving _get_next_task's "deadlock-free return
+            # ready[0]" guarantee untouched.
+            project_row = db.project_get(project)
+            project_rows_block = {project: project_row} if project_row else {}
+            if (
+                project_row is not None
+                and _is_expansion_blocked(task, project_rows_block)
+            ):
+                ready_peers = db.task_get_all(projects=[project])
+                ready_peers = [t for t in ready_peers if t["status"] == "pending"]
+                has_repair = any(
+                    not _is_expansion_blocked(t, project_rows_block)
+                    for t in ready_peers
+                )
+                if not has_repair:
+                    print(
+                        f"[Swarm] fill_slots: only blocked expansion task for "
+                        f"{project} (closure_status={project_row.get('closure_status')}, "
+                        f"open_regressions={project_row.get('open_regression_count')}); "
+                        f"triggering idle closure verification"
+                    )
+                    try:
+                        _validation.run_closure_verification(project, run_type="periodic")
+                    except Exception as exc:
+                        print(f"[Swarm] Idle closure verification failed for {project}: {exc}")
+                    _tried_task_ids.add(task["id"])
+                    break
+
             _tried_task_ids.add(task["id"])
             if LOCK_PROJECT:
                 db.project_set_locked(project, True)

@@ -652,6 +652,11 @@ class TestRunAfter:
         assert task["id"] == "frozen-repair"
 
     def test_stalled_project_blocks_expansion_when_no_repair_path_exists(self, isolated_orc):
+        # Per e1801839 deadlock fix: _get_next_task MUST NOT return None when all
+        # ready tasks are expansion-blocked -- that would deadlock the swarm.
+        # Instead it returns ready[0] with scheduler_blocked annotation, and the
+        # caller (fill_slots) decides whether to spawn. This test asserts the
+        # post-e1801839 contract: the task is surfaced (not None) and annotated.
         _project("proj")
         db.project_update("proj", {
             "closure_status": "stalled",
@@ -660,13 +665,19 @@ class TestRunAfter:
         _task(task_id="stalled-feature", project="proj", priority=100)
 
         task = orc._get_next_task()
-        assert task is None
+        assert task is not None
+        assert task["id"] == "stalled-feature"
         blocked = db.task_get("stalled-feature")["metadata"].get("scheduler_blocked")
+        assert blocked is not None
         assert blocked["reason"] == "closure_expansion_gate"
         assert blocked["closure_status"] == "stalled"
         assert blocked["open_regression_count"] == 3
 
     def test_closure_scheduler_block_annotation_clears_when_project_recovers(self, isolated_orc):
+        # Per e1801839 deadlock fix: even on the frozen state, _get_next_task
+        # must surface the top blocked task (not None) so the swarm doesn't
+        # deadlock. After recovery (green status), the task is unblocked and
+        # still surfaces, with the scheduler_blocked annotation cleared.
         _project("proj")
         db.project_update("proj", {
             "closure_status": "frozen",
@@ -674,7 +685,11 @@ class TestRunAfter:
         })
         _task(task_id="frozen-feature", project="proj", priority=100)
 
-        assert orc._get_next_task() is None
+        # When project is frozen with no repair alternative, _get_next_task
+        # returns the blocked task (not None) per the deadlock-avoidance rule.
+        task = orc._get_next_task()
+        assert task is not None
+        assert task["id"] == "frozen-feature"
         assert db.task_get("frozen-feature")["metadata"].get("scheduler_blocked")
 
         db.project_update("proj", {
