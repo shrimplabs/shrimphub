@@ -78,10 +78,14 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.SPAWN_PER_CYCLE     = config.get("spawn_per_cycle", 3)
     orchestrator.AUTO_SCALE          = config.get("auto_scale", False)
     orchestrator.AUTO_SCALE_CEILING  = config.get("max_active_agents", 60)
+    # _auto_scale_current starts at the floor (default 1) and ramps up. Never at the
+    # ceiling -- otherwise every restart jumps to max concurrency and only backs off
+    # after 429s arrive. Floor is read from config or falls back to the module default.
     _startup_ceiling = config.get("max_active_agents", 60)
-    orchestrator._auto_scale_current = _startup_ceiling
+    _startup_floor = max(1, int(config.get("auto_scale_floor", orchestrator._auto_scale_floor)))
+    orchestrator._auto_scale_current = _startup_floor
     if config.get("auto_scale", False):
-        orchestrator.MAX_ACTIVE_AGENTS = _startup_ceiling
+        orchestrator.MAX_ACTIVE_AGENTS = _startup_floor
     orchestrator.USE_WORKTREES       = config.get("use_worktrees", True)
     orchestrator.MCP_SERVERS         = config.get("mcp_servers", {})
     orchestrator.IGNORE_DIRS         = set(config.get("ignore_dirs", []))
