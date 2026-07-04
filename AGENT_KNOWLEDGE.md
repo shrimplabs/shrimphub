@@ -536,3 +536,11 @@ Regression test: tests/test_db.py::test_task_get_completed_ids_scopes_legacy_arc
 **Git history**: d6251d0e added canonical impl (+51 lines); d59555f2 collapsed orchestrator.py duplicate to wrapper. agent_lifecycle.py collapsed in parallel commit. Bead: swarm-controller-uby7.
 
 **Verify**: grep -c def _fire_task_webhook on three files -> 1/1/1. Tests: test_orchestrator 29/29, test_db 42/42, test_api 170/170 pass. No commit needed.
+
+## refactor-106264195-1210 re-verification (2026-07-03 22:35 UTC, attempt 2)
+
+**Trigger**: Retry after attempt 1 timeout.
+
+**Re-verify on HEAD e24531bc**: grep -c def on three files -> 1/1/1 (canonical at task_mutations.py:122; wrappers at orchestrator.py:157, agent_lifecycle.py:215). git status -s clean. pytest tests/test_orchestrator.py tests/test_db.py -q -> 71/71; pytest tests/test_api.py -q -p no:cacheprovider -> 170/170. Prior docs commit 60fd94d8 (bead swarm-controller-uby7) already records this no-op.
+
+**Outcome**: NO-OP duplicate, attempt 2. Refactor fully applied in HEAD (d6251d0e canonical + d59555f2 wrapper collapse). No source change.
