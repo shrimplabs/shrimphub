@@ -136,10 +136,9 @@ def _would_introduce_cycle(task_id: str, new_deps: List[str]) -> bool:
         visited.add(node_id)
         return False
 
-    for nid in list(graph.keys()):
-        if nid not in visited and _dfs(nid):
-            return True
-    return False
+    # Only check for cycles reachable from task_id — a pre-existing cycle
+    # elsewhere in the graph must not block this write.
+    return _dfs(task_id)
 
 
 def _validate_task_dependencies(task_id: str, deps: List[str]) -> List[str]:

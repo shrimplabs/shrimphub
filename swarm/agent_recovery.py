@@ -46,6 +46,15 @@ from swarm.constants import (
     RESEARCH_FEEDER_MAX_ATTEMPTS as _AR,
 )
 
+_APP_CONFIG: dict = {}  # set by configure_recovery() from api.py at startup
+
+
+def configure_recovery(config: dict) -> None:
+    """Store app config so _handle_task_failure can apply escalation_policy overrides."""
+    global _APP_CONFIG
+    _APP_CONFIG = config or {}
+
+
 _DEFAULT_ESCALATION_POLICY: dict[str, dict] = {
     "bug":         {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
     "feature":     {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
@@ -1381,7 +1390,7 @@ def _handle_task_failure(task_id: str, project: Optional[str], agent_output: str
         )
         task_type = task.get("type", "")
         task_meta = task.get("metadata") or {}
-        escalation = get_escalation_policy(task_type)
+        escalation = get_escalation_policy(task_type, _APP_CONFIG)
         on_exhaust = escalation.get("on_exhaust", "cancel")
 
         if task_meta.get("is_recovery_task") and task_type == "bug" and project:

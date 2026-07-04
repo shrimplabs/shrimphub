@@ -1645,6 +1645,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     "description": cont_desc,
                     "priority": TASK_PRIORITY,
                     "max_attempts": 5,
+                    "dependencies": [TASK_ID],
                     **({"metadata": loop_cont_meta} if loop_cont_meta else {}),
                 }).encode()
                 req = _ur.Request(

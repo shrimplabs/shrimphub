@@ -134,6 +134,9 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
         human_review_flag_enabled=config.get("human_review_flag_enabled", False),
     )
 
+    from swarm.agent_recovery import configure_recovery as _configure_recovery
+    _configure_recovery(config)
+
     try:
         import swarm_runner as _runner_mod
         _runner_mod.WORKSPACE          = workspace

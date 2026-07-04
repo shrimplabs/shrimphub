@@ -179,11 +179,23 @@ def _fire_task_webhook(event: str, **kwargs):
 # Quota checking
 # ---------------------------------------------------------------------------
 
+_quota_cache: Tuple[bool, float, float, int, int] = (False, 0.0, 100.0, 0, 4500)
+_quota_cache_ts: float = 0.0
+_QUOTA_CACHE_TTL: float = 30.0  # seconds
+
+
 def check_quota_limit() -> Tuple[bool, float, float, int, int]:
     """
     Returns (over_limit, pct_used, pct_remaining, used_count, total).
     Never raises; returns safe defaults on error.
+    Result is cached for _QUOTA_CACHE_TTL seconds to avoid blocking the
+    monitor hot path with repeated network calls.
     """
+    global _quota_cache, _quota_cache_ts
+    import time as _time
+    now = _time.monotonic()
+    if now - _quota_cache_ts < _QUOTA_CACHE_TTL:
+        return _quota_cache
     if LLM_PROVIDER != "minimax":
         return False, 0.0, 100.0, 0, 4500
     if not MINIMAX_API_KEY:
@@ -223,7 +235,10 @@ def check_quota_limit() -> Tuple[bool, float, float, int, int]:
                     pct_remaining = 100.0 - pct_used
             else:
                 pct_used, pct_remaining, used, total = 0.0, 100.0, 0, 4500
-            return pct_used >= QUOTA_LIMIT_PERCENT, pct_used, pct_remaining, used, total
+            result = pct_used >= QUOTA_LIMIT_PERCENT, pct_used, pct_remaining, used, total
+            _quota_cache = result
+            _quota_cache_ts = now
+            return result
     except Exception as e:
         print(f"[Quota] check failed: {e}")
     return False, 0.0, 100.0, 0, 4500

@@ -781,17 +781,7 @@ def register_routes(app, task_source, db, workspace, config=None):
         data = request.json or {}
         new_id = f"{data.get('type', 'task')}-{int(time.time() * 1000) % 10**9}-{_r.randint(100000, 999999)}"
 
-        # Find all tasks whose dependencies include task_id (reparenting targets)
-        all_tasks = db.task_get_all()
-        reparented_ids = []
-        for t in all_tasks:
-            deps = t.get("dependencies") or []
-            if task_id in deps:
-                new_deps = [new_id if d == task_id else d for d in deps]
-                db.task_update(t["id"], {"dependencies": new_deps})
-                reparented_ids.append(t["id"])
-
-        # Create the new task with dependency on task_id
+        # Create the new task first so new_id exists in DB before any dep edges point at it
         new_task = Task(
             id=new_id,
             project=src_task.get("project", ""),
@@ -806,13 +796,19 @@ def register_routes(app, task_source, db, workspace, config=None):
         try:
             task_source.add_task(new_task)
         except ValueError as e:
-            # Rollback reparenting on failure
-            for rid in reparented_ids:
-                t = db.task_get(rid)
-                if t:
-                    fixed = [task_id if d == new_id else d for d in (t.get("dependencies") or [])]
-                    db.task_update(rid, {"dependencies": fixed})
             return jsonify({"error": str(e)}), 400
+
+        # Rewire downstream dependents to point at new_id instead of task_id
+        all_tasks = db.task_get_all()
+        reparented_ids = []
+        for t in all_tasks:
+            if t["id"] == new_id:
+                continue
+            deps = t.get("dependencies") or []
+            if task_id in deps:
+                new_deps = [new_id if d == task_id else d for d in deps]
+                db.task_update(t["id"], {"dependencies": new_deps})
+                reparented_ids.append(t["id"])
 
         return jsonify({
             "inserted_task": new_task.to_dict(),

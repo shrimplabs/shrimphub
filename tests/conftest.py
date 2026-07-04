@@ -43,6 +43,22 @@ def _reset_agent_runtime_globals():
 
 
 @pytest.fixture(autouse=True)
+def _reset_quota_cache():
+    """Reset the orchestrator quota cache timestamp so mocked HTTP calls aren't skipped."""
+    try:
+        import swarm.orchestrator as orc
+        orc._quota_cache_ts = 0.0
+    except Exception:
+        pass
+    yield
+    try:
+        import swarm.orchestrator as orc
+        orc._quota_cache_ts = 0.0
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _mock_llm_sleep(monkeypatch):
     """Prevent real time.sleep() in LLM retry backoff from slowing the suite.
 
