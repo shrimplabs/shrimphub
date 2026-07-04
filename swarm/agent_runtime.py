@@ -1017,10 +1017,24 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             except Exception:
                 pass
 
-        system_with_budget = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}]\n" + system_prompt
+        # Keep system prompt stable for prompt-cache hits — inject loop counter into
+        # the last user message instead so the system prompt hash never changes.
+        system_with_budget = system_prompt
         if _scout_active and not _scout_handed_off:
             system_with_budget += "\n\n[SCOUT MODE -- read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
-        response, tokens, thinking_blocks = call_llm(system_with_budget, conversation, provider=_active_provider)
+        loop_prefix = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}] "
+        conv_with_prefix = list(conversation)
+        if conv_with_prefix and conv_with_prefix[-1].get("role") == "user":
+            last = conv_with_prefix[-1]
+            content = last.get("content", "")
+            if isinstance(content, str):
+                conv_with_prefix[-1] = {**last, "content": loop_prefix + content}
+            elif isinstance(content, list) and content and isinstance(content[0], dict):
+                first = content[0]
+                if first.get("type") == "text":
+                    new_content = [{**first, "text": loop_prefix + first["text"]}, *content[1:]]
+                    conv_with_prefix[-1] = {**last, "content": new_content}
+        response, tokens, thinking_blocks = call_llm(system_with_budget, conv_with_prefix, provider=_active_provider)
         if _adaptive_flat_enabled:
             try:
                 import swarm.agent_runtime as _self_mod

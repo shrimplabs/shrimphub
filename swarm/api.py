@@ -574,6 +574,7 @@ def create_app(
                     all_task_ids=_cycle_all_task_ids,
                 )
                 orchestrator.check_agent_status()
+                orchestrator.check_infra_freeze(db, config)
 
                 # Periodic ghost dep sweep: remove dep edges pointing to IDs that
                 # are absent from both the active DB and task history.  These are

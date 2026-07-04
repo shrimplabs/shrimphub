@@ -646,10 +646,18 @@ def prune_history():
 
     # --- Task archival (decoupled from agent archival) ---
     # Only archive tasks that haven't been written to JSONL yet.
+    # Scope to managed projects when configured to avoid full-table scans over
+    # thousands of historical rows from unmanaged projects.
+    try:
+        from swarm import orchestrator as _orc
+        _managed = set(_orc.MANAGED_PROJECTS) if _orc.MANAGED_PROJECTS else None
+    except Exception:
+        _managed = None
     finished_tasks = [
         t for t in db.task_get_all()
         if t.get("status") in ("completed", "failed", "cancelled")
         and not (t.get("metadata") or {}).get("archived")
+        and (_managed is None or t.get("project") in _managed)
     ]
     if finished_tasks:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -669,6 +677,7 @@ def prune_history():
     all_terminal = [
         t for t in db.task_get_all()
         if t.get("status") in ("completed", "failed", "cancelled")
+        and (_managed is None or t.get("project") in _managed)  # noqa: F821 (_managed defined above)
     ]
     if all_terminal:
         latest_by_project: Dict[str, tuple[str, str]] = {}

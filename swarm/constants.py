@@ -52,3 +52,8 @@ DEFAULT_MAX_ATTEMPTS: int = 3          # bug / feature / refactor / integration
 DEFAULT_MAX_ATTEMPTS_QA: int = 2       # qa / harness_qa / art_pass / plan types
 RESEARCH_FEEDER_MAX_ATTEMPTS: int = 2  # research feeders spawned by recovery
 MAX_RESEARCH_FEEDER_CYCLES: int = 3    # cap on how many feeders one task can spawn
+
+# Infrastructure freeze escalation — tasks that accumulate this many consecutive
+# infrastructure failures without consuming a real attempt are force-escalated to
+# consume one attempt, eventually triggering the research-feeder path.
+INFRA_FREEZE_THRESHOLD: int = 5        # consecutive infra failures before force-escalation

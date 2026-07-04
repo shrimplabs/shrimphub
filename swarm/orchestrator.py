@@ -346,6 +346,48 @@ def _check_llm_connectivity() -> bool:
 
 
 
+def check_infra_freeze(db, config: dict) -> None:
+    """Force-escalate pending tasks that are stuck in infrastructure failure loops.
+
+    Tasks where _is_infrastructure_failure() fired repeatedly never consume an
+    attempt (by design -- infra failures aren't charged). Without this check they
+    can spin forever, starving the delivery queue. When a task accumulates
+    INFRA_FREEZE_THRESHOLD consecutive infra failures, we charge one real attempt
+    so it eventually exhausts and triggers the research-feeder path.
+    """
+    threshold = int(config.get("infra_freeze_threshold", constants.INFRA_FREEZE_THRESHOLD))
+    try:
+        tasks = db.task_get_all()
+        for t in tasks:
+            if t.get("status") != "pending":
+                continue
+            meta = t.get("metadata") or {}
+            if not meta.get("infrastructure_retry_pending"):
+                continue
+            count = int(meta.get("infrastructure_failure_count") or 0)
+            if count < threshold:
+                continue
+            attempts = int(t.get("attempts") or 0)
+            max_attempts = int(t.get("max_attempts") or 3)
+            print(
+                f"[Swarm] Infra freeze detected for {t['id']} "
+                f"({count} consecutive infra failures) — charging attempt {attempts + 1}/{max_attempts}"
+            )
+            new_meta = dict(meta)
+            new_meta["infrastructure_failure_count"] = 0
+            new_meta["infrastructure_retry_pending"] = False
+            new_meta["last_failure"] = (
+                meta.get("last_infrastructure_failure", "")[-500:]
+                or "Infrastructure freeze: forced attempt charge after repeated infra failures."
+            )
+            db.task_update(t["id"], {
+                "attempts": attempts + 1,
+                "metadata": new_meta,
+            })
+    except Exception as e:
+        print(f"[Swarm] check_infra_freeze error: {e}")
+
+
 def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[List[str], List[str]]:
     """
     Spawn agents until MAX_ACTIVE_AGENTS is reached or no tasks remain.
