@@ -14,6 +14,16 @@ func _initialize():
 	var errors: Array[String] = []
 	_scan("res://", autoload_names, errors)
 
+	# Pass 3: verify every declared [connection] in every .tscn actually binds.
+	# Catches e.g. `to="Main"` (root's own name) instead of `to="."` (the
+	# correct self-reference) -- Godot resolves relative NodePaths by looking
+	# for a CHILD with that name, so `to="<RootName>"` silently fails to bind
+	# with zero console output. A dead signal connection is invisible to
+	# every other check in this file (scripts still compile fine) and to
+	# QA agents that click via StateServer's press_button, which calls
+	# emit_signal() directly and bypasses this exact failure mode.
+	_check_connections("res://", errors)
+
 	if errors.size() > 0:
 		for e in errors: print("ERROR: " + e)
 		quit(1)
@@ -78,3 +88,68 @@ func _references_autoload(path: String, autoload_names: Array[String]) -> bool:
 		if aname in source:
 			return true
 	return false
+
+func _check_connections(path: String, errors: Array[String]) -> void:
+	var dir = DirAccess.open(path)
+	if dir == null: return
+	dir.list_dir_begin()
+	var f = dir.get_next()
+	while f != "":
+		if dir.current_is_dir() and not f.begins_with(".") and f != "addons":
+			_check_connections(path + f + "/", errors)
+		elif f.ends_with(".tscn"):
+			_check_scene_connections(path + f, errors)
+		f = dir.get_next()
+
+func _check_scene_connections(scene_path: String, errors: Array[String]) -> void:
+	var raw := FileAccess.get_file_as_string(scene_path)
+	if raw.is_empty():
+		return
+	var declared := _parse_connections(raw)
+	if declared.is_empty():
+		return
+
+	var packed = load(scene_path)
+	if packed == null or not (packed is PackedScene):
+		# Load failure is already reported (or explained) by the script-compile
+		# pass above -- don't double-report here.
+		return
+
+	var root = packed.instantiate()
+	if root == null:
+		return
+
+	for conn in declared:
+		var from_path: String = conn["from"]
+		var from_node = root if from_path == "." else root.get_node_or_null(from_path)
+		if from_node == null:
+			errors.append("%s: connection declares from=\"%s\" but that node does not exist" % [scene_path, from_path])
+			continue
+
+		var bound := false
+		for entry in from_node.get_signal_connection_list(conn["signal"]):
+			var callable: Callable = entry["callable"]
+			if callable.get_method() == conn["method"]:
+				bound = true
+				break
+
+		if not bound:
+			errors.append(
+				"%s: [connection signal=\"%s\" from=\"%s\" to=\"%s\" method=\"%s\"] is declared but NOT bound at runtime -- if to=\"%s\" is the scene root's own name, use to=\".\" instead (relative NodePath resolution looks for a CHILD named \"%s\", not the node itself, so this silently drops the connection with no engine error)"
+				% [scene_path, conn["signal"], from_path, conn["to"], conn["method"], conn["to"], conn["to"]]
+			)
+
+	root.free()
+
+func _parse_connections(raw: String) -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
+	var regex := RegEx.new()
+	regex.compile("\\[connection signal=\"([^\"]+)\" from=\"([^\"]+)\" to=\"([^\"]+)\" method=\"([^\"]+)\"\\]")
+	for m in regex.search_all(raw):
+		results.append({
+			"signal": m.get_string(1),
+			"from": m.get_string(2),
+			"to": m.get_string(3),
+			"method": m.get_string(4),
+		})
+	return results
