@@ -42,6 +42,16 @@ def _reset_agent_runtime_globals():
         setattr(rt, k, v)
 
 
+@pytest.fixture(autouse=True)
+def _mock_llm_sleep(monkeypatch):
+    """Prevent real time.sleep() in LLM retry backoff from slowing the suite.
+
+    The retry loop in llm_utils sleeps [10, 30, 60, 120, 240]s between attempts.
+    Without this mock a single failing LLM test takes ~15 minutes.
+    """
+    monkeypatch.setattr("swarm.llm_utils.time.sleep", lambda _: None)
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--trace-tests",

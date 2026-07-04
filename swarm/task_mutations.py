@@ -168,3 +168,17 @@ def _fire_task_webhook(event: str, *, webhook_url: str = "", **kwargs):
         urllib.request.urlopen(req, timeout=10)
     except Exception as e:
         print(f"[Webhook] Failed to send {event}: {e}")
+
+def _make_webhook_sender(get_webhook_url):
+    """Return a closure that delegates to _fire_task_webhook with a webhook URL
+    obtained from get_webhook_url (a no-arg callable evaluated at call time).
+
+    Lets modules that own their own WEBHOOK_URL global expose a
+    _fire_task_webhook symbol without copy-pasting the wrapper.
+    """
+    def _sender(event, **kwargs):
+        return _fire_task_webhook(event, webhook_url=get_webhook_url(), **kwargs)
+    _sender.__name__ = "_fire_task_webhook"
+    _sender.__qualname__ = "_fire_task_webhook"
+    _sender.__doc__ = _fire_task_webhook.__doc__
+    return _sender
