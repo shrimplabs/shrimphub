@@ -433,24 +433,33 @@ def register_routes(app, task_source, db, workspace, config=None):
             resolved_deps.append(deps)
 
         # Pass 2b: chain_to_head \u2014 attach project head_task_id to every root task
+        # Use the per-item project (not batch default) so cross-project batches don't
+        # create cross-project head dependencies.
         warnings = []
-        if chain_to_head and default_project:
-            project_head = ensure_project_head(db, default_project)
-            if project_head:
-                chained_roots = 0
-                for i, deps in enumerate(resolved_deps):
-                    if not deps:
-                        resolved_deps[i] = [project_head]
-                        chained_roots += 1
-                        warnings.append(
-                            f"Task '{task_ids[i]}' had no dependencies \u2014 "
-                            f"chained to project head '{project_head}'."
-                        )
-                if chained_roots == 0:
+        if chain_to_head:
+            _head_cache: dict = {}
+            chained_roots = 0
+            for i, deps in enumerate(resolved_deps):
+                if deps:
+                    continue
+                item_project = (task_list[i].get("project") or default_project) if isinstance(task_list[i], dict) else default_project
+                if not item_project:
+                    continue
+                if item_project not in _head_cache:
+                    _head_cache[item_project] = ensure_project_head(db, item_project)
+                project_head = _head_cache[item_project]
+                if project_head:
+                    resolved_deps[i] = [project_head]
+                    chained_roots += 1
                     warnings.append(
-                        f"chain_to_head=true but every task in batch already has dependencies \u2014 "
-                        f"no task was chained to head '{project_head}'."
+                        f"Task '{task_ids[i]}' had no dependencies \u2014 "
+                        f"chained to project head '{project_head}'."
                     )
+            if chained_roots == 0 and default_project:
+                warnings.append(
+                    f"chain_to_head=true but every task in batch already has dependencies \u2014 "
+                    f"no task was chained to its project head."
+                )
 
         def _rollback_added_tasks() -> None:
             for added_id in reversed(added):
@@ -909,24 +918,37 @@ def register_routes(app, task_source, db, workspace, config=None):
         if not isinstance(task_list, list):
             return jsonify({"error": "Expected a list of tasks or {tasks: [...]}"}), 400
         added = []
+        _head_cache: dict = {}
         import random
         for item in task_list:
             if not isinstance(item, dict):
                 continue
+            item_project = item.get("project", "")
             task_id = item.get("id", f"{item.get('type','task')}-{int(time.time()*1000)%10**9}-{random.randint(100000, 999999)}")
             deps = _normalize_dependencies(item.get("dependencies", []))
             if deps is None:
                 return jsonify({"error": "dependencies must be a list (or list-like string)"}), 400
             if task_id in deps:
                 return jsonify({"error": "Task cannot depend on itself", "task_id": task_id}), 400
+            # Validate dep IDs (ghost/placeholder guard — same as POST /api/tasks)
+            dep_err = _validate_dependency_ids(item_project, deps, task_id)
+            if dep_err:
+                return jsonify({"error": dep_err, "task_id": task_id}), 400
+            # Chain root tasks to project head (same rule as batch endpoint)
+            if not deps and item_project:
+                if item_project not in _head_cache:
+                    _head_cache[item_project] = ensure_project_head(db, item_project)
+                project_head = _head_cache[item_project]
+                if project_head:
+                    deps = [project_head]
             task = Task(
                 id=task_id,
-                project=item.get("project", ""),
+                project=item_project,
                 type=item.get("type", "feature"),
                 description=item.get("description", ""),
                 priority=_normalize_priority(item.get("priority"), default=50),
                 status="pending",
-                dependencies=deps,
+                dependencies=list(deps),
                 metadata=item.get("metadata", {}),
             )
             try:
