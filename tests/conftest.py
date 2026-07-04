@@ -4,12 +4,42 @@ Pytest fixtures for dashboard Playwright tests.
 Fixtures defined here (conftest.py) are automatically discovered by pytest.
 Helper functions and mock data live in conftest_dashboard.py.
 """
+import copy
 import os
 import sys
 import time
 
 import pytest
 from playwright.sync_api import sync_playwright
+
+# ---------------------------------------------------------------------------
+# agent_runtime globals isolation
+# ---------------------------------------------------------------------------
+# agent_runtime has many module-level config globals (LLM_PROVIDER, WORKSPACE,
+# etc.) that tests mutate without teardown, causing ordering-dependent failures
+# when the full suite runs. This autouse fixture snapshots them before each test
+# and restores them after, so no test can leak state to a subsequent test.
+
+_AGENT_RUNTIME_GLOBALS = [
+    "LLM_PROVIDER", "LLM_PROVIDERS", "WORKSPACE", "DATA_DIR", "PROJECT",
+    "PROJECT_PATH_OVERRIDE", "TASK_TYPE", "TASK_ID", "TASK_PRIORITY",
+    "MAX_TOOL_LOOPS", "QA_MAX_CYCLES", "QA_CYCLE", "MANAGED_PROJECTS",
+    "LOCK_CONFLICT_HANDOFF", "PROJECT_CREATE_SYSTEM", "PROJECT_CREATE_USER",
+    "PROJECT_PLAN_SYSTEM", "PROJECT_PLAN_USER",
+]
+
+
+@pytest.fixture(autouse=True)
+def _reset_agent_runtime_globals():
+    try:
+        import swarm.agent_runtime as rt
+    except Exception:
+        yield
+        return
+    snapshot = {k: copy.deepcopy(getattr(rt, k)) for k in _AGENT_RUNTIME_GLOBALS if hasattr(rt, k)}
+    yield
+    for k, v in snapshot.items():
+        setattr(rt, k, v)
 
 
 def pytest_addoption(parser):
