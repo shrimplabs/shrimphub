@@ -321,7 +321,7 @@ def register_routes(app, task_source, db, workspace, config=None):
     def add_task():
         data = request.json or {}
         from swarm.tasks import Task
-        task_id = data.get("id", f"{data.get('type', 'task')}-{int(time.time() * 1000) % 10**9}-{__import__('random').randint(100, 999)}")
+        task_id = data.get("id", f"{data.get('type', 'task')}-{int(time.time() * 1000) % 10**9}-{random.randint(100000, 999999)}")
         deps = _normalize_dependencies(data.get("dependencies", []))
         if deps is None:
             return jsonify({"error": "dependencies must be a list (or list-like string)"}), 400
@@ -779,7 +779,7 @@ def register_routes(app, task_source, db, workspace, config=None):
             return jsonify({"error": "Task not found"}), 404
 
         data = request.json or {}
-        new_id = f"{data.get('type', 'task')}-{int(time.time() * 1000) % 10**9}-{_r.randint(100, 999)}"
+        new_id = f"{data.get('type', 'task')}-{int(time.time() * 1000) % 10**9}-{_r.randint(100000, 999999)}"
 
         # Find all tasks whose dependencies include task_id (reparenting targets)
         all_tasks = db.task_get_all()
@@ -844,7 +844,7 @@ def register_routes(app, task_source, db, workspace, config=None):
 
         project = gate.get("project", "")
         task_type = (data.get("type") or "bug").strip() or "bug"
-        new_id = (data.get("id") or f"{project}-pre-gate-{int(time.time() * 1000) % 10**9}-{_r.randint(100, 999)}").strip()
+        new_id = (data.get("id") or f"{project}-pre-gate-{int(time.time() * 1000) % 10**9}-{_r.randint(100000, 999999)}").strip()
         if db.task_get(new_id) or new_id in db.task_get_completed_ids():
             return jsonify({"error": f"Task id already exists: {new_id}"}), 400
 
@@ -917,7 +917,7 @@ def register_routes(app, task_source, db, workspace, config=None):
         for item in task_list:
             if not isinstance(item, dict):
                 continue
-            task_id = item.get("id", f"{item.get('type','task')}-{int(time.time()*1000)%10**9}-{random.randint(100,999)}")
+            task_id = item.get("id", f"{item.get('type','task')}-{int(time.time()*1000)%10**9}-{random.randint(100000, 999999)}")
             deps = _normalize_dependencies(item.get("dependencies", []))
             if deps is None:
                 return jsonify({"error": "dependencies must be a list (or list-like string)"}), 400

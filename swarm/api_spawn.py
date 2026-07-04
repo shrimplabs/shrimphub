@@ -108,7 +108,7 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
 
         if task is None:
             description = data.get("description", f"Auto-generated {task_type} task")
-            task_id = f"{task_type}-{project}-{int(time.time() * 1000) % 10**9}-{__import__('random').randint(100, 999)}"
+            task_id = f"{task_type}-{project}-{int(time.time() * 1000) % 10**9}-{__import__('random').randint(100000, 999999)}"
             from swarm.tasks import Task
             task = Task(
                 id=task_id,
