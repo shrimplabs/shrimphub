@@ -490,12 +490,19 @@ def main() -> int:
             except Exception:
                 pass
 
-    # Load .env if present
+    # Load .env if present — strip quotes/comments, never overwrite vars already set
     env_file = Path(WORKSPACE) / "swarm-controller" / ".env"
     if env_file.exists():
         for line in env_file.read_text().strip().splitlines():
-            if "=" in line:
-                key, val = line.split("=", 1)
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.split(" #")[0].strip()  # strip inline comments
+            if val and val[0] in ('"', "'") and val[-1] == val[0]:
+                val = val[1:-1]  # strip surrounding quotes
+            if key and key not in os.environ:  # never overwrite existing env vars
                 os.environ[key] = val
 
     # Init MCP if configured

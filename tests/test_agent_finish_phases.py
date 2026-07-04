@@ -290,7 +290,7 @@ class TestFinishAgentOrdering:
              patch("swarm.agent_finish._finish_worktree_phase",
                    return_value=af._WorktreeFinishResult(success=True)), \
              patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
-             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
              patch("swarm.agent_finish._phase_post_completion_pipeline"):
             af._finish_agent(
                 agent_id="agent-1",
@@ -322,7 +322,7 @@ class TestFinishAgentOrdering:
         with patch("swarm.agent_finish._finish_worktree_phase",
                    return_value=af._WorktreeFinishResult(success=True)), \
              patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
-             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
              patch("swarm.agent_finish._phase_post_completion_pipeline"):
             af._finish_agent(
                 agent_id="agent-1",
@@ -350,7 +350,7 @@ class TestFinishAgentOrdering:
         with patch("swarm.agent_finish._finish_worktree_phase",
                    return_value=af._WorktreeFinishResult(success=True)), \
              patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
-             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
              patch("swarm.agent_finish._phase_post_completion_pipeline"):
             af._finish_agent(
                 agent_id="agent-1",
@@ -376,7 +376,7 @@ class TestFinishAgentOrdering:
         with patch("swarm.agent_finish._finish_worktree_phase",
                    return_value=af._WorktreeFinishResult(success=True)), \
              patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
-             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
              patch("swarm.agent_finish._phase_post_completion_pipeline"):
             af._finish_agent(
                 agent_id="agent-1",
@@ -399,7 +399,7 @@ class TestFinishAgentOrdering:
         with patch("swarm.agent_finish._finish_worktree_phase",
                    return_value=af._WorktreeFinishResult(success=False)), \
              patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
-             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0)), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
              patch("swarm.agent_finish._phase_post_completion_pipeline") as mock_post, \
              patch("swarm.agent_recovery._handle_task_failure"):
             af._finish_agent(
