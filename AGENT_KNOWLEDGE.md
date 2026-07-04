@@ -512,3 +512,11 @@ Sibling: bug-107344794-0964 broadcast no-op on 2026-07-03 17:44.
 3. `grep -rn 'verify=False' swarm/orchestrator.py` -> expect zero hits
 
 If all three are met, the fix is already applied and no commit is needed. Bead: `swarm-controller-qxeg`. Sibling fixes: bug-106264195-1020, bug-bug-106264195-1020.
+
+---
+## task_get_completed_ids project scoping fix (already in HEAD 966dedd4)
+
+Bug: swarm/db.py task_get_completed_ids(projects=...) UNION'd legacy completed_task_ids without project filter.
+Fix in HEAD at swarm/db.py:829-858 wraps both the main tasks SELECT and the legacy completed_task_ids SELECT in if projects: blocks applying WHERE project IN ({placeholders}) with the projects parameter.
+Regression test: tests/test_db.py::test_task_get_completed_ids_scopes_legacy_archive_by_projects (line 340) verifies legacy-alpha row is included when scoped to alpha but legacy-beta is not.
+42/42 db tests pass. Any future task requesting this fix is a duplicate no-op.
