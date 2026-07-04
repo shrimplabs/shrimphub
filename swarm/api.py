@@ -299,6 +299,27 @@ def create_app(
             print(f"[Startup] Worktree cleanup error: {_wt_err}")
     threading.Thread(target=_startup_worktree_cleanup, daemon=True, name="startup-wt-cleanup").start()
 
+    def _startup_script_cleanup():
+        """Delete orphaned agent_*.py wrapper scripts from previous runs."""
+        try:
+            import glob as _glob
+            active_ids = {a.get("id") for a in db.agent_get_all()}
+            pattern = str(Path(data_dir) / "agent_*.py")
+            deleted = 0
+            for path in _glob.glob(pattern):
+                agent_id = Path(path).stem[len("agent_"):]
+                if agent_id not in active_ids:
+                    try:
+                        Path(path).unlink()
+                        deleted += 1
+                    except Exception:
+                        pass
+            if deleted:
+                print(f"[Startup] Cleaned up {deleted} orphaned agent wrapper scripts")
+        except Exception as _sc_err:
+            print(f"[Startup] Script cleanup error: {_sc_err}")
+    threading.Thread(target=_startup_script_cleanup, daemon=True, name="startup-script-cleanup").start()
+
     # Auto mode state persists across restart so scheduler behavior is stable.
     auto_mode_state = {
         "enabled": bool(config.get("auto_mode_enabled", False)),
