@@ -9,7 +9,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - SQLite-backed state (WAL mode, thread-safe)
 - Multiple LLM providers: Minimax, Claude, OpenRouter, Kimi, custom
 - Automatic task retry with failure context fed back into prompts
-- Recovery tasks spawned when retries exhausted; dependents reparented automatically
+- Research feeder escalation: on attempt exhaustion a research task is spawned, feeds diagnosis back into the original task (no reparenting — original task stays the dep-graph node)
 - Dependency self-healing: chains unblock when pruned-failed deps are detected
 - Post-task validation with auto-spawned bug tasks on failure (runs synchronously in monitor thread -- can block up to ~5 min for GUT tests)
 - Real-time log streaming via SSE, per-project health metrics
@@ -126,62 +126,83 @@ rm -rf dir         # not: rm -r dir
 swarm_runner.py              thin entry point + generate_task_script()
 swarm_mcp_server.py          MCP server exposing swarm API as tools (register in ~/.claude/settings.json)
 sync_templates.py            sync state_server.gd + test_harness.gd to all managed Godot projects
-swarm/api.py                 Flask app factory, registers all api_*.py route modules, monitor thread
-swarm/orchestrator.py        high-level scheduling & coordination (598 lines)
-swarm/agent_runtime.py       LLM tool loop + prompt selection + continuation logic (1210 lines)
-swarm/agent_lifecycle.py     agent spawning, status checking, prune_history (707 lines)
-swarm/agent_finish.py        agent completion pipeline: worktree phase, diff, validation, auto-tasks
-swarm/agent_recovery.py      task retry, recovery task spawning, plan validation
+swarm/api.py                 Flask app factory, registers all api_*.py route modules, monitor thread (1311 lines)
+swarm/orchestrator.py        high-level scheduling, fill_slots, quota, infra-freeze check (1439 lines)
+swarm/agent_runtime.py       LLM tool loop + prompt selection + continuation logic (1740 lines)
+swarm/agent_lifecycle.py     agent spawning, status checking, prune_history (712 lines)
+swarm/agent_finish.py        agent completion pipeline: worktree phase, diff, validation, auto-tasks (886 lines)
+swarm/agent_recovery.py      task retry, research feeder escalation, plan validation (1445 lines)
+swarm/agent_loop_helpers.py  loop stall detection, wrap-up warning helpers
 swarm/agent_auto_tasks.py    auto-QA, auto-audit, auto-integration spawning
 swarm/runtime_config.py      agent config variables (WORKSPACE, PROJECT, etc.) and sync helpers
 swarm/runtime_helpers.py     file locking, path normalization, API helpers, project activity context
-swarm/tool_dispatch.py       tool validation (_TOOL_REQUIRED_ARGS) and dispatch table (execute_tool)
-swarm/meta_investigation.py  out-of-band LLM investigator for repeated errors
-swarm/db.py                  SQLite layer (WAL, thread-local connections, schema evolution)
-swarm/tasks.py               Task dataclass + SQLiteTaskSource
-swarm/projects.py            Project dataclass + SQLiteProjectRegistry
-swarm/agents.py              Agent dataclass + SQLiteAgentTracker
-swarm/strategies.py          Task selection strategies
-swarm/dependencies.py        DAG + cycle detection
+swarm/tool_dispatch.py       tool validation (_TOOL_REQUIRED_ARGS) and dispatch table (execute_tool) (662 lines)
+swarm/meta_investigation.py  out-of-band LLM investigator for repeated errors (178 lines)
+swarm/db.py                  SQLite layer (WAL, thread-local connections, schema evolution) (1416 lines)
+swarm/tasks.py               Task dataclass + SQLiteTaskSource (391 lines)
+swarm/projects.py            Project dataclass + SQLiteProjectRegistry (826 lines)
+swarm/agents.py              Agent dataclass + SQLiteAgentTracker (874 lines)
+swarm/strategies.py          Task selection strategies (325 lines)
+swarm/dependencies.py        DAG + cycle detection (476 lines)
 swarm/constants.py           Module-level constants (MAX_TOOL_LOOPS, AGENT_TIMEOUT, etc.)
 swarm/provider_utils.py      LLM provider configs + resolution helpers
-swarm/llm_utils.py           LLM call helpers shared across modules
+swarm/llm_utils.py           LLM call helpers shared across modules (726 lines)
+swarm/model_routing.py       Per-task model/provider routing based on pipeline config
+swarm/pipeline.py            Pipeline phase definitions and execution (419 lines)
+swarm/project_graph_policy.py  Closure-aware dep graph expansion policy (425 lines)
+swarm/plugins.py             Plugin/extension loading (373 lines)
+swarm/platform.py            Platform detection and OS-specific helpers (253 lines)
+swarm/godot_bootstrap.py     Godot project bootstrap scaffolding helpers
+swarm/branch_intent.py       Branch naming intent metadata
+swarm/experiment_metadata.py Experiment arm tagging + metrics stamping
 swarm/integrity.py           Integrity health checks (task authority, orphan detection)
 swarm/learnings.py           Learning/feedback management
 swarm/task_chains.py         Auto-chain tasks to project HEAD
 swarm/task_mutations.py      Centralized task mutation helpers
-swarm/validation.py          Post-task validation (Godot + Python)
-swarm/worktree.py            Git worktree isolation for validation runs
+swarm/validation.py          Post-task validation (Godot + Python) (1568 lines)
+swarm/worktree.py            Git worktree isolation for validation runs (313 lines)
 swarm/vision.py              Vision model dispatch (MCP, local mlx-vlm, REST)
 swarm/mcp_client.py          MCP server subprocess management
-swarm/qa_tools.py            QA/vision tools: StateServer, click_element, vision_query (1423 lines)
+swarm/qa_tools.py            QA/vision tools: StateServer, click_element, vision_query (1943 lines)
 swarm/prompts.py             Prompt loading and template rendering
 swarm/plan_cleanup.py        Sprint plan snapshot cleanup
 swarm/login.py               Auth helpers
 swarm/rag/                   RAG backend (ChromaDB)
-swarm/tools/core.py          Agent tool implementations: file I/O, git, web, task creation, MCP
-swarm/tools/knowledge.py     Shared knowledge base + scratchpad tools
+swarm/tools/core.py          Agent tool implementations: file I/O, git, web, task creation, MCP (483 lines)
+swarm/tools/knowledge.py     Shared knowledge base + scratchpad tools (366 lines)
+swarm/closure/               Closure/verification system: proposals, regressions, runs, specs, status (~2524 lines)
 swarm/maintenance/
   agents.py                  Agent maintenance (restart, reconciliation)
   plans.py                   Sprint plan snapshot management
   project_heads.py           Project HEAD reconciliation & repair
   recovery.py                Recovery branch cleanup
+  file_locks.py              File lock tracking and cleanup
 
 # Route modules (registered into api.py)
-swarm/api_agents.py          Agent lifecycle endpoints
-swarm/api_auth.py            Authentication
-swarm/api_broadcast.py       Broadcast read/write (shared knowledge)
-swarm/api_chat.py            Manager chat + project creation wizard (1292 lines)
-swarm/api_config.py          Configuration management
-swarm/api_deps.py            Dependency graph + integrity diagnostics (766 lines)
-swarm/api_history.py         Task/agent history
-swarm/api_metrics.py         Health metrics
-swarm/api_plans.py           Sprint planner management
-swarm/api_projects.py        Project management
-swarm/api_spawn.py           Agent spawning
-swarm/api_tasks.py           Task CRUD & batch creation (800 lines)
-swarm/api_webhook.py         Webhook firing
-swarm/api_wizard.py          Project creation wizard routes
+swarm/api_agents.py          Agent lifecycle endpoints (214 lines)
+swarm/api_auth.py            Authentication (80 lines)
+swarm/api_broadcast.py       Broadcast read/write (shared knowledge) (75 lines)
+swarm/api_chat.py            Unified chat co-pilot + project creation wizard (2399 lines)
+swarm/api_config.py          Configuration management (479 lines)
+swarm/api_deps.py            Dependency graph + integrity diagnostics (1495 lines)
+swarm/api_history.py         Task/agent history (174 lines)
+swarm/api_metrics.py         Health metrics (517 lines)
+swarm/api_plans.py           Sprint planner management (131 lines)
+swarm/api_projects.py        Project management (1048 lines)
+swarm/api_spawn.py           Agent spawning (191 lines)
+swarm/api_snapshots.py       Sprint plan snapshot CRUD (895 lines)
+swarm/api_tasks.py           Task CRUD & batch creation (959 lines)
+swarm/api_webhook.py         Webhook firing (145 lines)
+swarm/api_wizard.py          Project creation wizard routes (1572 lines)
+swarm/api_gardener.py        Gardener meta-agent routes + scheduler (287 lines)
+swarm/api_librarian.py       Librarian meta-agent routes + trigger logic (244 lines)
+swarm/api_cartographer.py    Cartographer meta-agent routes + interval scheduling (279 lines)
+swarm/api_archaeologist.py   Archaeologist meta-agent routes + stall detection (260 lines)
+swarm/api_scheduler.py       Scheduler meta-agent routes + periodic task creation (334 lines)
+swarm/api_meta_auditor.py    Meta-auditor routes + cross-project audit scheduling (305 lines)
+swarm/api_meta.py            Meta-agent coordination + mode flag (146 lines)
+
+tools/swarm-code.py          CLI harness: fire-and-wait, --chat, --watch, --status (stdlib only)
 ```
 
 ### Key flow
@@ -308,6 +329,44 @@ Fix: `_create_worktree()` and `_post_task_validation_in_worktree()` both copy `.
 
 Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`. Repair actions are available via `POST /api/dependencies/integrity`.
 
+## Meta-agents
+
+Meta-agents are background agents that maintain and improve the swarm itself. They run on a schedule or are triggered by events, and are distinct from task agents (which work on game projects).
+
+| Agent | Route module | What it does | Config keys |
+|-------|-------------|--------------|-------------|
+| **Gardener** | `api_gardener.py` | Surveys all active projects, prunes stale tasks, creates missing scaffolding | `gardener_enabled`, `gardener_max_tasks_per_run`, `gardener_skip_projects` |
+| **Librarian** | `api_librarian.py` | Audits and updates prompt YAML files based on agent failure patterns | `librarian_enabled`, `librarian_trigger_interval`, `librarian_max_prompt_tasks`, `librarian_autonomous_edits` |
+| **Cartographer** | `api_cartographer.py` | Maps project knowledge: writes `PROJECT_MAP.md` and updates `data/swarm_knowledge.jsonl` | `cartographer_enabled`, `cartographer_interval_hours` |
+| **Archaeologist** | `api_archaeologist.py` | Diagnoses stalled projects (no progress in N hours), creates unblock tasks | `archaeologist_enabled`, `archaeologist_stall_threshold_hours`, `archaeologist_max_concurrent` |
+| **Scheduler** | `api_scheduler.py` | Periodically creates tasks for projects on a time-based schedule | `scheduler_enabled` |
+| **Meta-auditor** | `api_meta_auditor.py` | Cross-project audit: flags systemic quality regressions | `meta_auditor_*` flags |
+
+`meta_mode_enabled` (global flag) gates whether the orchestrator runs meta-agent checks. All meta-agents are **off by default** — enable individually in `config.json`.
+
+## Closure system
+
+`swarm/closure/` implements a formal verification layer for project milestones. It tracks whether a project has met its acceptance criteria before allowing new expansion work.
+
+| Module | Purpose |
+|--------|---------|
+| `closure/specs.py` | Per-project closure spec (what "done" looks like) |
+| `closure/proposals.py` | Closure proposals submitted by agents or manually |
+| `closure/runs.py` | Verification run state machine |
+| `closure/regressions.py` | Regression tracking across runs |
+| `closure/verification.py` | Runs validation checks against closure spec |
+| `closure/status.py` | Computes `closure_status` for each project |
+| `closure/repair_planning.py` | Creates repair tasks for failed checks |
+| `closure/documents.py` | Closure report generation |
+| `closure/project_seeds.py` | Seeds initial closure specs for new projects |
+
+**Scheduling effects:** `swarm/project_graph_policy.py` reads `closure_status` before allowing new tasks to be created for a project:
+- `frozen` — no new tasks until closure is achieved
+- `stalled` — Archaeologist triggered; block lifted when unblock task completes
+- `open` — normal operation
+
+`phase_gate` is a task type that blocks downstream work until a verification run passes. This is the mechanism used to enforce "fix all QA bugs before proceeding to next feature phase."
+
 ## Configuration
 
 `config.json` (gitignored) -- all optional:
@@ -342,6 +401,27 @@ Results are surfaced in the dashboard and via `GET /api/dependencies/integrity`.
 | `minimax_base_url` | MiniMax default | Override MiniMax API endpoint |
 | `disable_remote_repo` | `true` | Set `false` to enable Gitea repo provisioning in the wizard |
 | `login_required` | `false` | Set `true` to enable session auth (API open to network by default) |
+| `auto_scale` | `false` | Dynamically adjust `max_active_agents` based on 429 rate-limit responses |
+| `spawn_per_cycle` | `1` | Max agents to spawn per monitor fill cycle |
+| `use_worktrees` | `true` | Run validation in git worktrees (isolated from main) |
+| `allow_self_modification` | `false` | Allow agents to edit swarm-controller's own code |
+| `local_fallback_on_quota` | `false` | Fall back to a local LLM when quota is exhausted |
+| `human_review_flag_enabled` | `false` | Surface tasks flagged by agents for human review |
+| `project_pipelines` | `{}` | Per-project pipeline overrides `{project: {pipeline: [], flat_provider: ..., pipeline_mode: ...}}` |
+| `meta_mode_enabled` | `false` | Master gate for all meta-agent scheduling |
+| `gardener_enabled` | `false` | Enable Gardener meta-agent (project survey + task pruning) |
+| `gardener_max_tasks_per_run` | `10` | Max tasks Gardener may create per run |
+| `gardener_skip_projects` | `[]` | Projects Gardener should not touch |
+| `librarian_enabled` | `false` | Enable Librarian meta-agent (prompt YAML auditing) |
+| `librarian_trigger_interval` | `50` | Completions between Librarian runs |
+| `librarian_max_prompt_tasks` | `3` | Max prompt-edit tasks Librarian may create |
+| `librarian_autonomous_edits` | `false` | Allow Librarian to edit prompts without human review |
+| `cartographer_enabled` | `false` | Enable Cartographer meta-agent (project knowledge mapping) |
+| `cartographer_interval_hours` | `2` | Hours between Cartographer runs |
+| `archaeologist_enabled` | `false` | Enable Archaeologist meta-agent (stall detection) |
+| `archaeologist_stall_threshold_hours` | `72` | Hours of inactivity before Archaeologist fires |
+| `archaeologist_max_concurrent` | `2` | Max concurrent Archaeologist tasks |
+| `scheduler_enabled` | `false` | Enable Scheduler meta-agent (time-based task creation) |
 
 ## Security / Authentication
 
