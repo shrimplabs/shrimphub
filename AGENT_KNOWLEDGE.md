@@ -492,3 +492,23 @@ Sibling: bug-107344794-0964 broadcast no-op on 2026-07-03 17:44.
 - `git show 966dedd4 -- swarm/orchestrator.py` confirms removal of the import-time block (12 lines) and the retained `create_app()` call in `swarm/api.py`.
 
 **Duplicated-task warning (updated)**: Any future task requesting this fix should `grep -n 'agent_lifecycle.configure' swarm/orchestrator.py` first. Zero hits => no-op. Bead is `swarm-controller-yasd`. Sibling: bug-106264195-1341 also broadcast this no-op.
+
+---
+## bug-107344794-1028 -- certifi verify=False fix (no-op duplicate, already in HEAD)
+
+**Verified status (2026-07-03 21:55 UTC)**: The certifi CA-bundle fix for the MiniMax quota HTTP call in `swarm/orchestrator.py` is already in HEAD (sibling of bug-106264195-1020, which is referenced in VALIDATION_STATE).
+
+**Verification commands**:
+- `grep -n 'verify=' swarm/orchestrator.py` -> 1 hit at line 198: `verify=certifi.where(),  # use certifi CA bundle to avoid macOS SSL chain issues`
+- `grep -n 'certifi' swarm/orchestrator.py` -> `import certifi` at line 191 (lazy-imported inside `check_quota_limit`)
+- `grep -n 'certifi' requirements.txt` -> `certifi>=2024.0` at line 3
+- `grep -rn 'verify=False' swarm/orchestrator.py` -> zero hits
+- `.venv/bin/pytest tests/test_orchestrator.py` -> 29/29 pass
+- `.venv/bin/pytest tests/test_orchestrator.py -x -k quota` -> 0 selected (29 deselected; no quota-keyed test exists, original selector was a no-op)
+
+**Duplicated-task warning (updated)**: Any future task requesting this fix should:
+1. `grep -n 'verify=' swarm/orchestrator.py` -> expect 1 hit with `certifi.where()`
+2. `grep -n 'certifi' swarm/orchestrator.py requirements.txt` -> expect hits in both
+3. `grep -rn 'verify=False' swarm/orchestrator.py` -> expect zero hits
+
+If all three are met, the fix is already applied and no commit is needed. Bead: `swarm-controller-qxeg`. Sibling fixes: bug-106264195-1020, bug-bug-106264195-1020.

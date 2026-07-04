@@ -213,48 +213,15 @@ def _is_pid_running(pid: int) -> bool:
 
 
 def _fire_task_webhook(event: str, **kwargs):
-    """Fire a task-level webhook event if a URL is configured."""
-    if not WEBHOOK_URL:
-        return
-    import urllib.request
-    import json as _json
-    try:
-        url = WEBHOOK_URL
-        project = kwargs.get("project", "")
-        desc = kwargs.get("description", "")
-        ttype = kwargs.get("task_type", "")
-        if event == "task_completed":
-            diff = kwargs.get("diff_stat", "")
-            title = f"\u2705 Task completed \u2014 {project}"
-            body_s = f"{ttype}: {desc}" + (f"\n`{diff.splitlines()[-1]}`" if diff else "")
-            color = 0x3fb950
-            ntfy_tag = "white_check_mark"
-        else:  # task_failed
-            attempts = kwargs.get("attempts", 0)
-            max_att = kwargs.get("max_attempts", 3)
-            title = f"\u274c Task failed \u2014 {project}"
-            body_s = f"{ttype}: {desc} (attempt {attempts}/{max_att})"
-            color = 0xf85149
-            ntfy_tag = "x"
+    """Fire a task-level webhook event if a URL is configured.
 
-        if "discord.com/api/webhooks" in url:
-            body = _json.dumps({"embeds": [{"title": title, "description": body_s, "color": color}]}).encode()
-            headers = {"Content-Type": "application/json"}
-        elif "hooks.slack.com" in url:
-            body = _json.dumps({"text": f"*{title}*\n{body_s}"}).encode()
-            headers = {"Content-Type": "application/json"}
-        elif "ntfy.sh" in url:
-            body = body_s.encode()
-            headers = {"Content-Type": "text/plain", "Title": title, "Tags": ntfy_tag}
-        else:
-            body = _json.dumps({"event": event, "title": title, "summary": body_s, **kwargs}).encode()
-            headers = {"Content-Type": "application/json"}
-
-        headers["User-Agent"] = "Mozilla/5.0 (compatible; SwarmController/1.0)"
-        req = urllib.request.Request(url, data=body, headers=headers)
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        print(f"[Webhook] Failed to send {event}: {e}")
+    Thin wrapper around the canonical implementation in
+    ``swarm.task_mutations._fire_task_webhook`` that injects this module's
+    ``WEBHOOK_URL``. Tests may patch ``swarm.agent_lifecycle._fire_task_webhook``
+    directly to intercept the call.
+    """
+    from swarm.task_mutations import _fire_task_webhook as _impl
+    return _impl(event, webhook_url=WEBHOOK_URL, **kwargs)
 
 
 # ---------------------------------------------------------------------------
