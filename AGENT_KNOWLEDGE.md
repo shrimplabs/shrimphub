@@ -520,3 +520,11 @@ Bug: swarm/db.py task_get_completed_ids(projects=...) UNION'd legacy completed_t
 Fix in HEAD at swarm/db.py:829-858 wraps both the main tasks SELECT and the legacy completed_task_ids SELECT in if projects: blocks applying WHERE project IN ({placeholders}) with the projects parameter.
 Regression test: tests/test_db.py::test_task_get_completed_ids_scopes_legacy_archive_by_projects (line 340) verifies legacy-alpha row is included when scoped to alpha but legacy-beta is not.
 42/42 db tests pass. Any future task requesting this fix is a duplicate no-op.
+
+## audit_learnings run 2026-07-03 (audit-learnings-1783125364)
+- 170 projects, 763 learning files scanned by `scan_learnings.py` at project root
+- Output: `data/AUDIT_LEARNINGS_REPORT.md` (gitignored, ephemeral, 20690 bytes)
+- Top failure clusters: `hybrid_qa` (100% fail, 6/6), `qa` (17%, 27 failed), `feature` (9%, 52 failed), `project_plan` (11%, 3 failed), `bug` (6%, 36 failed), `phase_gate` (50%, 1/2), `audit` (8%, 6 failed), `plan` (6%, 1 failed), `harness_qa` (1%, 2 failed), `research` (1%, 3 failed), `polish` (0%, 1 failed), `art_pass` (1%, 2 failed), `refactor` (2%, 1 failed), `audit_learnings` (0%, 0 failed)
+- Pattern density: bug=275, feature=409, harness_qa=229, qa=164, research=164, polish=137, art_pass=88, audit=67, refactor=45, project_plan=26, plan=24, hybrid_qa=2, audit_learnings=0
+- Trends vs prior runs (2026-06-07: 132/538; 2026-06-05: 116/508; 2026-06-04: 112/500; 2026-06-03: 111/494): +38 projects / +225 files. hybrid_qa still 100% failing (chronic). qa stable at 27 failed. feature up 2 fails (52 vs 50). bug down slightly (36 -> 36 stable). Working tree stays clean.
+- Mark task completed via `PATCH /api/tasks/<id>` with `{"status":"completed"}`. No commit needed.
