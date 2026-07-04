@@ -56,6 +56,34 @@ echo "MINIMAX_API_KEY=your_key" > .env
 .venv/bin/pytest tests/test_dashboard.py
 ```
 
+## CLI Tools
+
+`tools/swarm-code.py` — standalone terminal harness for the swarm API (no extra deps):
+
+```bash
+# Create a task and block until it finishes (streams agent log)
+python3 tools/swarm-code.py <project> "<description>" --wait
+python3 tools/swarm-code.py raccoon-city "fix the save bug" --type=bug --wait
+
+# Fire and forget (creates task, prints ID, exits immediately)
+python3 tools/swarm-code.py raccoon-city "add a leaderboard"
+
+# Interactive chat REPL — global or project-scoped
+python3 tools/swarm-code.py --chat
+python3 tools/swarm-code.py --chat raccoon-city
+
+# Scriptable chat (pipe input)
+echo "how many agents running?" | python3 tools/swarm-code.py --chat
+
+# Tail a running agent's log
+python3 tools/swarm-code.py --watch <agent_id>
+
+# Health + active agents + task counts
+python3 tools/swarm-code.py --status
+```
+
+Config: `SWARM_URL` (default `http://localhost:5001`), `SWARM_TOKEN` (if `login_required: true`).
+
 ## Interactive Task Work (Claude Code)
 
 You can pick up and complete swarm tasks yourself instead of delegating to background agents. Use the `/swarm-task` skill (symlinked from `skills/swarm-task/SKILL.md` into `~/.claude/skills/`):
