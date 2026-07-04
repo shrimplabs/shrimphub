@@ -480,3 +480,15 @@ Sibling: bug-107344794-0964 broadcast no-op on 2026-07-03 17:44.
 **Outcome**: Task already `completed` (status field in DB) with `completed_at=2026-07-03T17:17:25.178655`, `archived=true`, `infrastructure_retry_pending=true` flag noted in metadata. PATCH `{"status":"completed"}` was idempotent — status confirmed at `completed`.
 
 **Status**: NO-OP duplicate (third re-broadcast), sibling of bug-107344794-0964. No commit needed.
+
+---
+## bug-107242940-1379 -- import-time agent_lifecycle.configure() removal (already done, duplicate task)
+
+**Verified status (2026-07-03)**: The import-time `agent_lifecycle.configure(...)` block has already been removed from `swarm/orchestrator.py` lines 363-374 in commit `966dedd4` (sibling fix with bug-106264195-0616).
+
+**Verification commands**:
+- `grep -rn 'agent_lifecycle.configure' swarm/orchestrator.py` -> zero hits in orchestrator.py. The only remaining `configure()` call is in `swarm/api.py:123` inside `create_app()`, which is the correct call.
+- `.venv/bin/pytest tests/test_orchestrator.py -x` -> 29/29 pass.
+- `git show 966dedd4 -- swarm/orchestrator.py` confirms removal of the import-time block (12 lines) and the retained `create_app()` call in `swarm/api.py`.
+
+**Duplicated-task warning (updated)**: Any future task requesting this fix should `grep -n 'agent_lifecycle.configure' swarm/orchestrator.py` first. Zero hits => no-op. Bead is `swarm-controller-yasd`. Sibling: bug-106264195-1341 also broadcast this no-op.
