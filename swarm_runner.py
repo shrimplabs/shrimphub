@@ -1048,6 +1048,7 @@ def generate_task_script(task: dict) -> str:
         "project_plan", **_common, task_id=task_id,
     )
     art_pass_system, art_pass_user = _load_prompt("art_pass", **_common)
+    playthrough_bot_system, playthrough_bot_user = _load_prompt("playthrough_bot", **_common)
     research_system, research_user = _load_prompt("research", **_common)
     gardener_system, gardener_user = _load_prompt("gardener", **_common, task_id=task_id, swarm_data_dir=str(DATA_DIR))
     librarian_system, librarian_user = _load_prompt(
@@ -1336,6 +1337,8 @@ rt.PROJECT_PLAN_SYSTEM      = {repr(project_plan_system)}
 rt.PROJECT_PLAN_USER        = {repr(project_plan_user)}
 rt.ART_PASS_SYSTEM          = {repr(art_pass_system)}
 rt.ART_PASS_USER            = {repr(art_pass_user)}
+rt.PLAYTHROUGH_BOT_SYSTEM   = {repr(playthrough_bot_system)}
+rt.PLAYTHROUGH_BOT_USER     = {repr(playthrough_bot_user)}
 rt.RESEARCH_SYSTEM          = {repr(research_system)}
 rt.RESEARCH_USER            = {repr(research_user)}
 rt.GARDENER_SYSTEM          = {repr(gardener_system)}

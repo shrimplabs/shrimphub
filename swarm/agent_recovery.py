@@ -66,6 +66,7 @@ _DEFAULT_ESCALATION_POLICY: dict[str, dict] = {
     "hybrid_qa":   {"max_attempts": _AQ, "on_exhaust": "cancel"},
     "scenario_qa": {"max_attempts": _AQ, "on_exhaust": "cancel"},
     "art_pass":    {"max_attempts": _A,  "on_exhaust": "research", "research_max_attempts": _AR},
+    "playthrough_bot": {"max_attempts": _A, "on_exhaust": "research", "research_max_attempts": _AR},
     "audit":       {"max_attempts": _AQ, "on_exhaust": "cancel"},
     "research":    {"max_attempts": _AQ, "on_exhaust": "cancel"},
     "plan":        {"max_attempts": _AQ, "on_exhaust": "cancel"},

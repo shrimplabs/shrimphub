@@ -422,6 +422,9 @@ Meta-agents are background agents that maintain and improve the swarm itself. Th
 | `archaeologist_stall_threshold_hours` | `72` | Hours of inactivity before Archaeologist fires |
 | `archaeologist_max_concurrent` | `2` | Max concurrent Archaeologist tasks |
 | `scheduler_enabled` | `false` | Enable Scheduler meta-agent (time-based task creation) |
+| `log_retention_days` | `0` | Days to keep agent log files; 0 = disabled (no rotation) |
+| `log_rotation_action` | `"delete"` | What to do with old logs: `"delete"` or `"compress"` (gzip to `data/archives/YYYY-MM/`) |
+| `log_extract_signals` | `false` | Extract analytics signals from each agent log at finish time into `agent_signals` DB table |
 
 ## Security / Authentication
 
@@ -464,7 +467,7 @@ Custom providers can be registered at runtime via `POST /api/provider`.
 class Task:
     id: str
     project: str
-    type: str            # feature | bug | refactor | polish | qa | harness_qa | art_pass | audit | research | plan | python_plan | project_plan
+    type: str            # feature | bug | refactor | polish | qa | harness_qa | art_pass | playthrough_bot | audit | research | plan | python_plan | project_plan
     description: str
     priority: int        # 100=refactor, 80=bug, 50=feature/polish
     status: str          # pending | in_progress | completed | failed
@@ -504,6 +507,7 @@ Prompt YAML files live in `prompts/`. Each maps to a task type:
 | `harness_qa.yaml` | `harness_qa` | Deterministic checkpoint QA |
 | `hybrid_qa.yaml` | `hybrid_qa` | Hybrid vision QA mode |
 | `art_pass.yaml` | `art_pass` | Asset integration + visual improvement |
+| `playthrough_bot.yaml` | `playthrough_bot` | Builds a deterministic, zero-LLM-in-loop completion bot for this project on top of `swarm/tools/playthrough_kit.py` |
 | `audit.yaml` | `audit` | Project code audit |
 | `audit_learnings.yaml` | `audit_learnings` | Audit learning accumulation |
 | `research.yaml` | `research` | Read-only research / analysis |

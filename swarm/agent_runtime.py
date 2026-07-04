@@ -169,6 +169,8 @@ PROJECT_PLAN_SYSTEM: str = ""
 PROJECT_PLAN_USER: str = ""
 ART_PASS_SYSTEM: str = ""
 ART_PASS_USER: str = ""
+PLAYTHROUGH_BOT_SYSTEM: str = ""
+PLAYTHROUGH_BOT_USER: str = ""
 RESEARCH_SYSTEM: str = ""
 RESEARCH_USER: str = ""
 GARDENER_SYSTEM: str = ""
@@ -551,6 +553,8 @@ def main() -> int:
             system_prompt, user_prompt = QA_SYSTEM, QA_USER
         elif TASK_TYPE == "art_pass":
             system_prompt, user_prompt = ART_PASS_SYSTEM, ART_PASS_USER
+        elif TASK_TYPE == "playthrough_bot":
+            system_prompt, user_prompt = PLAYTHROUGH_BOT_SYSTEM, PLAYTHROUGH_BOT_USER
         elif TASK_TYPE == "audit":
             system_prompt, user_prompt = AUDIT_SYSTEM, AUDIT_USER
         elif TASK_TYPE == "audit_learnings":
@@ -1594,7 +1598,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             if code == 0 and out.strip():
                 changed = [line[3:].strip() for line in out.strip().splitlines() if line.strip()]
                 new_files = [f for f in changed if not f.endswith(".md")]
-                prefixes = {"feature": "feat", "bug": "fix", "refactor": "refactor", "polish": "polish", "qa": "qa", "art_pass": "art"}
+                prefixes = {"feature": "feat", "bug": "fix", "refactor": "refactor", "polish": "polish", "qa": "qa", "art_pass": "art", "playthrough_bot": "test"}
                 prefix = prefixes.get(TASK_TYPE, "chore")
                 if new_files:
                     names = ", ".join(os.path.basename(f) for f in new_files[:4])
