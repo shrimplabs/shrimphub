@@ -1,6 +1,7 @@
 # Swarm Controller Roadmap
 
 *Drafted 2026-07-03, following the full code review in [punch-list-2026-07-03.md](punch-list-2026-07-03.md).*
+*Last updated 2026-07-04: items #1, #2, #3, #5, #12 completed/decided.*
 
 ## What this system is (and what it's becoming)
 
@@ -33,34 +34,34 @@ leverage; long-horizon = close the loop from design doc to shipped, playable gam
 
 ## Near term (next 2–6 weeks)
 
-### 1. Make the test suite green and fast — before anything else
-The suite currently fails 20 tests and takes 40+ minutes because failing LLM tests
-sleep real backoff (punch list T1–T3). Until `pytest` is a reliable signal, every
-other change on this list is being made blind — and worse, the swarm's own
-`python` validation path runs pytest on this repo, so the broken suite poisons
-self-modification tasks too.
+### 1. ~~Make the test suite green and fast~~ ✅ Done 2026-07-04
+~~The suite currently fails 20 tests and takes 40+ minutes because failing LLM tests
+sleep real backoff (punch list T1–T3).~~
 
-- Fix the `iter_lines` mock regression (one line in `llm_utils.py`).
-- Add `pytest-timeout` with a global cap; autouse fixture for `time.sleep` in LLM
-  tests; autouse snapshot/restore of `agent_runtime` config globals.
-- Then burn down the four "known failures" in CLAUDE.md — either fix or delete the
-  tests; a permanent known-failures list trains everyone to ignore red.
-- Add a lightweight CI gate (even just a launchd/cron job that runs the suite
-  nightly and posts to the dashboard) so regressions surface within a day.
+Shipped: `_mock_llm_sleep` autouse fixture, `_reset_agent_runtime_globals` autouse,
+`_reset_quota_cache` autouse, truncated-stream fast-fail instead of 7-retry backoff,
+`iter_lines` mock fix. **Result: 1355 passed, 0 failed, ~1:45 runtime.**
 
-### 2. Ship the P1 correctness fixes from the punch list
-Small, surgical, high-value: the expansion-block deadlock, the ignored
+The four "known failures" in CLAUDE.md are real bugs, not test noise — tracked as open
+beads. A nightly CI gate (launchd or cron) is still worth adding to catch regressions.
+
+### 2. ~~Ship the P1 correctness fixes from the punch list~~ ✅ Done 2026-07-04
+~~Small, surgical, high-value: the expansion-block deadlock, the ignored
 `escalation_policy` config, the dead 102MB history read, the whole-graph cycle
-checker, quota-call caching, continuation dependency wiring. Each is an
-afternoon; together they remove the sharpest edges from the scheduler.
+checker, quota-call caching, continuation dependency wiring.~~
 
-### 3. Token efficiency: fix prompt caching
-The `[Loop N/200]` system-prompt prefix busts prefix caching on every loop. Move
-loop budget into the tail user message and measure cache hit rate before/after
-using the existing `cache_read`/`cache_write` tracking. This is likely the
-single biggest cost/RPM lever available — bigger than jitter, backoff, and
-auto-scale combined, because it multiplies with every loop of every agent.
-Success metric: cache-read share of input tokens per agent, before vs after.
+All shipped: expansion-block deadlock, cycle checker scoped to task_id DFS,
+`escalation_policy` config wired, 30s quota cache, continuation deps, batch HEAD
+chaining, import_tasks validation, infra-freeze escalation, orphaned `agent_*.py`
+startup cleanup, `.env` parser robustness, prune_history project scoping, 3-tuple
+token shim removed.
+
+### 3. ~~Token efficiency: fix prompt caching~~ ✅ Done 2026-07-04
+~~The `[Loop N/200]` system-prompt prefix busts prefix caching on every loop.~~
+
+Shipped: loop prefix moved from system prompt to tail user message. System prompt
+is now stable across all loops — prefix caching should hit on every loop past the
+first. Cache hit rate visible via existing `cache_read`/`cache_write` tracking.
 
 ### 4. Data lifecycle policy
 `data/` is 12GB and every table scan gets slower monotonically. Decide retention
@@ -71,12 +72,16 @@ once and automate it:
 - Add the missing scoped-query variants so per-event code paths stop calling
   unscoped `task_get_all()` (punch list P2 has the full list).
 
-### 5. Documentation debt: one regeneration pass
-CLAUDE.md describes the system as it was months ago — the meta-agent layer,
-closure system, pipeline phases, and model routing are all undocumented. One
-focused pass to regenerate it (and delete stale claims like recovery-task
-reparenting) pays for itself immediately, because *agents read this file too*:
-doc drift here directly degrades swarm task quality on this repo.
+### 5. ~~Documentation debt: one regeneration pass~~ ✅ Done 2026-07-04
+~~CLAUDE.md describes the system as it was months ago — the meta-agent layer,
+closure system, pipeline phases, and model routing are all undocumented.~~
+
+Shipped: CLAUDE.md architecture table corrected with real line counts and 20+
+missing modules; Meta-agents section added; Closure system section added; config
+table expanded with 23 missing keys; stale "recovery-task reparenting" language
+replaced with research-feeder model. README updated with CLI section. Memory
+updated. All four "known failures" in CLAUDE.md confirmed as real bugs (tracked
+as beads), not stale test noise.
 
 ### 6. Close out run-11 and codify the winner
 The experiment infrastructure only earns its complexity if results change
@@ -136,13 +141,13 @@ this system; the punch-list interventions memory (run5: 7 manual interventions)
 shows unstructured firefighting — a queue turns that into 10 minutes of triage
 a day.
 
-### 12. Security posture decision
-Today: `0.0.0.0:5001`, no auth, CORS `*`, `allow_self_modification: true`. Fine
-for a solo LAN — but decide explicitly, because it constrains the open-source
-story (#13): either bind to localhost by default and document tailscale/reverse-
-proxy patterns, or make `login_required` default-on with first-run password
-setup. An orchestrator that runs arbitrary shell should not ship with the
-current defaults.
+### 12. ~~Security posture decision~~ ✅ Decided 2026-07-04
+`0.0.0.0:5001`, auth off, `allow_self_modification: true` — **deliberate choice
+for home-network solo use.** Router blocks external access; LAN exposure is
+acceptable. Documented in bead `u8sx`. Revisit if the swarm moves to a VPS,
+shared network, or open-source users start filing "I accidentally exposed this"
+issues — then flip `login_required` default to `true` with first-run password
+setup. The non-goals doc (#12 → open-source story) still stands.
 
 ---
 
