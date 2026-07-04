@@ -321,6 +321,65 @@ Open **http://localhost:5001**
 - **Kill / Kill All** — stop individual agents or all at once with confirm dialog
 - **New Project wizard** — conversational scaffolding that plans a full task graph and bootstraps a git repo
 
+## CLI (`swarm-code`)
+
+`tools/swarm-code.py` is a standalone terminal harness for the swarm API. No extra dependencies — stdlib only.
+
+```bash
+# Create a task and block until it finishes (streams agent log in real time)
+python3 tools/swarm-code.py raccoon-city "add a leaderboard" --wait
+python3 tools/swarm-code.py raccoon-city "fix the save bug" --type=bug --wait
+
+# Fire and forget — create task, print task ID, exit
+python3 tools/swarm-code.py raccoon-city "add analytics"
+
+# Interactive chat REPL (global swarm scope or project-scoped)
+python3 tools/swarm-code.py --chat
+python3 tools/swarm-code.py --chat raccoon-city
+
+# Scriptable — pipe input for non-interactive use
+echo "how many agents are running?" | python3 tools/swarm-code.py --chat
+
+# Tail a running agent's log
+python3 tools/swarm-code.py --watch <agent_id>
+
+# Health + active agents + pending task counts
+python3 tools/swarm-code.py --status
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--type` | Task type: `feature`, `bug`, `refactor`, `polish`, `qa`, `research`, `plan` (default: `feature`) |
+| `--priority` | Task priority integer (default: 80 for bug, 50 for everything else) |
+| `--wait` | Block until the task completes; stream agent log while running |
+| `--chat [project]` | Start interactive chat REPL; omit project for global swarm scope |
+| `--watch <id>` | Stream a running agent's log by agent ID |
+| `--status` | Print swarm health, active agents, and task counts |
+
+**Config via environment:**
+
+```bash
+export SWARM_URL=http://my-server:5001   # default: http://localhost:5001
+export SWARM_TOKEN=my-token             # only needed if login_required: true
+```
+
+**Scripting examples:**
+
+```bash
+# Block until done, then deploy
+python3 tools/swarm-code.py raccoon-city "fix the save bug" --type=bug --wait && ./deploy.sh
+
+# Query swarm state from a script
+RUNNING=$(echo "how many agents running?" | python3 tools/swarm-code.py --chat)
+
+# Create multiple tasks in a loop
+for proj in raccoon-city iron-ember; do
+  python3 tools/swarm-code.py "$proj" "run the weekly audit" --type=audit
+done
+```
+
 ## Architecture
 
 ```
