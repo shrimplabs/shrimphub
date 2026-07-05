@@ -1,9 +1,9 @@
 # Handoff: Playthrough Bot Mechanism
 
-**Status as of 2026-07-05**: Core mechanism built, wired end-to-end, and validated
-in a clean real test run. The completion guard, MiniMax tool-tag repair, and
-project-authored bot all passed live validation. Items 1-3 below are resolved;
-the playthrough-bot-specific pause on run-12 is lifted.
+**Status as of 2026-07-05**: Core mechanism built and wired end-to-end. The
+completion guard, MiniMax tool-tag repair, and project-authored bot passed live
+validation, but the bot has only demonstrated an early GAME_OVER—not a full
+game completion. Item 1 remains open, and run-12 remains paused.
 
 ## Why this exists
 
@@ -212,11 +212,11 @@ errors from `scripts/power_up_manager.gd:176` (`_spawn()` changes collision
 monitoring while queries are being flushed). Those errors are useful diagnostic
 evidence but are not yet proven to be the process-exit cause.
 
-### Final clean-run result
+### Latest terminal-state smoke result (not a full playthrough)
 
 After the controller restart, the persisted task
 `playthrough_bot-void-patrol-playthrough-bot-test-266819665-144333` resumed and
-completed truthfully:
+completed under the then-current "any terminal state" rule:
 
 - The per-project bot was corrected to use StateServer `play_macro` with a
   physical SPACE key event. The earlier `ui_accept` action did not satisfy the
@@ -231,15 +231,18 @@ completed truthfully:
 - The project bot change is committed in the disposable project as `5e402a3`.
   The swarm task is recorded `completed` with attempts=2.
 
-This closes items 1-3. The earlier connection-refused trace was a symptom of
-the unsuccessful wait-only strategy/run lifecycle, not the final result. The
-run-12 pause imposed by this handoff is now lifted; the separate follow-on
-closure integration in item 6 may proceed when desired.
+This validates the real-click path, tool loop, and truthful completion guard,
+but it does **not** close item 1: reaching GAME_OVER at tick 5 is an early loss,
+not evidence that the bot played the complete game. Run-12 remains paused until
+the bot reaches VICTORY or another explicitly accepted full-game completion
+condition with trace evidence covering the intended game progression.
 
-1. **RESOLVED — clean end-to-end run completed.**
-   The persisted agent corrected and committed the project bot, a fresh run
-   reached GAME_OVER at tick 5, the command exited 0 with the literal PASS
-   marker, and the task was marked completed only after that evidence existed.
+1. **OPEN — prove a full end-to-end game completion.**
+   The persisted agent corrected and committed the project bot, and a fresh run
+   truthfully reached GAME_OVER at tick 5. That is useful terminal-state smoke
+   coverage, but it is not a complete playthrough. Require VICTORY or another
+   explicitly accepted full-game end condition, with trace evidence showing the
+   bot traversed the intended progression rather than losing immediately.
 
 2. **RESOLVED — truncated-response loop.** The loop that swallowed
    attempt 2 was caused by MiniMax-M3 omitting the final `]` from an otherwise
@@ -264,18 +267,18 @@ closure integration in item 6 may proceed when desired.
    `swarm/agent_lifecycle.py:247`. Not blocking, not part of this feature, flagged
    for whoever has spawn-endpoint cleanup on their list.
 
-6. **Follow-on roadmap item (now unblocked)**: after additional clean
+6. **Follow-on roadmap item (still blocked)**: after a genuine full-game
    playthrough_bot runs build confidence, wire the resulting per-project bot into
    that project's closure spec as a `smoke_check`/`critical_flows` entry (see
    `swarm/closure/project_seeds.py` for the exact shape — no changes needed to
    `swarm/closure/verification.py`, the existing `type: "command"` dispatch
    already handles a bot's exit code as a gate). This makes "can a bot complete
-   this game" a real, enforced closure requirement. Item 1's prerequisite is
-   now satisfied.
+   this game" a real, enforced closure requirement. Do not start until item 1
+   is satisfied by more than an early GAME_OVER.
 
-7. **Run-12 pause lifted.** Items 1-3 are resolved and a clean
-   `playthrough_bot` run completed truthfully against the disposable real-project
-   clone. Run-12 may resume subject to any non-playthrough constraints.
+7. **Run-12 remains paused.** Items 2-3 are resolved, but item 1 is not. Do not
+   resume run-12 until a trace confirms the bot completed the full game rather
+   than reaching an early GAME_OVER.
 
 ## Key files for orientation
 
