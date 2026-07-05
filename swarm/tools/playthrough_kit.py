@@ -169,9 +169,17 @@ def _launch(project_path: str, port: int) -> tuple[StateServerClient, Optional[s
     running standalone outside the swarm's Python environment).
     """
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+        swarm_root = Path(__file__).parent.parent.parent
+        sys.path.insert(0, str(swarm_root))
         from swarm.qa_tools import launch_game
         from swarm import qa_tools as _qt
+        # qa_tools.DATA_DIR defaults to the relative string "data", which only
+        # resolves correctly when CWD is the swarm-controller repo. A
+        # project's own playthrough_bot.py runs from within ITS OWN directory,
+        # so without this, launch_game's PID-tracking write fails with
+        # "No such file or directory: 'data/godot_pids.json'" (non-fatal to
+        # the actual game launch, but worth fixing rather than tolerating).
+        _qt.DATA_DIR = str(swarm_root / "data")
         result = launch_game(project_path)
         if not result.get("ok", True) and "error" in result:
             print(f"[playthrough_kit] WARNING: launch_game reported: {result.get('error')}")
