@@ -769,6 +769,21 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     full_output = log_snapshot.full_output
     output = log_snapshot.tail_output
     success = _classify_agent_success(agent_id, exit_code, full_output)
+    task_snapshot_for_completion = db.task_get(task_id) if task_id else None
+    if (
+        success
+        and task_snapshot_for_completion
+        and task_snapshot_for_completion.get("type") == "playthrough_bot"
+        and not re.search(
+            r"(?m)^\[Agent\] Playthrough bot validation passed \(exit 0\)$",
+            full_output,
+        )
+    ):
+        print(
+            f"[Swarm] Rejecting playthrough_bot completion for agent {agent_id[:8]}: "
+            "no successful bot execution was recorded"
+        )
+        success = False
 
     # Phase 3 -- worktree phase (validate pre-merge, merge, cleanup).
     wt_path_str, wt_branch = _active_worktree_handle(agent_id)

@@ -818,6 +818,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     _wrap_up_injected = False
     _no_tool_call_nudged = False
     _malformed_retries: dict = {}  # loop_count → retry attempts for malformed tool calls
+    _consecutive_truncated_responses = 0
+    _playthrough_validation_passed = False
 
     # Token tracking
     total_input_tokens = 0
@@ -1148,7 +1150,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             has_open = "[TOOL_CALL]" in response or "<tool_call>" in response
             has_close = "[/TOOL_CALL]" in response or "</tool_call>" in response
             if has_open and not has_close:
-                log("WARNING: response truncated -- injecting targeted retry")
+                _consecutive_truncated_responses += 1
+                if _consecutive_truncated_responses >= 3:
+                    log("ERROR: response truncated 3 consecutive times -- failing closed")
+                    break
+                log(
+                    "WARNING: response truncated -- injecting targeted retry "
+                    f"({_consecutive_truncated_responses}/2)"
+                )
                 conversation.append({"role": "user", "content": (
                     "Your response was cut off before the tool call closed. "
                     "Write a shorter tool call -- avoid large write_file blocks. "
@@ -1167,6 +1176,15 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 continue
             # No tool calls -- check for TASK_COMPLETE before nudging
             if _has_task_complete:
+                if TASK_TYPE == "playthrough_bot" and not _playthrough_validation_passed:
+                    log("TASK_COMPLETE blocked -- playthrough bot has no successful exit-0 self-test")
+                    conversation.append({"role": "user", "content": (
+                        "TASK_COMPLETE rejected. Run tests/playthrough_bot.py through run_command "
+                        "and obtain exit code 0 before completing this task. A committed file or a "
+                        "bare completion claim is not execution evidence."
+                    )})
+                    tool_loop_count += 1
+                    continue
                 failures = _has_validation_failures(_last_run_outputs)
                 if failures:
                     log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
@@ -1206,6 +1224,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             break
 
         tool_results = []
+        _consecutive_truncated_responses = 0
         _last_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
         _last_run_outputs = []   # reset each loop; only keep the latest batch
         _no_tool_call_nudged = False  # reset -- model is back to using tools
@@ -1271,7 +1290,21 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 break
             # Accumulate run_command outputs for the TASK_COMPLETE guard
             if tc.get("tool") == "run_command" and isinstance(result, dict):
+                command = str((tc.get("args") or {}).get("command", ""))
                 combined = (result.get("stdout") or "") + (result.get("stderr") or "")
+                if (
+                    TASK_TYPE == "playthrough_bot"
+                    and re.search(
+                        r"(?:^|&&|;)\s*(?:timeout\s+\d+\s+)?"
+                        r"(?:python3?|\.venv/bin/python)\s+"
+                        r"tests/playthrough_bot\.py(?:\s|$)",
+                        command,
+                    )
+                    and result.get("ok") is True
+                    and "✓ PASSED:" in combined
+                ):
+                    _playthrough_validation_passed = True
+                    log("Playthrough bot validation passed (exit 0)")
                 if combined.strip():
                     _last_run_outputs.append(combined)
                     # EXPERIMENT: track recurring errors for meta-investigation
@@ -1304,6 +1337,15 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         # Check TASK_COMPLETE after executing tools (not before), so tool calls
         # that appear in the same response as TASK_COMPLETE still run.
         if _has_task_complete:
+            if TASK_TYPE == "playthrough_bot" and not _playthrough_validation_passed:
+                log("TASK_COMPLETE blocked -- playthrough bot has no successful exit-0 self-test")
+                conversation.append({"role": "user", "content": (
+                    "TASK_COMPLETE rejected. Run tests/playthrough_bot.py through run_command "
+                    "and obtain exit code 0 before completing this task. A committed file or a "
+                    "bare completion claim is not execution evidence."
+                )})
+                tool_loop_count += 1
+                continue
             failures = _has_validation_failures(_last_run_outputs)
             if failures:
                 log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
@@ -1333,7 +1375,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
     if tool_loop_count >= MAX_TOOL_LOOPS and not context_limit_hit:
         loop_limit_hit = True
-        task_complete_hit = True  # loop limit counts as a success exit (continuation spawned)
+        # A playthrough task cannot use the generic continuation-success shortcut
+        # until the bot itself has produced an exit-0 run in this agent session.
+        task_complete_hit = TASK_TYPE != "playthrough_bot" or _playthrough_validation_passed
 
     # If context limit was hit, commit progress then spawn a continuation task.
     if context_limit_hit:

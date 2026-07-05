@@ -144,6 +144,26 @@ class TestExitOneFalseFailures:
         orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
         assert db.task_get("t1")["status"] == "completed"
 
+    def test_playthrough_bot_requires_recorded_exit_zero_validation(self, tmp_db):
+        _task(id="t1", status="in_progress", type="playthrough_bot")
+        log_path = tmp_db / "agent_a1.log"
+        log_path.write_text("TASK_COMPLETE\n")
+
+        orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
+
+        assert db.task_get("t1")["status"] == "pending"
+
+    def test_playthrough_bot_accepts_recorded_exit_zero_validation(self, tmp_db):
+        _task(id="t1", status="in_progress", type="playthrough_bot")
+        log_path = tmp_db / "agent_a1.log"
+        log_path.write_text(
+            "[Agent] Playthrough bot validation passed (exit 0)\nTASK_COMPLETE\n"
+        )
+
+        orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
+
+        assert db.task_get("t1")["status"] == "completed"
+
     def test_exit_one_without_task_complete_is_retry(self, tmp_db):
         # attempts=1, max=3 → failure handler increments to 2 < 3 → retry
         _task(id="t1", status="in_progress", attempts=1, max_attempts=3)

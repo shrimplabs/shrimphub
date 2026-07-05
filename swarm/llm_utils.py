@@ -151,6 +151,11 @@ def _try_parse_multi(block: str) -> list:
 
 
 def parse_tool_calls(text: str) -> list:
+    # MiniMax-M3 occasionally returns a valid JSON body and the literal closing
+    # tag ``[/TOOL_CALL`` while omitting only its final ``]``. Repair only this
+    # exact end-of-response suffix; genuinely partial calls remain unparseable.
+    if text.rstrip().endswith("[/TOOL_CALL"):
+        text = text.rstrip() + "]"
     tool_calls = []
 
     def _try_parse(json_str):

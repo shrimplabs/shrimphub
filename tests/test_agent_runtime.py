@@ -181,6 +181,11 @@ class TestPullLatestGuard:
         calls = rt.parse_tool_calls(text)
         assert calls == []
 
+    def test_minimax_missing_final_close_bracket_is_repaired(self):
+        text = '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}}[/TOOL_CALL'
+        calls = rt.parse_tool_calls(text)
+        assert calls == [{"tool": "list_files", "args": {"path": "."}}]
+
     def test_malformed_json_missing_one_brace_is_recovered(self):
         # Missing final } -- _try_parse should recover by appending one
         text = '[TOOL_CALL]{"tool": "list_files", "args": {"path": "."}[/TOOL_CALL]'
@@ -1622,6 +1627,108 @@ class TestMainLoop:
         _init_git(tmp_path / "workspace" / "test-proj")
         with patch("swarm.agent_runtime.call_llm", return_value=("I'm thinking...", {"input": 0, "output": 0}, [])):
             code = rt.main()
+        assert code == 1
+
+    def test_three_consecutive_truncated_tool_calls_fail_closed(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        truncated = '[TOOL_CALL]{"tool": "write_file", "args": {"path": "x"'
+        call_count = 0
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return truncated, {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm):
+            code = rt.main()
+
+        assert code == 1
+        assert call_count == 3
+
+    def test_playthrough_bot_rejects_bare_task_complete(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+
+        with patch(
+            "swarm.agent_runtime.call_llm",
+            return_value=("TASK_COMPLETE", {"input": 0, "output": 0}, []),
+        ):
+            code = rt.main()
+
+        assert code == 1
+
+    def test_playthrough_bot_accepts_successful_self_test(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+        responses = iter([
+            '[TOOL_CALL]{"tool": "run_command", "args": '
+            '{"command": "python tests/playthrough_bot.py --project-path ."}}[/TOOL_CALL]',
+            "TASK_COMPLETE",
+        ])
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            return next(responses), {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), patch(
+            "swarm.agent_runtime.execute_tool",
+            return_value={"ok": True, "stdout": "✓ PASSED: terminal state reached", "stderr": ""},
+        ):
+            code = rt.main()
+
+        assert code == 0
+
+    def test_playthrough_bot_does_not_accept_command_that_only_mentions_path(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+        rt.MAX_TOOL_LOOPS = 2
+        responses = iter([
+            '[TOOL_CALL]{"tool": "run_command", "args": '
+            '{"command": "echo tests/playthrough_bot.py"}}[/TOOL_CALL]',
+            "TASK_COMPLETE",
+        ])
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            return next(responses), {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), patch(
+            "swarm.agent_runtime.execute_tool",
+            return_value={"ok": True, "stdout": "tests/playthrough_bot.py", "stderr": ""},
+        ):
+            code = rt.main()
+
+        assert code == 1
+
+    def test_playthrough_bot_rejects_pipe_masked_failure(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+        rt.MAX_TOOL_LOOPS = 2
+        responses = iter([
+            '[TOOL_CALL]{"tool": "run_command", "args": '
+            '{"command": "timeout 180 python3 tests/playthrough_bot.py | tail -20"}}[/TOOL_CALL]',
+            "TASK_COMPLETE",
+        ])
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            return next(responses), {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), patch(
+            "swarm.agent_runtime.execute_tool",
+            return_value={
+                "ok": True,
+                "stdout": "python3: command not found",
+                "stderr": "",
+            },
+        ):
+            code = rt.main()
+
         assert code == 1
 
     def test_loop_limit_caps_llm_calls(self, tmp_path):

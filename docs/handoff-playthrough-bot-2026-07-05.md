@@ -1,9 +1,9 @@
 # Handoff: Playthrough Bot Mechanism
 
 **Status as of 2026-07-05**: Core mechanism built, wired end-to-end, and validated
-in a real test run. Two real bugs found and fixed along the way. Run-12 (the next
-experiment run) is **paused** until this is confirmed solid — do not resume it
-until the open items below are closed out.
+in a clean real test run. The completion guard, MiniMax tool-tag repair, and
+project-authored bot all passed live validation. Items 1-3 below are resolved;
+the playthrough-bot-specific pause on run-12 is lifted.
 
 ## Why this exists
 
@@ -171,22 +171,86 @@ and is what led us to the actual HUD bug and fix above.
 
 ## Open items / loose ends for the contractor
 
-1. **Re-run the mechanism cleanly, end to end, now that both bugs are fixed.**
-   Everything above was found and fixed *during* imperfect test runs. There
-   has not yet been one clean run where: agent builds bot → bot runs against an
-   already-correct project → reaches a real terminal state (victory/game-over)
-   → commits cleanly → task marked complete truthfully. Do this next.
+### Follow-up on 2026-07-05
 
-2. **The "response truncated -- injecting targeted retry" loop** that swallowed
-   attempt 2 for ~15 loops is a pre-existing swarm mechanism (unrelated to this
-   feature specifically) but it's what caused the confusing "completed but
-   agent thinks it failed" outcome. Worth understanding why it fired and got
-   stuck rather than recovering, independent of this feature.
+Items 2 and 3 below now have controller-side fixes implemented and exercised
+against a restarted live controller (changes remain pending commit):
 
-3. **Task completion validation gap** (see above) — a `playthrough_bot` task
-   marked `completed` should not just trust a bare `TASK_COMPLETE`; consider
-   checking for an actual new commit and/or running the bot's own exit code as
-   part of finishing the task.
+- `swarm/agent_runtime.py` stops after three consecutive truncated tool-call
+  responses instead of spending the remaining loop budget repeating the same
+  targeted retry.
+- A `playthrough_bot` agent may only complete after a `run_command` invocation
+  of `tests/playthrough_bot.py` returns exit 0. The runtime records that fact,
+  and `swarm/agent_finish.py` independently rejects completion if the record is
+  absent. This closes both the bare-`TASK_COMPLETE` path and the generic
+  loop-limit success shortcut for this task type.
+- Six focused regressions cover truncation capping, bare-completion rejection
+  at both layers, successful exit-0 acceptance, and rejection of commands that
+  merely mention the bot path without executing it. The complete non-dashboard
+  suite passes: **1379 passed**.
+
+After restarting the controller, a live retry exposed the truncation root cause:
+MiniMax-M3 repeatedly returned a complete JSON tool call ending in the literal
+`[/TOOL_CALL` with only the final `]` missing. `swarm/llm_utils.py` now repairs
+only that exact end-of-response suffix. A live fresh agent then executed those
+same formerly rejected calls normally; genuinely partial calls still hit the
+three-response fail-closed cap.
+
+The live retry also exposed a second completion-evidence edge: shell pipelines
+such as `python ... | tail` can return exit 0 from `tail` even when Python or the
+bot failed. Runtime acceptance now requires both a matching bot invocation and
+the kit's literal `✓ PASSED:` output, not merely the shell result's `ok` flag.
+This prevents pipe-masked failures from satisfying the completion guard.
+
+A direct clean-run attempt was also made against
+`void-patrol-playthrough-bot-test`. It did **not** satisfy item 1 and must not be
+reported as green. The real START click worked (`game_state 0 -> 1`), proving
+the click path and both UI fixes, but the Godot process disappeared during
+gameplay before reaching GAME_OVER or VICTORY. The trace ended with StateServer
+connection-refused responses. A captured run also emitted two physics-flush
+errors from `scripts/power_up_manager.gd:176` (`_spawn()` changes collision
+monitoring while queries are being flushed). Those errors are useful diagnostic
+evidence but are not yet proven to be the process-exit cause.
+
+### Final clean-run result
+
+After the controller restart, the persisted task
+`playthrough_bot-void-patrol-playthrough-bot-test-266819665-144333` resumed and
+completed truthfully:
+
+- The per-project bot was corrected to use StateServer `play_macro` with a
+  physical SPACE key event. The earlier `ui_accept` action did not satisfy the
+  game's `Input.is_key_pressed(KEY_SPACE)` check, so it emitted no bullets.
+- The menu transition still uses the required real-coordinate `click_label`
+  path. Trace tick 0 records MENU and a found START click; subsequent ticks
+  record PLAYING.
+- A fresh, unmasked final command exited 0 and printed the kit's literal
+  `✓ PASSED: terminal state reached at tick 5` marker.
+- Tick 5 was the legitimate GAME_OVER state (`game_state=3`), reached after
+  enemy shooter bullets depleted the player's lives during active firing.
+- The project bot change is committed in the disposable project as `5e402a3`.
+  The swarm task is recorded `completed` with attempts=2.
+
+This closes items 1-3. The earlier connection-refused trace was a symptom of
+the unsuccessful wait-only strategy/run lifecycle, not the final result. The
+run-12 pause imposed by this handoff is now lifted; the separate follow-on
+closure integration in item 6 may proceed when desired.
+
+1. **RESOLVED — clean end-to-end run completed.**
+   The persisted agent corrected and committed the project bot, a fresh run
+   reached GAME_OVER at tick 5, the command exited 0 with the literal PASS
+   marker, and the task was marked completed only after that evidence existed.
+
+2. **RESOLVED — truncated-response loop.** The loop that swallowed
+   attempt 2 was caused by MiniMax-M3 omitting the final `]` from an otherwise
+   complete `[/TOOL_CALL]` suffix. That exact provider quirk is repaired in the
+   parser; truly incomplete responses still fail closed after three repeats.
+
+3. **RESOLVED — task completion validation gap.** A `playthrough_bot` task
+   can no longer complete from bare `TASK_COMPLETE`, a loop-limit shortcut, a
+   command that merely mentions the bot path, or a pipe-masked shell success.
+   It requires a real bot invocation plus the kit's literal `✓ PASSED:` marker,
+   with an independent finalization check.
 
 4. **Test project cleanup**: `void-patrol-playthrough-bot-test` is registered
    with the swarm (`POST /api/projects` was called for it, profile `godot`,
@@ -200,19 +264,18 @@ and is what led us to the actual HUD bug and fix above.
    `swarm/agent_lifecycle.py:247`. Not blocking, not part of this feature, flagged
    for whoever has spawn-endpoint cleanup on their list.
 
-6. **Follow-on roadmap item (not started, don't start yet)**: once a few clean
+6. **Follow-on roadmap item (now unblocked)**: after additional clean
    playthrough_bot runs build confidence, wire the resulting per-project bot into
    that project's closure spec as a `smoke_check`/`critical_flows` entry (see
    `swarm/closure/project_seeds.py` for the exact shape — no changes needed to
    `swarm/closure/verification.py`, the existing `type: "command"` dispatch
    already handles a bot's exit code as a gate). This makes "can a bot complete
-   this game" a real, enforced closure requirement. **Do not start this until
-   item 1 above is done at least once, cleanly.**
+   this game" a real, enforced closure requirement. Item 1's prerequisite is
+   now satisfied.
 
-7. **Run-12 is paused.** Do not resume creating run-12 experiment tasks/projects
-   until the contractor (or whoever picks this back up) confirms items 1-3 above
-   are resolved and at least one clean playthrough_bot run has completed
-   truthfully against a real project.
+7. **Run-12 pause lifted.** Items 1-3 are resolved and a clean
+   `playthrough_bot` run completed truthfully against the disposable real-project
+   clone. Run-12 may resume subject to any non-playthrough constraints.
 
 ## Key files for orientation
 
