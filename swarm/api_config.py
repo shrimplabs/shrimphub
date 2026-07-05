@@ -477,3 +477,56 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             config_file.write_text(json.dumps(cfg, indent=2) + "\n")
         print(f"[Config] vision_providers updated: {list(updated.keys())}")
         return jsonify({"ok": True, **updated})
+
+    # ---------- Log Rotation ----------
+    @app.route("/api/log-rotation", methods=["GET"])
+    def get_log_rotation():
+        import time as _time
+        retention = int(config.get("log_retention_days", 0))
+        action    = config.get("log_rotation_action", "delete")
+        extract   = bool(config.get("log_extract_signals", False))
+        # Count eligible files (older than retention_days)
+        eligible = 0
+        if retention > 0:
+            cutoff = _time.time() - retention * 86400
+            for f in data_dir.glob("agent_*.log"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        eligible += 1
+                except Exception:
+                    pass
+        last_run_file = data_dir / "log_rotation_last_run.txt"
+        last_run = None
+        if last_run_file.exists():
+            try:
+                import datetime as _dt
+                last_run = _dt.datetime.fromtimestamp(
+                    float(last_run_file.read_text()), tz=_dt.timezone.utc
+                ).isoformat()
+            except Exception:
+                pass
+        signals_count = len(db.agent_signals_query(limit=1))
+        return jsonify({
+            "log_retention_days": retention,
+            "log_rotation_action": action,
+            "log_extract_signals": extract,
+            "eligible_files": eligible,
+            "last_run": last_run,
+            "signals_extracted": signals_count > 0,
+        })
+
+    @app.route("/api/log-rotation/run", methods=["POST"])
+    def run_log_rotation():
+        import threading as _threading
+        from swarm.log_rotation import rotate_logs as _rotate_logs
+        _threading.Thread(
+            target=_rotate_logs, args=(str(data_dir), db),
+            daemon=True, name="manual-log-rotation",
+        ).start()
+        return jsonify({"ok": True, "message": "Log rotation started in background"})
+
+    @app.route("/api/log-rotation/signals", methods=["GET"])
+    def get_signals_summary():
+        from swarm.log_rotation import get_signals_summary as _summary
+        project = request.args.get("project")
+        return jsonify(_summary(db, project=project))

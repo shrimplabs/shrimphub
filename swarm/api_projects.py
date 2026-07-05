@@ -31,39 +31,15 @@ _handoff_locks_mutex = threading.Lock()
 
 
 def _load_project_task_history(data_dir: Path, project_name: str, db=None) -> dict[str, dict]:
-    """Load completed/failed tasks for a project.
+    """Load completed/failed tasks for a project from the DB.
 
-    Checks the live DB first (completed tasks now stay in the tasks table),
-    then falls back to task-history.jsonl for pre-migration data.  DB rows
-    take precedence over JSONL entries with the same ID (dedupe).
+    Tasks stay in the tasks table permanently — no JSONL fallback needed.
     """
     records: dict[str, dict] = {}
-
-    # Primary source: live DB (completed/failed tasks stay permanently)
     if db is not None:
-        for row in db.task_get_all():
-            if row.get("project") == project_name and row.get("id"):
-                if row.get("status") in ("completed", "failed", "cancelled"):
-                    records[row["id"]] = row
-
-    # DEPRECATED: JSONL fallback for pre-migration tasks only.
-    # Remove after 2025-07-01.
-    history_file = data_dir / "task-history.jsonl"
-    if not history_file.exists():
-        return records
-    for line in history_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        if rec.get("project") != project_name or not rec.get("id"):
-            continue
-        # DB wins: skip JSONL entries already found in the live DB
-        if rec["id"] not in records:
-            records[rec["id"]] = rec
+        for row in db.task_get_by_project(project_name):
+            if row.get("id") and row.get("status") in ("completed", "failed", "cancelled"):
+                records[row["id"]] = row
     return records
 
 
@@ -690,26 +666,10 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         if project is None:
             return jsonify({"error": "Project not found"}), 404
         project_path = workspace / project_name
-        # Tasks completed / failed (from live DB + history file)
+        # Tasks completed / failed (all live in the DB permanently)
         all_tasks = _db.task_get_by_project(project_name)
         tasks_completed = sum(1 for t in all_tasks if t["status"] == "completed")
         tasks_failed    = sum(1 for t in all_tasks if t["status"] == "failed")
-        # Also count from history file (archived tasks no longer in DB)
-        history_file = data_dir / "agent-history.jsonl"
-        hist_completed = hist_failed = 0
-        if history_file.exists():
-            for line in history_file.read_text().splitlines():
-                try:
-                    entry = json.loads(line)
-                    if entry.get("project") == project_name:
-                        if entry.get("exit_code") == 0:
-                            hist_completed += 1
-                        else:
-                            hist_failed += 1
-                except Exception:
-                    pass
-        tasks_completed += hist_completed
-        tasks_failed    += hist_failed
         # Avg lines per file
         files = project.files if hasattr(project, "files") else (project.to_dict().get("files") or {})
         avg_lines = int(sum(files.values()) / len(files)) if files else 0
@@ -843,21 +803,11 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
                     if dep_id not in all_task_ids and dep_id not in completed_ids:
                         broken_deps.add(dep_id)
 
-        # Load task history once for both resurrection and ghost-pruning decisions
-        history_by_id = {}
-        task_history_file = data_dir / "task-history.jsonl"
-        if task_history_file.exists():
-            for line in task_history_file.read_text().splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                    if rec.get("id"):
-                        history_by_id[rec["id"]] = rec
-                except Exception:
-                    pass
-
+        # Build a task-ID lookup from the DB (tasks never leave the DB).
+        # This replaces the old task-history.jsonl read.
+        history_by_id = {t["id"]: t for t in db.task_get_all(
+            exclude_statuses=("pending", "in_progress")
+        )}
         history_ids = set(history_by_id.keys())
 
         # Ghost dep pruning: remove stale dep edges that point to IDs absent from
@@ -883,12 +833,11 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
 
         # Refresh project_tasks after pruning so resurrection/floating checks see
         # the updated dep lists.
-        all_db_tasks = db.task_get_all()
-        project_tasks = [t for t in all_db_tasks if t["project"] == project_name]
-        all_task_ids = {t["id"] for t in all_db_tasks}
+        project_tasks = db.task_get_by_project(project_name)
+        all_task_ids = db.task_get_all_ids()
 
-        # Resurrect broken deps that ARE in history (completed/failed tasks whose
-        # live row was pruned but whose dependents still reference them).
+        # Resurrect broken deps that ARE in the DB (completed/failed tasks whose
+        # dependents still reference them by ID).
         resurrected_deps = broken_deps - {g for entry in pruned_ghost_deps for g in entry["removed"]}
         for dep_id in resurrected_deps:
             rec = history_by_id.get(dep_id, {})

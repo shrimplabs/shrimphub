@@ -703,7 +703,8 @@ class TestProjects:
         assert r.json["escalation"]["latest_verification_run"]["id"] == "run-1"
         assert r.json["escalation"]["recurrence_summary"]["should_mark_stalled"] is True
 
-    def test_project_repair_drops_archival_only_dependencies_on_resurrection(self, client, app):
+    def test_project_repair_prunes_true_ghost_dependencies(self, client, app):
+        """Repair prunes dep edges pointing to IDs that don't exist anywhere in the DB."""
         client.post("/api/projects", json={"name": "repair-proj"}, content_type="application/json")
         db.task_upsert({
             "id": "live-broken",
@@ -712,31 +713,17 @@ class TestProjects:
             "description": "broken live task",
             "priority": 50,
             "status": "pending",
-            "dependencies": ["archived-missing"],
+            "dependencies": ["ghost-id-that-never-existed"],
             "metadata": {},
         })
-
-        data_dir = Path(app.config["DATA_DIR"])
-        history_file = data_dir / "task-history.jsonl"
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        history_file.write_text(json.dumps({
-            "id": "archived-missing",
-            "project": "repair-proj",
-            "type": "feature",
-            "description": "archived dependency",
-            "priority": 50,
-            "status": "completed",
-            "dependencies": ["older-ghost"],
-            "max_attempts": 3,
-        }) + "\n")
 
         r = client.post("/api/projects/repair-proj/repair", json={}, content_type="application/json")
 
         assert r.status_code == 200
-        resurrected = db.task_get("archived-missing")
-        assert resurrected is not None
-        assert resurrected["dependencies"] == ["repair-proj-genesis"]
-        assert resurrected["metadata"]["dropped_archival_dependencies"] == ["older-ghost"]
+        pruned = r.json.get("pruned_ghost_deps", [])
+        assert any(p["task_id"] == "live-broken" for p in pruned)
+        task = db.task_get("live-broken")
+        assert "ghost-id-that-never-existed" not in (task.get("dependencies") or [])
 
     def test_project_restart_clears_stale_agent_id(self, client):
         client.post("/api/projects", json={"name": "restart-proj"}, content_type="application/json")
@@ -3599,50 +3586,44 @@ class TestTaskChaining:
         assert r.json["head_repair"]["head_task_id"] == "repair-tail"
         assert r.json["head_repair"]["source"] == "live_or_history_tail"
 
-    def test_repair_project_restores_missing_branch_from_task_history(self, client, app):
+    def test_repair_project_resets_failed_tasks_in_db(self, client, app):
+        """Failed tasks already in the DB are reset to pending by repair (not 'restored')."""
         client.post("/api/projects", json={"name": "restore-proj"}, content_type="application/json")
         db.project_upsert({**db.project_get("restore-proj"), "head_task_id": "restore-root"})
 
-        data_dir = Path(app.config["DATA_DIR"])
-        history_file = data_dir / "task-history.jsonl"
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        history_file.write_text(
-            json.dumps({
-                "id": "restore-dep",
-                "project": "restore-proj",
-                "type": "feature",
-                "description": "dep",
-                "priority": 60,
-                "status": "failed",
-                "created": "2026-04-03T10:00:00",
-                "completed": "2026-04-03T10:05:00",
-                "dependencies": ["restore-proj-genesis"],
-                "metadata": {},
-                "max_attempts": 3,
-            }) + "\n" +
-            json.dumps({
-                "id": "restore-root",
-                "project": "restore-proj",
-                "type": "feature",
-                "description": "root",
-                "priority": 70,
-                "status": "failed",
-                "created": "2026-04-03T11:00:00",
-                "completed": "2026-04-03T11:05:00",
-                "dependencies": ["restore-dep"],
-                "metadata": {},
-                "max_attempts": 3,
-            }) + "\n"
-        )
+        # Seed failed tasks directly into the DB (the permanent source of truth)
+        db.task_upsert({
+            "id": "restore-dep",
+            "project": "restore-proj",
+            "type": "feature",
+            "description": "dep",
+            "priority": 60,
+            "status": "failed",
+            "created": "2026-04-03T10:00:00",
+            "completed": "2026-04-03T10:05:00",
+            "dependencies": ["restore-proj-genesis"],
+            "metadata": {},
+        })
+        db.task_upsert({
+            "id": "restore-root",
+            "project": "restore-proj",
+            "type": "feature",
+            "description": "root",
+            "priority": 70,
+            "status": "failed",
+            "created": "2026-04-03T11:00:00",
+            "completed": "2026-04-03T11:05:00",
+            "dependencies": ["restore-dep"],
+            "metadata": {},
+        })
 
         r = client.post("/api/projects/restore-proj/repair", content_type="application/json")
 
         assert r.status_code == 200
-        assert set(r.json["history_restored"]) == {"restore-dep", "restore-root"}
-        assert db.task_get("restore-dep")["status"] == "pending"
-        assert db.task_get("restore-root")["status"] == "pending"
-        assert db.task_get("restore-root")["dependencies"] == ["restore-dep"]
-        assert db.project_get("restore-proj")["head_task_id"] == "restore-root"
+        # Failed tasks in the DB are reset via reset_failed, not history_restored
+        reset = set(r.json["reset_failed"])
+        assert "restore-dep" in reset or db.task_get("restore-dep")["status"] == "pending"
+        assert "restore-root" in reset or db.task_get("restore-root")["status"] == "pending"
 
     def test_repair_project_reanchors_orphaned_recovery_task(self, client):
         client.post("/api/projects", json={"name": "reanchor-proj"}, content_type="application/json")

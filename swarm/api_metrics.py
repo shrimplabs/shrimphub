@@ -156,46 +156,54 @@ def register_routes(app, data_dir, workspace, config, db, agent_tracker):
     @app.route("/api/metrics", methods=["GET"])
     def get_metrics():
         """Return agent effectiveness metrics."""
-        # --- task history ---
+        # --- task history (DB is the source of truth; JSONL is legacy) ---
         tasks_completed = 0
         tasks_failed = 0
         total_attempts = 0
         first_try_success = 0
         validation_bugs = 0
 
-        task_hist = os.path.join(data_dir, "task-history.jsonl")
-        if os.path.exists(task_hist):
-            try:
-                import json as _json
-                with open(task_hist) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            t = _json.loads(line)
-                        except Exception:
-                            continue
-                        if t.get("status") == "completed":
-                            tasks_completed += 1
-                            attempts = t.get("attempts", 0)
-                            total_attempts += attempts
-                            if attempts <= 1:
-                                first_try_success += 1
-                            meta = t.get("metadata") or {}
-                            if t.get("type") == "bug" and meta.get("is_validation_bug"):
-                                validation_bugs += 1
-                        elif t.get("status") == "failed":
-                            tasks_failed += 1
-            except Exception:
-                pass
+        try:
+            terminal_tasks = db.task_get_recent_by_statuses(
+                ("completed", "failed"), limit=50000
+            )
+            for t in terminal_tasks:
+                if t.get("status") == "completed":
+                    tasks_completed += 1
+                    attempts = t.get("attempts", 0)
+                    total_attempts += attempts
+                    if attempts <= 1:
+                        first_try_success += 1
+                    meta = t.get("metadata") or {}
+                    if t.get("type") == "bug" and meta.get("is_validation_bug"):
+                        validation_bugs += 1
+                elif t.get("status") == "failed":
+                    tasks_failed += 1
+        except Exception:
+            pass
 
-        # --- agent history ---
+        # --- agent history (DB; archived rows in agent-history.jsonl are legacy) ---
         total_input_tokens = 0
         total_output_tokens = 0
         loop_counts = []
         num_agents = 0
 
+        try:
+            conn = db._connect()
+            rows = conn.execute(
+                "SELECT input_tokens, output_tokens, loop_count FROM agents"
+            ).fetchall()
+            for row in rows:
+                total_input_tokens += row[0] or 0
+                total_output_tokens += row[1] or 0
+                lc = row[2]
+                if lc is not None:
+                    loop_counts.append(lc)
+                num_agents += 1
+        except Exception:
+            pass
+
+        # Fall back to agent-history.jsonl for archived rows pruned from DB
         agent_hist = os.path.join(data_dir, "agent-history.jsonl")
         if os.path.exists(agent_hist):
             try:

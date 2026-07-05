@@ -388,18 +388,44 @@ class TestVisionQuery:
         monkeypatch.setattr(qa_tools, "QA_CONFIG", self._make_cfg())
         monkeypatch.setattr(qa_tools, "mcp_client", None)
 
-        from swarm import vision as vision_mod
+        # Simulate a vision call whose wait exceeds the timeout budget
+        # without leaving the worker thread alive after the test ends.
+        # The cleanest representation is to block on a threading.Event
+        # that the test never sets, which causes the caller's
+        # `future.result(timeout=1)` to trip first with TimeoutError;
+        # vision_query then converts that into
+        # {"ok": False, "error": "vision_query timed out after 1s"}.
+        # The worker is left running, so we cap its wait so the executor
+        # shutdown at function exit doesn't hang the test past ~2s.
+        import threading as _threading
+
+        _released = _threading.Event()
+
         def slow_vision(*a, **kw):
-            # Simulate a vision call that exceeds the timeout budget.
-            # ThreadPoolExecutor.result(timeout=...) raises TimeoutError at the
-            # calling thread after  seconds; the worker continues
-            # until it returns.  For a deterministic signal that avoids being
-            # caught by qa_tools'''s OSError-retry branch, we raise a plain
-            # RuntimeError that carries the substring the assertion expects.
-            # The outer except Exception in vision_query surfaces it as
-            # {"ok": False, "error": "timed out after 1s (simulated)"}.
-            raise RuntimeError("timed out after 1s (simulated)")
-        monkeypatch.setattr(vision_mod, "call_vision", slow_vision)
+            # Block the worker for a bounded interval (slightly longer than
+            # the caller's 1s timeout) then return so the executor's
+            # shutdown wait can complete.  The main thread times out at
+            # 1s, observes `concurrent.futures.TimeoutError`, and vision_query
+            # returns the timeout error dict.  The slow worker eventually
+            # returns "never" but the test has already asserted and exited.
+            _released.wait(timeout=2.5)
+            return "never"
+
+        # Patch `call_vision` on the source vision module -- this is the
+        # binding `_run()` resolves via its local
+        # `from swarm.vision import call_vision`.  Patching it here (and
+        # restoring via monkeypatch teardown) is enough: Python re-reads
+        # `swarm.vision.call_vision` each time the inner `_run()` runs the
+        # `from` import, so the mock is picked up.
+        from swarm import vision as _vision_mod
+        monkeypatch.setattr(_vision_mod, "call_vision", slow_vision)
+        # `call_vision_multi` is unused for a single-image call but patch
+        # it defensively on the source module so a future refactor
+        # flipping to multi doesn't silently bypass the timeout simulation.
+        monkeypatch.setattr(
+            _vision_mod, "call_vision_multi",
+            lambda *a, **kw: (_ for _ in ()).throw(AssertionError("expected single-image path")),
+        )
 
         result = qa_tools.vision_query("/tmp/shot.png", "test", timeout=1)
         assert result["ok"] is False

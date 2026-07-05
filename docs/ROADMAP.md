@@ -63,14 +63,10 @@ Shipped: loop prefix moved from system prompt to tail user message. System promp
 is now stable across all loops — prefix caching should hit on every loop past the
 first. Cache hit rate visible via existing `cache_read`/`cache_write` tracking.
 
-### 4. Data lifecycle policy
-`data/` is 12GB and every table scan gets slower monotonically. Decide retention
-once and automate it:
-- Roll `agent_*.log` older than N days into compressed archives (or delete).
-- Move `task-history.jsonl` / `agent-history.jsonl` into SQLite tables (they're
-  already write-only exports; the JSONL format buys nothing but parse cost).
-- Add the missing scoped-query variants so per-event code paths stop calling
-  unscoped `task_get_all()` (punch list P2 has the full list).
+### ~~4. Data lifecycle policy~~ ✅ Done 2026-07-04
+~~`data/` is 12GB and every table scan gets slower monotonically.~~
+
+Shipped: Log rotation (`log_retention_days`, `log_rotation_action`, `log_extract_signals` config keys) with hourly monitor trigger and manual API endpoint. Signal extraction into `agent_signals` DB table at agent-finish time. `task-history.jsonl` write retired — DB is the permanent source of truth (tasks never deleted). `prune_history()` now passes `projects=` filter to SQL; `all_task_ids` lookup uses lightweight `task_get_all_ids()` (ID-only query, no row deserialisation). Metrics endpoint reads DB directly; JSONL kept only as legacy fallback for old archived rows.
 
 ### 5. ~~Documentation debt: one regeneration pass~~ ✅ Done 2026-07-04
 ~~CLAUDE.md describes the system as it was months ago — the meta-agent layer,

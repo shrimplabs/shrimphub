@@ -389,7 +389,7 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
     if completed_ids is None:
         completed_ids = db.task_get_completed_ids()
     if all_task_ids is None:
-        all_task_ids = {t["id"] for t in db.task_get_all()}
+        all_task_ids = db.task_get_all_ids()
 
     with _handle_lock:
         handles_snapshot = list(_active_handles.items())
@@ -623,20 +623,23 @@ def get_active_count() -> int:
 def prune_history():
     """Archive finished agents to JSONL and remove from DB.
 
-    Completed/failed/cancelled tasks are kept in the tasks table permanently
-    (immutable history).  They are still written to task-history.jsonl as a
-    write-only export log, but are never deleted from the DB.  A
-    ``metadata.archived`` flag prevents double-writing on repeated prune cycles.
+    Tasks (completed/failed/cancelled) stay in the DB permanently — they are
+    the authoritative record and are never deleted.  task-history.jsonl is no
+    longer written; use the DB directly.
+
+    Agents are still written to agent-history.jsonl before being deleted from
+    the DB (metrics endpoint reads the JSONL as a fallback for old archived rows).
     """
     _lazy_imports()
 
     # Use orchestrator's HISTORY_FILE if available, otherwise fall back
     try:
         import swarm.orchestrator as _orc
-        HISTORY_FILE = getattr(_orc, 'HISTORY_FILE', _get_data_dir() / "agent-history.jsonl")
+        HISTORY_FILE = getattr(_orc, "HISTORY_FILE", _get_data_dir() / "agent-history.jsonl")
     except Exception:
         HISTORY_FILE = _get_data_dir() / "agent-history.jsonl"
-    # --- Agent archival ---
+
+    # --- Agent archival to JSONL then delete from DB ---
     finished = [a for a in db.agent_get_all() if a.get("status") not in ("active", "spawning")]
     if finished:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -644,41 +647,20 @@ def prune_history():
             for agent in finished:
                 f.write(json.dumps(agent) + "\n")
 
-    # --- Task archival (decoupled from agent archival) ---
-    # Only archive tasks that haven't been written to JSONL yet.
-    # Scope to managed projects when configured to avoid full-table scans over
-    # thousands of historical rows from unmanaged projects.
+    # Resolve managed-projects filter once for all task queries below.
     try:
         from swarm import orchestrator as _orc
-        _managed = set(_orc.MANAGED_PROJECTS) if _orc.MANAGED_PROJECTS else None
+        _managed = list(_orc.MANAGED_PROJECTS) if _orc.MANAGED_PROJECTS else None
     except Exception:
         _managed = None
-    finished_tasks = [
-        t for t in db.task_get_all()
-        if t.get("status") in ("completed", "failed", "cancelled")
-        and not (t.get("metadata") or {}).get("archived")
-        and (_managed is None or t.get("project") in _managed)
-    ]
-    if finished_tasks:
-        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        task_history_file = HISTORY_FILE.parent / "task-history.jsonl"
-        with task_history_file.open("a") as f:
-            for task in finished_tasks:
-                f.write(json.dumps(task) + "\n")
-        # Mark tasks as archived so they aren't re-written next cycle.
-        for task in finished_tasks:
-            meta = dict(task.get("metadata") or {})
-            meta["archived"] = True
-            db.task_update(task["id"], {"metadata": meta})
 
     # Update each project's head_task_id to the most recent continuity-eligible
     # task, but do not overwrite a live continuation with a failed/cancelled tail.
-    # Consider all terminal tasks (including previously-archived ones).
-    all_terminal = [
-        t for t in db.task_get_all()
-        if t.get("status") in ("completed", "failed", "cancelled")
-        and (_managed is None or t.get("project") in _managed)  # noqa: F821 (_managed defined above)
-    ]
+    # Use the SQL-level projects filter to avoid a full-table scan.
+    all_terminal = db.task_get_all(
+        exclude_statuses=("pending", "in_progress"),
+        projects=_managed,
+    )
     if all_terminal:
         latest_by_project: Dict[str, tuple[str, str]] = {}
         for task in all_terminal:

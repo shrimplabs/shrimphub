@@ -869,6 +869,30 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
             diff_stat=diff_stat,
         )
 
+    # Phase 6c -- signal extraction (non-blocking, never fails the pipeline).
+    if log_path and agent_id:
+        try:
+            import swarm.orchestrator as _orc
+            if getattr(_orc, "LOG_EXTRACT_SIGNALS", False):
+                from swarm.log_rotation import extract_signals as _extract_signals
+                _signals = _extract_signals(log_path)
+                _task_type_for_sig = None
+                if task_id:
+                    _t = db.task_get(task_id)
+                    _task_type_for_sig = (_t.get("type") if _t else None)
+                _signals.update({
+                    "agent_id":      agent_id,
+                    "task_id":       task_id or "",
+                    "project":       project or "",
+                    "task_type":     _task_type_for_sig or "",
+                    "extracted_at":  datetime.now(timezone.utc).isoformat(),
+                    "log_size_bytes": os.path.getsize(log_path) if os.path.exists(log_path) else 0,
+                    "log_path":      log_path,
+                })
+                db.agent_signals_upsert(_signals)
+        except Exception as _sig_err:
+            print(f"[Signals] extraction failed for {agent_id[:8]}: {_sig_err}")
+
     # Phase 7 -- post-completion pipeline (only for successful tasks).
     if success and task_id and project:
         _phase_post_completion_pipeline(

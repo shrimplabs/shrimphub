@@ -413,6 +413,35 @@ def _evolve_schema(conn: sqlite3.Connection):
     if "planner_task_id" not in existing_plans:
         conn.execute("ALTER TABLE plans ADD COLUMN planner_task_id TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_planner_task_id ON plans(planner_task_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_signals (
+            agent_id          TEXT PRIMARY KEY,
+            task_id           TEXT,
+            project           TEXT,
+            task_type         TEXT,
+            extracted_at      TEXT,
+            terminal_status   TEXT,
+            loop_count        INTEGER,
+            total_loops       INTEGER,
+            tool_sequence     TEXT,
+            unique_tools      TEXT,
+            tool_call_count   INTEGER,
+            cache_read_total  INTEGER,
+            cache_write_total INTEGER,
+            error_count       INTEGER,
+            error_snippets    TEXT,
+            warning_count     INTEGER,
+            warning_types     TEXT,
+            is_pipeline       INTEGER,
+            phases_completed  TEXT,
+            phase_failed      TEXT,
+            compaction_count  INTEGER,
+            log_size_bytes    INTEGER,
+            log_path          TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_signals_project   ON agent_signals(project)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_signals_task_type ON agent_signals(task_type)")
     conn.commit()
 
 
@@ -540,6 +569,20 @@ def task_get_all(exclude_statuses: tuple = (), projects: list = None) -> List[Di
         params,
     ).fetchall()
     return [_task_row(r) for r in rows]
+
+
+def task_get_all_ids() -> set:
+    """Return the set of all task IDs — lightweight, no full row deserialisation."""
+    rows = _connect().execute("SELECT id FROM tasks").fetchall()
+    return {r[0] for r in rows}
+
+
+def task_get_all_ids_by_project(project: str) -> set:
+    """Return task IDs for a single project."""
+    rows = _connect().execute(
+        "SELECT id FROM tasks WHERE project=?", (project,)
+    ).fetchall()
+    return {r[0] for r in rows}
 
 
 def task_get_by_id_prefix(prefix: str, statuses: tuple = ()) -> List[Dict]:
@@ -1414,3 +1457,53 @@ def _agent_row(row) -> Dict:
     d = dict(row)
     d["metadata"] = json.loads(d.get("metadata") or "{}")
     return d
+
+
+# ---------------------------------------------------------------------------
+# agent_signals
+# ---------------------------------------------------------------------------
+
+def agent_signals_upsert(data: Dict):
+    """Insert or replace a signals row."""
+    conn = _connect()
+    cols = [
+        "agent_id", "task_id", "project", "task_type", "extracted_at",
+        "terminal_status", "loop_count", "total_loops",
+        "tool_sequence", "unique_tools", "tool_call_count",
+        "cache_read_total", "cache_write_total",
+        "error_count", "error_snippets",
+        "warning_count", "warning_types",
+        "is_pipeline", "phases_completed", "phase_failed",
+        "compaction_count", "log_size_bytes", "log_path",
+    ]
+    placeholders = ", ".join("?" * len(cols))
+    col_names = ", ".join(cols)
+    values = [data.get(c) for c in cols]
+    conn.execute(
+        f"INSERT OR REPLACE INTO agent_signals ({col_names}) VALUES ({placeholders})",
+        values,
+    )
+    conn.commit()
+
+
+def agent_signals_get(agent_id: str) -> Optional[Dict]:
+    conn = _connect()
+    row = conn.execute(
+        "SELECT * FROM agent_signals WHERE agent_id = ?", (agent_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def agent_signals_query(project: Optional[str] = None, limit: int = 1000) -> List[Dict]:
+    conn = _connect()
+    if project:
+        rows = conn.execute(
+            "SELECT * FROM agent_signals WHERE project = ? ORDER BY extracted_at DESC LIMIT ?",
+            (project, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM agent_signals ORDER BY extracted_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]

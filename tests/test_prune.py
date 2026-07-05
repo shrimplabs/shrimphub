@@ -29,6 +29,7 @@ def isolated_orc(tmp_path):
 
     orc.DATA_DIR = data_dir
     orc.HISTORY_FILE = data_dir / "agent-history.jsonl"
+    orc.MANAGED_PROJECTS = []  # empty = all projects eligible
 
     with lifecycle._handle_lock:
         lifecycle._active_handles.clear()
@@ -107,51 +108,43 @@ class TestPruneHistory:
         assert db.agent_get("a3") is not None
         assert not orc.HISTORY_FILE.exists()
 
-    def test_completed_task_stays_in_db_with_archived_flag(self, isolated_orc):
+    def test_completed_task_stays_in_db(self, isolated_orc):
+        """Completed tasks are never deleted from the DB — they are the permanent record."""
         _seed_task("t1", status="completed")
         _seed_agent("a1", status="completed")
         orc.prune_history()
         task = db.task_get("t1")
         assert task is not None
         assert task["status"] == "completed"
-        assert task.get("metadata", {}).get("archived") is True
 
-    def test_failed_task_stays_in_db_with_archived_flag(self, isolated_orc):
+    def test_failed_task_stays_in_db(self, isolated_orc):
         _seed_task("t2", status="failed")
         _seed_agent("a1", status="completed")
         orc.prune_history()
         task = db.task_get("t2")
         assert task is not None
         assert task["status"] == "failed"
-        assert task.get("metadata", {}).get("archived") is True
 
-    def test_task_archival_runs_without_finished_agents(self, isolated_orc):
-        """Task archival is decoupled from agent archival."""
+    def test_task_prune_runs_without_finished_agents(self, isolated_orc):
+        """Task head-update runs even when no agents finished."""
         _seed_task("t5", status="completed")
-        # No finished agents -- only active
         _seed_agent("a1", status="active")
         orc.prune_history()
+        # Task stays in DB -- no JSONL written (task-history.jsonl is retired)
         task = db.task_get("t5")
         assert task is not None
-        assert task.get("metadata", {}).get("archived") is True
-        # Task history JSONL should have been written
-        task_history = orc.HISTORY_FILE.parent / "task-history.jsonl"
-        assert task_history.exists()
+        assert task["status"] == "completed"
 
-    def test_archived_tasks_not_double_written_to_jsonl(self, isolated_orc):
-        """Repeated prune cycles don't duplicate task entries in JSONL."""
+    def test_repeated_prune_does_not_affect_tasks(self, isolated_orc):
+        """Calling prune twice leaves tasks untouched in the DB."""
         _seed_task("t6", status="completed")
         _seed_agent("a1", status="completed")
         orc.prune_history()
-        # Second prune -- task already has archived flag
         _seed_agent("a2", status="completed")
         orc.prune_history()
-        task_history = orc.HISTORY_FILE.parent / "task-history.jsonl"
-        task_lines = [
-            l for l in task_history.read_text().strip().splitlines()
-            if json.loads(l).get("id") == "t6"
-        ]
-        assert len(task_lines) == 1
+        task = db.task_get("t6")
+        assert task is not None
+        assert task["status"] == "completed"
 
     def test_pending_task_not_removed(self, isolated_orc):
         _seed_task("t3", status="pending")

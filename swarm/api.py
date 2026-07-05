@@ -119,6 +119,9 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     orchestrator.SCHEDULER_ALLOW_PAUSE       = config.get("scheduler_allow_pause", True)
     orchestrator.SCHEDULER_ALLOW_AGENT_CEILING_ADJUST = config.get("scheduler_allow_agent_ceiling_adjust", True)
     orchestrator.SCHEDULER_OFF_PEAK_HOURS    = config.get("scheduler_off_peak_hours", [0, 6])
+    orchestrator.LOG_RETENTION_DAYS  = int(config.get("log_retention_days", 0))
+    orchestrator.LOG_ROTATION_ACTION = config.get("log_rotation_action", "delete")
+    orchestrator.LOG_EXTRACT_SIGNALS = bool(config.get("log_extract_signals", False))
 
     agent_lifecycle.configure(
         workspace=workspace,
@@ -462,6 +465,12 @@ def create_app(
         _audit_learnings_last_run = [float(_audit_learnings_state_file.read_text().strip())]
     except Exception:
         _audit_learnings_last_run = [0.0]
+    _log_rotation_state_file = data_dir / "log_rotation_last_run.txt"
+    try:
+        _log_rotation_last_run = [float(_log_rotation_state_file.read_text().strip())]
+    except Exception:
+        _log_rotation_last_run = [0.0]
+    _LOG_ROTATION_INTERVAL = 3600  # check once per hour
 
     def _is_transient_monitor_db_error(exc: Exception) -> bool:
         """Tests and startup can swap DBs while an old daemon monitor is winding down."""
@@ -633,6 +642,22 @@ def create_app(
                         daemon=True,
                         name="periodic-wt-cleanup",
                     ).start()
+
+                # Periodic log rotation (timestamp-based, runs once per hour).
+                if time.time() - _log_rotation_last_run[0] >= _LOG_ROTATION_INTERVAL:
+                    if getattr(orchestrator, "LOG_RETENTION_DAYS", 0) > 0:
+                        from swarm.log_rotation import rotate_logs as _rotate_logs
+                        threading.Thread(
+                            target=_rotate_logs,
+                            args=(str(data_dir), db),
+                            daemon=True,
+                            name="periodic-log-rotation",
+                        ).start()
+                    _log_rotation_last_run[0] = time.time()
+                    try:
+                        _log_rotation_state_file.write_text(str(_log_rotation_last_run[0]))
+                    except Exception:
+                        pass
 
                 # Check for rate-limit pressure from agent subprocesses.
                 # Rate limiting is separate from quota: use its own cooldown rather
