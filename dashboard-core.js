@@ -105,6 +105,16 @@ async function loadData() {
                 pill.style.display = warnings.length > 0 ? '' : 'none';
                 document.getElementById('promptWarnCount').textContent = warnings.length;
             }
+            // Stale-code chip: server process running an older commit than the repo
+            const staleChip = document.getElementById('staleCodeChip');
+            if (staleChip) {
+                if (healthData.code_stale) {
+                    staleChip.style.display = '';
+                    staleChip.title = `Server is running ${healthData.running_commit} but repo is at ${healthData.repo_commit} — restart to load current code`;
+                } else {
+                    staleChip.style.display = 'none';
+                }
+            }
         }
 
         // Quota meter (use "general" model entry, fall back to first)

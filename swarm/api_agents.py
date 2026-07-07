@@ -11,8 +11,26 @@ from flask import Response, jsonify, request, send_file
 from swarm.platform import kill_pid_tree, kill_godot_children
 
 
-def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monitor_tick, monitor_thread, _start_time, config):
+def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monitor_tick, monitor_thread, _start_time, config, running_commit=""):
     """Register routes on the Flask app."""
+    # Stale-code detection state: compare the commit this process is running
+    # against the repo's current HEAD, re-checked at most once per 60s.
+    _repo_commit_cache = {"value": "", "checked_at": 0.0}
+
+    def _current_repo_commit() -> str:
+        now = time.time()
+        if now - _repo_commit_cache["checked_at"] > 60:
+            try:
+                import subprocess
+                _repo_commit_cache["value"] = subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=5,
+                    cwd=str(Path(__file__).parent.parent),
+                ).stdout.strip()
+            except Exception:
+                _repo_commit_cache["value"] = ""
+            _repo_commit_cache["checked_at"] = now
+        return _repo_commit_cache["value"]
 # ---------- Agents ----------
     @app.route("/api/agents", methods=["GET"])
     def list_agents():
@@ -203,6 +221,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             prompt_warnings = list(_runner_mod._prompt_warnings)
         except Exception:
             prompt_warnings = []
+        repo_commit = _current_repo_commit()
         return jsonify({
             "status": "ok",
             "monitor_alive": monitor_thread.is_alive(),
@@ -211,4 +230,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "max_agents": orchestrator.MAX_ACTIVE_AGENTS,
             "uptime_seconds": int(time.time() - _start_time),
             "prompt_warnings": prompt_warnings,
+            "running_commit": running_commit,
+            "repo_commit": repo_commit,
+            "code_stale": bool(running_commit and repo_commit and running_commit != repo_commit),
         })

@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 import json
 import os
 import sqlite3
+import subprocess
 import threading
 import time
 
@@ -292,6 +293,17 @@ def create_app(
         print(f"[Startup] Godot zombie sweep error: {_sgz_err}")
 
     _start_time = time.time()
+
+    # Capture the commit this process is running so /api/health can detect
+    # stale code (server running for days while the repo moved on).
+    try:
+        _running_commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent.parent),
+        ).stdout.strip()
+    except Exception:
+        _running_commit = ""
 
     # Clean up any worktrees left over from a previous server run (background thread
     # so server starts immediately instead of blocking on potentially hundreds of worktrees)
@@ -981,6 +993,7 @@ def create_app(
         monitor_thread=monitor_thread,
         _start_time=_start_time,
         config=config,
+        running_commit=_running_commit,
     )
 
     _reg_config(

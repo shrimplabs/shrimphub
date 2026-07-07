@@ -37,6 +37,7 @@
             <div class="stat-pill"><span class="stat-pill-value" id="agentsPerHour">-</span><span class="stat-pill-label">agents/hr</span></div>
             <div class="stat-pill stat-pill-tokens" title="Total tokens in use across all active agents right now"><span class="stat-pill-value" id="totalTokens">-</span><span class="stat-pill-label">tokens live</span></div>
             <div class="stat-pill stat-pill-warn" id="promptWarnPill" title="Prompt template warnings — missing variables detected (click for details)" style="display:none" onclick="showPromptWarnings()"><span class="stat-pill-value" id="promptWarnCount">0</span><span class="stat-pill-label">⚠ prompt vars</span></div>
+            <div class="stat-pill stat-pill-warn" id="staleCodeChip" style="display:none"><span class="stat-pill-label">⚠ stale code — restart server</span></div>
         </div>
         <div class="header-actions">
             <button onclick="openNewProjectModal()" class="header-action-btn" title="Describe your project in chat -- AI will plan tasks for you">✦ New Project</button>
