@@ -44,3 +44,4 @@ setInterval(() => { loadData(); }, 5000);
 setInterval(syncAutoMode, 5000);
 setInterval(syncProviders, 30000);
 setInterval(loadMetrics, 30000);
+setInterval(() => { if (typeof loadAnalytics === 'function') loadAnalytics(); }, 30000);

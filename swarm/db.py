@@ -437,11 +437,16 @@ def _evolve_schema(conn: sqlite3.Connection):
             phase_failed      TEXT,
             compaction_count  INTEGER,
             log_size_bytes    INTEGER,
-            log_path          TEXT
+            log_path          TEXT,
+            mechanism_fires   TEXT
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_signals_project   ON agent_signals(project)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_signals_task_type ON agent_signals(task_type)")
+    # Evolve existing agent_signals tables (created before mechanism_fires).
+    existing_signals = {row[1] for row in conn.execute("PRAGMA table_info(agent_signals)").fetchall()}
+    if "mechanism_fires" not in existing_signals:
+        conn.execute("ALTER TABLE agent_signals ADD COLUMN mechanism_fires TEXT")
     conn.commit()
 
 
@@ -1475,6 +1480,7 @@ def agent_signals_upsert(data: Dict):
         "warning_count", "warning_types",
         "is_pipeline", "phases_completed", "phase_failed",
         "compaction_count", "log_size_bytes", "log_path",
+        "mechanism_fires",
     ]
     placeholders = ", ".join("?" * len(cols))
     col_names = ", ".join(cols)

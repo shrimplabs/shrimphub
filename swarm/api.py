@@ -1220,6 +1220,10 @@ def create_app(
     from swarm.api_broadcast import register_routes as _register_broadcast_routes
     _register_broadcast_routes(app, data_dir=data_dir)
 
+    # ---------- Analytics (roadmap #7) ----------
+    from swarm.api_analytics import register_routes as _register_analytics_routes
+    _register_analytics_routes(app, db=db, data_dir=data_dir, workspace=workspace)
+
     # ---------- Plans ----------
 
     from swarm.api_plans import register_routes as _register_plans_routes

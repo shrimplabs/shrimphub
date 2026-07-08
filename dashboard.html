@@ -64,6 +64,36 @@
         <div id="metrics-grid"></div>
     </div>
 
+    <div id="analytics-panel" style="margin-bottom:12px">
+        <div style="margin-bottom:8px;cursor:pointer" onclick="toggleAnalytics()">
+            <span class="metrics-title">Analytics ▸</span>
+            <span id="analytics-toggle-hint" style="font-size:11px;color:var(--text-faint,#8b949e);margin-left:6px">(click to expand)</span>
+        </div>
+        <div id="analytics-body" style="display:none">
+            <div id="analytics-overview-grid"></div>
+            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Value / Repair (by project)</div>
+                    <div id="analytics-value-repair"></div>
+                </div>
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Ship Candidates</div>
+                    <div id="analytics-ship"></div>
+                </div>
+            </div>
+            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Where Agents Die</div>
+                    <div id="analytics-deaths"></div>
+                </div>
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Recovery Mechanism Efficacy</div>
+                    <div id="analytics-mechanisms"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="quota-bar">
         <span class="quota-label">MiniMax quota</span>
         <div class="quota-track"><div class="quota-fill" id="quotaFill"></div></div>

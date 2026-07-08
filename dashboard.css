@@ -2264,6 +2264,21 @@ button, .btn {
 #metrics-grid .metric-value.danger  { color: var(--red); text-shadow: 0 0 8px rgba(255, 0, 128, 0.3); }
 #metrics-grid .metric-value.info    { color: var(--cyan); text-shadow: 0 0 8px rgba(0, 255, 255, 0.3); }
 
+/* Analytics panel (roadmap #7) */
+#analytics-overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+#analytics-overview-grid .metric-cell { background: var(--bg-elev, rgba(255,255,255,0.03)); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 6px; padding: 8px 10px; }
+#analytics-overview-grid .metric-label { font-size: 11px; color: var(--text-faint, #8b949e); }
+#analytics-overview-grid .metric-value { font-size: 15px; font-weight: 700; color: var(--text-accent); font-family: 'IBM Plex Mono', monospace; }
+#analytics-overview-grid .metric-value.success { color: var(--green); }
+#analytics-overview-grid .metric-value.danger  { color: var(--red); }
+#analytics-overview-grid .metric-value.info    { color: var(--cyan); }
+.analytics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.analytics-table th { text-align: left; color: var(--text-faint, #8b949e); font-weight: 600; padding: 3px 6px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.08)); }
+.analytics-table td { padding: 3px 6px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.04)); color: var(--text, #e6edf3); }
+.analytics-table td.success { color: var(--green); }
+.analytics-table td.danger  { color: var(--red); }
+.analytics-empty { font-size: 12px; color: var(--text-faint, #8b949e); padding: 6px 0; }
+
 /* ─── Unified Chat Panel ─────────────────────────────────────────── */
 .unified-chat-panel {
     position: fixed;

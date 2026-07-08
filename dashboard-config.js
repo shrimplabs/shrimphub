@@ -949,6 +949,85 @@ async function loadMetrics() {
     } catch (e) {}
 }
 
+/* ─── Analytics panel (roadmap #7) ───────────────────────────────── */
+let _analyticsExpanded = false;
+
+function toggleAnalytics() {
+    _analyticsExpanded = !_analyticsExpanded;
+    const body = document.getElementById('analytics-body');
+    const hint = document.getElementById('analytics-toggle-hint');
+    body.style.display = _analyticsExpanded ? '' : 'none';
+    if (hint) hint.textContent = _analyticsExpanded ? '' : '(click to expand)';
+    if (_analyticsExpanded) loadAnalytics();
+}
+
+async function loadAnalytics() {
+    if (!_analyticsExpanded) return;
+    const fmtUsd = v => '$' + (Number(v) || 0).toFixed(2);
+    try {
+        const ov = await fetch('/api/analytics/overview').then(r => r.json());
+        const cells = [
+            ['Completed', ov.tasks_completed, 'success'],
+            ['Failed', ov.tasks_failed, 'danger'],
+            ['Total cost', fmtUsd(ov.total_cost_usd), null],
+            ['Cost / task', fmtUsd(ov.avg_cost_per_completed_task), null],
+            ['Avg loops', ov.avg_loops, 'info'],
+            ['Agents', ov.agents_counted, null],
+        ];
+        document.getElementById('analytics-overview-grid').innerHTML = cells.map(([l, v, c]) =>
+            `<div class="metric-cell"><div class="metric-label">${l}</div><div class="metric-value${c ? ' ' + c : ''}">${v}</div></div>`
+        ).join('');
+    } catch (e) {}
+
+    try {
+        const vr = await fetch('/api/analytics/value-repair').then(r => r.json());
+        const rows = (vr.by_project || []).slice(0, 12);
+        document.getElementById('analytics-value-repair').innerHTML = rows.length
+            ? `<table class="analytics-table"><tr><th>Project</th><th>Value</th><th>Repair</th><th>Ratio</th></tr>${
+                rows.map(r => `<tr><td>${r.project}</td><td>${r.value_tasks}</td><td>${r.repair_tasks}</td><td class="${r.value_repair_ratio >= 1 ? 'success' : 'danger'}">${r.value_repair_ratio}x</td></tr>`).join('')
+              }</table>`
+            : '<div class="analytics-empty">No completed tasks yet</div>';
+    } catch (e) {}
+
+    try {
+        const sc = await fetch('/api/analytics/ship-candidates').then(r => r.json());
+        const rows = (sc.candidates || []).slice(0, 12);
+        document.getElementById('analytics-ship').innerHTML = rows.length
+            ? `<table class="analytics-table"><tr><th>Project</th><th>Closure</th><th>Val bugs</th><th>Unverif</th></tr>${
+                rows.map(r => `<tr><td>${r.project}</td><td>${r.closure_status}</td><td>${r.validation_bugs_last50}</td><td>${r.unverified_completions}</td></tr>`).join('')
+              }</table>`
+            : '<div class="analytics-empty">No Godot projects found</div>';
+    } catch (e) {}
+
+    try {
+        const d = await fetch('/api/analytics/deaths').then(r => r.json());
+        if (!d.count) {
+            document.getElementById('analytics-deaths').innerHTML = '<div class="analytics-empty">No agent signals yet (needs log_extract_signals + finished agents)</div>';
+        } else {
+            const ts = Object.entries(d.terminal_status || {}).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+            const errs = (d.top_errors || []).slice(0, 5).map(([e, n]) => `<tr><td style="font-family:monospace;font-size:11px">${(e || '').replace(/</g, '&lt;')}</td><td>${n}</td></tr>`).join('');
+            document.getElementById('analytics-deaths').innerHTML =
+                `<table class="analytics-table"><tr><th>Terminal status</th><th>#</th></tr>${ts}</table>` +
+                (errs ? `<table class="analytics-table" style="margin-top:8px"><tr><th>Top errors</th><th>#</th></tr>${errs}</table>` : '');
+        }
+    } catch (e) {}
+
+    try {
+        const m = await fetch('/api/analytics/mechanisms').then(r => r.json());
+        const mechs = Object.entries(m.mechanisms || {});
+        if (!m.count) {
+            document.getElementById('analytics-mechanisms').innerHTML = '<div class="analytics-empty">No agent signals yet</div>';
+        } else if (!mechs.length) {
+            document.getElementById('analytics-mechanisms').innerHTML = `<div class="analytics-empty">No recovery mechanisms fired. Baseline completion: ${(m.completion_rate_without_any_mechanism ?? 0)}</div>`;
+        } else {
+            document.getElementById('analytics-mechanisms').innerHTML =
+                `<table class="analytics-table"><tr><th>Mechanism</th><th>Fired</th><th>Completion rate</th></tr>${
+                    mechs.map(([name, s]) => `<tr><td>${name}</td><td>${s.fired_runs}</td><td>${s.completion_rate ?? '—'}</td></tr>`).join('')
+                }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Baseline (no mechanism): ${m.completion_rate_without_any_mechanism ?? '—'}</div>`;
+        }
+    } catch (e) {}
+}
+
 /* ─── Knowledge Files Modal ──────────────────────────────────────── */
 let _knowledgeFiles = [];
 
