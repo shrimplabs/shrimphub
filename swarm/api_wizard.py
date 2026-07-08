@@ -98,6 +98,15 @@ Example format:
 - Escape — pause menu
 For non-game projects, replace this section with ## Usage and describe how to run and use the project.]
 
+## Victory Condition
+[State a SINGLE, MACHINE-CHECKABLE end state — a condition a bot can verify by reading
+game state via get_game_state(), NOT prose like "the player wins". Name the exact
+get_game_state() field(s) and value(s). Examples:
+- "Victory: game_state.status == 'victory', reached by clearing wave 10 (game_state.wave >= 10 while game_state.lives > 0)."
+- For an endless game, state a success threshold instead: "Success: game_state.elapsed_seconds >= 300 (survive 5 minutes)."
+This section defines what the playthrough_bot task and closure gates verify against, so
+the named fields MUST be exposed by get_game_state(). Omit for non-game projects.]
+
 ## Core Mechanics
 [Bullet list of the fundamental systems: movement, economy, combat, win/lose conditions, etc.]
 

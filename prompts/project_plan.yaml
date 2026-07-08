@@ -46,6 +46,19 @@ system: |
     Use patch_file to add the section if absent. This is required so QA and art agents
     know how to interact with the project during testing.
 
+    GAME_DESIGN.md MUST ALSO contain a "## Victory Condition" section (for games) stating
+    a MACHINE-CHECKABLE end state — a condition a bot can verify by reading game state,
+    not prose like "the player has fun". If it is missing or vague, ADD/FIX IT NOW:
+    - State the exact winnable end and how it is detected via get_game_state() fields.
+      Example: "Victory: game_state.status == 'victory', reached by clearing wave 10
+      (game_state.wave >= 10 with game_state.lives > 0)."
+    - If the game is endless by design, state the success threshold instead.
+      Example: "Success: survive 5 minutes — game_state.elapsed_seconds >= 300."
+    - Ensure get_game_state() (in autoload/state_server.gd or the main scene) actually
+      EXPOSES the field(s) named here. If it does not, add a task to expose them.
+    A game whose GAME_DESIGN.md cannot state a checkable victory condition is not yet a
+    game — this section is what the playthrough_bot task and closure gates verify against.
+
     Also check for CONFORMANCE_REPORT.md — if it exists, read it. It lists missing,
     partial, and diverged requirements from the previous sprint's design audit. Use it
     as your primary input for identifying what this sprint must address. MISSING and
