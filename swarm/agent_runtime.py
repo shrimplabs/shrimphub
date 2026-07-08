@@ -819,6 +819,16 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     _no_tool_call_nudged = False
     _malformed_retries: dict = {}  # loop_count → retry attempts for malformed tool calls
     _consecutive_truncated_responses = 0
+    # Total (non-consecutive) budget for LLM parse-failure retries across the
+    # whole run. The consecutive counter resets on any parseable response
+    # (:1227), so an alternating truncated/valid pattern never trips the
+    # consecutive cap -- this observed failure mode burned ~15 loops. The total
+    # counter never resets, so it bounds the aggregate waste.
+    _parse_retry_total = 0
+    _PARSE_RETRY_TOTAL_BUDGET = 8
+    # Recovery-mechanism fire counts for analytics (mirrored into the agent log
+    # so extract_signals() can aggregate; see swarm/log_rotation.py).
+    _mechanism_fires: dict = {}
     _playthrough_validation_passed = False
 
     # Token tracking
@@ -857,6 +867,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 log(f"[Hint] Failed to read hint file: {_hint_err}")
 
         if stall_detector.check() and not _wrap_up_injected:
+            _mechanism_fires["stall"] = _mechanism_fires.get("stall", 0) + 1
+            log(f"[Mechanism] stall fired ({_mechanism_fires['stall']})")
             log("WARNING: stall detected -- same tool called 3 times with identical args")
             conversation.append({"role": "user", "content": StallDetector.injected_message()})
         # EXPERIMENT: meta-investigation -- fire when same error seen 3+ times
@@ -864,6 +876,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             for err_key, count in _error_counts.items():
                 if count >= 3 and err_key not in _meta_investigated:
                     _meta_investigated.add(err_key)
+                    _mechanism_fires["meta_investigation"] = _mechanism_fires.get("meta_investigation", 0) + 1
                     log(f"[Meta] Repeated error ({count}x): {err_key[:80]} -- launching investigation")
                     history = _error_loop_history.get(err_key, [])
                     try:
@@ -892,6 +905,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 "Call create_tasks() now, then TASK_COMPLETE. "
                 "If you need deeper investigation of something specific, create a research task for it."
             )})
+            _mechanism_fires["plan_budget"] = _mechanism_fires.get("plan_budget", 0) + 1
+            log(f"[Mechanism] plan_budget fired at loop {tool_loop_count}")
             _wrap_up_injected = True
 
         # Wrap-up nudge at loop 110 for QA and bug tasks
@@ -926,6 +941,8 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     "Do not start any new changes, and do not use grep/tail output as your only proof."
                 )
             conversation.append({"role": "user", "content": wrap_up_msg})
+            _mechanism_fires["wrap_up"] = _mechanism_fires.get("wrap_up", 0) + 1
+            log(f"[Mechanism] wrap_up fired at loop {tool_loop_count}")
             _wrap_up_injected = True
 
         # Scout phase: switch to main provider at threshold, compacting scout history
@@ -1151,12 +1168,18 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             has_close = "[/TOOL_CALL]" in response or "</tool_call>" in response
             if has_open and not has_close:
                 _consecutive_truncated_responses += 1
+                _parse_retry_total += 1
+                _mechanism_fires["truncation_retry"] = _mechanism_fires.get("truncation_retry", 0) + 1
+                log(f"[Mechanism] truncation_retry fired ({_mechanism_fires['truncation_retry']})")
                 if _consecutive_truncated_responses >= 3:
                     log("ERROR: response truncated 3 consecutive times -- failing closed")
                     break
+                if _parse_retry_total >= _PARSE_RETRY_TOTAL_BUDGET:
+                    log(f"ERROR: llm parse-retry budget exhausted ({_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET}) -- failing closed")
+                    break
                 log(
                     "WARNING: response truncated -- injecting targeted retry "
-                    f"({_consecutive_truncated_responses}/2)"
+                    f"(consecutive {_consecutive_truncated_responses}/3, total {_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET})"
                 )
                 conversation.append({"role": "user", "content": (
                     "Your response was cut off before the tool call closed. "
@@ -1166,6 +1189,12 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 tool_loop_count += 1
                 continue
             if has_open and has_close:
+                _parse_retry_total += 1
+                _mechanism_fires["invalid_json_retry"] = _mechanism_fires.get("invalid_json_retry", 0) + 1
+                log(f"[Mechanism] invalid_json_retry fired ({_mechanism_fires['invalid_json_retry']})")
+                if _parse_retry_total >= _PARSE_RETRY_TOTAL_BUDGET:
+                    log(f"ERROR: llm parse-retry budget exhausted ({_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET}) -- failing closed")
+                    break
                 log("WARNING: tool call tags present but JSON invalid -- asking to retry")
                 conversation.append({"role": "user", "content": (
                     "Your tool call could not be parsed. "
@@ -1197,7 +1226,12 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         "then broader validation. Do not rely on grep/tail-only output as final proof."
                     )
                     conversation.append({"role": "user", "content": feedback})
-                    _last_run_outputs = []
+                    # Do NOT clear _last_run_outputs here. Clearing it on
+                    # rejection meant a second bare TASK_COMPLETE (which runs no
+                    # tools, so the loop-1251 reset never fires) saw empty
+                    # evidence and passed. The failure evidence must persist
+                    # until the agent actually re-runs a command -- line 1251
+                    # clears it then, and only clean output replaces it.
                     tool_loop_count += 1
                     continue
                 log("Task marked complete by LLM")
@@ -1243,6 +1277,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                         "to copy/modify an asset or scene file. After committing a change, your "
                         "screenshot budget resets. Do NOT take more screenshots -- act on what you already know."
                     )
+                    _mechanism_fires["vision_cap"] = _mechanism_fires.get("vision_cap", 0) + 1
                     log(f"[VisionCap] Blocked {_tool_name} after {_vision_calls_since_write} calls without write")
                     result = {"ok": False, "error": _cap_msg}
                     tool_results.append(f"Tool {_tool_name}: {json.dumps(result)}")
@@ -1370,7 +1405,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     "then broader validation. Do not rely on grep/tail-only output as final proof."
                 )
                 conversation.append({"role": "user", "content": feedback})
-                _last_run_outputs = []
+                # Persist failure evidence across a bare-TASK_COMPLETE retry --
+                # see the twin block above. Line 1251 clears it on the next
+                # real command; clean output then replaces it.
                 tool_loop_count += 1
                 continue
             log("Task marked complete by LLM")
@@ -1784,6 +1821,14 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
     except Exception as e:
         log(f"WARNING: failed to write token file: {e}")
         token_data = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "total": 0}
+
+    # Emit a single machine-parseable summary of recovery-mechanism fires so
+    # extract_signals() (swarm/log_rotation.py) can aggregate them into the
+    # agent_signals.mechanism_fires column without re-counting individual lines.
+    try:
+        log("[MechanismSummary] " + json.dumps(_mechanism_fires, sort_keys=True))
+    except Exception:
+        pass
 
     if task_complete_hit:
         log("Task complete!")

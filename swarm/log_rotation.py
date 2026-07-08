@@ -33,6 +33,7 @@ _RE_PIPELINE_PHASE = re.compile(r"\[Agent\]   ✓ ([A-Z]+) complete")
 _RE_LOOP_LIMIT     = re.compile(r"hit loop limit", re.IGNORECASE)
 _RE_TASK_COMPLETE  = re.compile(r"\[Agent\] Task complete!")
 _RE_RESULT_FAIL    = re.compile(r"\[Agent\] Result: \{'ok': False.*?'error': '(.{0,200}?)'")
+_RE_MECH_SUMMARY   = re.compile(r"\[Agent\] \[MechanismSummary\] (\{.*\})")
 
 
 def extract_signals(log_path: str) -> dict:
@@ -58,6 +59,7 @@ def extract_signals(log_path: str) -> dict:
         "phases_completed":  "[]",
         "phase_failed":      None,
         "compaction_count":  0,
+        "mechanism_fires":   "{}",
     }
 
     tool_sequence: list[str] = []
@@ -100,6 +102,16 @@ def extract_signals(log_path: str) -> dict:
                     txt = m.group(1).strip()[:120]
                     if txt not in warning_types:
                         warning_types.append(txt)
+                    continue
+
+                # Recovery-mechanism summary (single authoritative JSON line
+                # emitted by the agent at exit; overrides any partial count).
+                m = _RE_MECH_SUMMARY.search(line)
+                if m:
+                    try:
+                        signals["mechanism_fires"] = json.dumps(json.loads(m.group(1)), sort_keys=True)
+                    except Exception:
+                        pass
                     continue
 
                 # Compaction

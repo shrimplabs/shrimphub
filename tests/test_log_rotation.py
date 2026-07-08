@@ -122,6 +122,28 @@ def test_extract_signals_complete_flat(tmp_path):
     assert sig["error_count"] == 0
 
 
+def test_extract_signals_mechanism_fires(tmp_path):
+    log = tmp_path / "agent_mech.log"
+    _write_log(log, """\
+[Agent] Calling LLM... (loop 5/200)
+[Agent] [Mechanism] truncation_retry fired (1)
+[Agent] [Mechanism] stall fired (1)
+[Agent] Task complete!
+[Agent] [MechanismSummary] {"stall": 1, "truncation_retry": 4}
+""")
+    sig = extract_signals(str(log))
+    fires = json.loads(sig["mechanism_fires"])
+    # The authoritative summary line wins over individual [Mechanism] lines.
+    assert fires == {"stall": 1, "truncation_retry": 4}
+
+
+def test_extract_signals_mechanism_fires_default_empty(tmp_path):
+    log = tmp_path / "agent_nomech.log"
+    _write_log(log, "[Agent] Calling LLM... (loop 1/200)\n[Agent] Task complete!\n")
+    sig = extract_signals(str(log))
+    assert sig["mechanism_fires"] == "{}"
+
+
 PIPELINE_FAILED_LOG = """\
 [Agent] [Pipeline] Starting: plan → scout → work → validate
 [Agent] ============================================================
