@@ -43,6 +43,42 @@ def _age_file(path: Path, days: float):
 
 
 # ---------------------------------------------------------------------------
+# _extract_and_store_signals — the finish-time persistence helper
+# (regression guard: a missing `import os` here silently broke signal
+#  extraction for every agent from 2026-07-04 until it was caught)
+# ---------------------------------------------------------------------------
+
+def test_extract_and_store_signals_persists_row(tmp_path):
+    import swarm.agent_finish as af
+
+    log = tmp_path / "agent_store_me.log"
+    _write_log(log, """\
+[Agent] Calling LLM... (loop 3/200)
+[Agent] Executing tool: read_file
+[Agent] Task complete!
+""")
+    # Seed a task so task_type resolves.
+    db.task_upsert({
+        "id": "sig-task-1", "project": "demo", "type": "feature",
+        "description": "x", "priority": 50, "status": "completed",
+        "dependencies": [], "metadata": {}, "attempts": 0, "max_attempts": 3,
+    })
+
+    result = af._extract_and_store_signals(
+        agent_id="agent-sig-1", task_id="sig-task-1",
+        project="demo", log_path=str(log),
+    )
+    assert result["task_type"] == "feature"
+    assert result["log_size_bytes"] > 0
+
+    stored = db.agent_signals_get("agent-sig-1")
+    assert stored is not None
+    assert stored["project"] == "demo"
+    assert stored["task_type"] == "feature"
+    assert stored["terminal_status"] == "complete"
+
+
+# ---------------------------------------------------------------------------
 # extract_signals tests
 # ---------------------------------------------------------------------------
 

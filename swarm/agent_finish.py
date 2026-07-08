@@ -12,6 +12,7 @@ circular imports and stale values.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
@@ -74,6 +75,37 @@ def _read_agent_log(log_path: Optional[str]) -> _AgentLogSnapshot:
     except Exception:
         return _AgentLogSnapshot(full_output="", tail_output="")
     return _AgentLogSnapshot(full_output=full_output, tail_output=full_output[-2000:])
+
+
+def _extract_and_store_signals(agent_id: str, task_id: Optional[str],
+                               project: Optional[str], log_path: str) -> dict:
+    """Extract analytics signals from an agent log and persist them.
+
+    Extracted from the inline Phase 6c block in _finish_agent so it can be
+    unit-tested directly — a missing import here previously failed silently
+    for every agent (only visible as a [Signals] warning in the server log).
+    Returns the stored signals dict.
+    """
+    from swarm.log_rotation import extract_signals as _extract_signals
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    signals = _extract_signals(log_path)
+    task_type = None
+    if task_id:
+        t = db.task_get(task_id)
+        task_type = t.get("type") if t else None
+    signals.update({
+        "agent_id":       agent_id,
+        "task_id":        task_id or "",
+        "project":        project or "",
+        "task_type":      task_type or "",
+        "extracted_at":   datetime.now(timezone.utc).isoformat(),
+        "log_size_bytes": os.path.getsize(log_path) if os.path.exists(log_path) else 0,
+        "log_path":       log_path,
+    })
+    db.agent_signals_upsert(signals)
+    return signals
 
 
 def _classify_agent_success(agent_id: str, exit_code: int, full_output: str) -> bool:
@@ -889,22 +921,7 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
         try:
             import swarm.orchestrator as _orc
             if getattr(_orc, "LOG_EXTRACT_SIGNALS", False):
-                from swarm.log_rotation import extract_signals as _extract_signals
-                _signals = _extract_signals(log_path)
-                _task_type_for_sig = None
-                if task_id:
-                    _t = db.task_get(task_id)
-                    _task_type_for_sig = (_t.get("type") if _t else None)
-                _signals.update({
-                    "agent_id":      agent_id,
-                    "task_id":       task_id or "",
-                    "project":       project or "",
-                    "task_type":     _task_type_for_sig or "",
-                    "extracted_at":  datetime.now(timezone.utc).isoformat(),
-                    "log_size_bytes": os.path.getsize(log_path) if os.path.exists(log_path) else 0,
-                    "log_path":      log_path,
-                })
-                db.agent_signals_upsert(_signals)
+                _extract_and_store_signals(agent_id, task_id, project, log_path)
         except Exception as _sig_err:
             print(f"[Signals] extraction failed for {agent_id[:8]}: {_sig_err}")
 
