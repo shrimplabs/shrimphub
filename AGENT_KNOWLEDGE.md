@@ -544,3 +544,12 @@ Regression test: tests/test_db.py::test_task_get_completed_ids_scopes_legacy_arc
 **Re-verify on HEAD e24531bc**: grep -c def on three files -> 1/1/1 (canonical at task_mutations.py:122; wrappers at orchestrator.py:157, agent_lifecycle.py:215). git status -s clean. pytest tests/test_orchestrator.py tests/test_db.py -q -> 71/71; pytest tests/test_api.py -q -p no:cacheprovider -> 170/170. Prior docs commit 60fd94d8 (bead swarm-controller-uby7) already records this no-op.
 
 **Outcome**: NO-OP duplicate, attempt 2. Refactor fully applied in HEAD (d6251d0e canonical + d59555f2 wrapper collapse). No source change.
+
+## audit_learnings run 2026-07-05 (audit-learnings-1783298213)
+- 171 projects, 769 learning files scanned by `scan_learnings.py` at project root
+- Output: `data/AUDIT_LEARNINGS_REPORT.md` (gitignored, ephemeral, 20641 bytes)
+- Top failure clusters: `hybrid_qa` (100%, 6/6), `qa` (17%, 27 failed), `project_plan` (11%, 3 failed), `feature` (9%, 52 failed), `audit` (8%, 6 failed), `bug` (6%, 36 failed), `plan` (6%, 1 failed), `phase_gate` (50%, 1/2), `harness_qa` (1%, 2 failed), `research` (1%, 3 failed), `polish` (0%, 1 failed), `art_pass` (1%, 2 failed), `refactor` (0%, 0 failed), `audit_learnings` (0%, 0 failed)
+- Pattern density: bug=275, feature=409, harness_qa=240, qa=164, research=156, polish=137, art_pass=88, audit=67, refactor=48, project_plan=26, plan=24, hybrid_qa=2, audit_learnings=1
+- Trends vs 2026-07-03 (170/763): +1 project / +6 files. hybrid_qa still 100% failing (chronic). qa stable at 27 failed. feature stable at 52. bug stable at 36. Stable signal across the board.
+- Marked completed via `PATCH /api/tasks/audit-learnings-1783298213` with `{"status":"completed"}` (response: status=completed, completed_at=2026-07-05T20:39:03)
+- Working tree has 7 unrelated modifications from sibling work (prompts/playthrough_bot.yaml, swarm/agent_runtime.py, swarm/tools/playthrough_kit.py, tests/test_agent_runtime.py, .codex/, AGENTS.md, tests/test_playthrough_kit.py) — NOT touched by this task; no commit required

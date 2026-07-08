@@ -67,11 +67,15 @@ from swarm.tools.scenario_qa import StateServerClient
 @dataclass
 class Action:
     """One decision returned by a project's decide() callable."""
-    kind: str  # "click" | "click_label" | "wait" | "noop"
+    kind: str  # click | click_label | key | key_combo | hold | wait | noop
     x: float = 0.0
     y: float = 0.0
     label: str = ""
     seconds: float = 0.1
+    key: str = ""
+    keys: list[str] = field(default_factory=list)
+    action: str = ""
+    duration: float = 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +210,8 @@ def run_bot_cli(
     decide: Callable[[dict, dict, list], Action],
     is_terminal: Callable[[dict], bool],
     default_out_dir: str = "/tmp/playthrough_bot",
+    classify_failure: Optional[Callable[[dict], Optional[str]]] = None,
+    progress: Optional[Callable[[dict], dict]] = None,
 ) -> None:
     """Parse standard CLI args, run the poll loop, exit 0 on terminal state
     reached or 1 on stuck/timeout. Writes a trace file for post-mortem.
@@ -213,7 +219,12 @@ def run_bot_cli(
     `decide(state, a11y, history)` -- project-specific action selection.
         `history` is the list of prior tick dicts (state + a11y + action),
         oldest first, so decide() can react to recent trends if it wants to.
-    `is_terminal(state)` -- project-specific "have we won/lost" check.
+    `is_terminal(state)` -- project-specific full-completion check. Early loss
+        states must return False and should be described by `classify_failure`.
+    `classify_failure(state)` -- optional project-specific terminal failure
+        classifier (for example, return "game_over" on an early loss).
+    `progress(state)` -- optional project-specific structured progress evidence
+        included in every trace tick and in the final result receipt.
     """
     parser = argparse.ArgumentParser(description="playthrough_kit: deterministic completion bot")
     parser.add_argument("--project-path", help="Path to Godot project (required unless --no-launch)")
@@ -251,42 +262,84 @@ def run_bot_cli(
     deadline = time.monotonic() + args.timeout
     result_ok = False
     result_reason = ""
+    result_outcome = "unknown"
+    final_progress: dict = {}
 
     try:
         for tick_num in range(args.max_ticks):
             if time.monotonic() > deadline:
+                result_outcome = "timeout"
                 result_reason = f"timeout after {args.timeout}s (tick {tick_num})"
                 break
 
             state = client.get_state()
             a11y = client.a11y_tree()
+            progress_snapshot = progress(state) if progress else {}
+            if isinstance(progress_snapshot, dict):
+                final_progress = progress_snapshot
+
+            if isinstance(state, dict) and state.get("error"):
+                result_outcome = "transport_error"
+                result_reason = str(state.get("error"))
+                history.append({"tick": tick_num, "state": state, "a11y": a11y,
+                                "action": None, "progress": progress_snapshot,
+                                "transport_error": True})
+                break
+
+            failure = classify_failure(state) if classify_failure else None
+            if failure:
+                result_outcome = str(failure)
+                result_reason = f"terminal failure at tick {tick_num}: {failure}"
+                history.append({"tick": tick_num, "state": state, "a11y": a11y,
+                                "action": None, "progress": progress_snapshot,
+                                "failed_terminal": failure})
+                break
 
             if is_terminal(state):
                 result_ok = True
+                result_outcome = "complete"
                 result_reason = f"terminal state reached at tick {tick_num}"
-                history.append({"tick": tick_num, "state": state, "a11y": a11y, "action": None, "terminal": True})
+                history.append({"tick": tick_num, "state": state, "a11y": a11y,
+                                "action": None, "progress": progress_snapshot,
+                                "terminal": True})
                 break
 
             if stuck.tick(state):
                 result_reason = f"stuck: no state change in last {args.stuck_window} ticks (tick {tick_num})"
-                history.append({"tick": tick_num, "state": state, "a11y": a11y, "action": None, "stuck": True})
+                result_outcome = "stuck"
+                history.append({"tick": tick_num, "state": state, "a11y": a11y,
+                                "action": None, "progress": progress_snapshot,
+                                "stuck": True})
                 break
 
             action = decide(state, a11y, history)
-            action_record = {"kind": action.kind, "x": action.x, "y": action.y, "label": action.label}
+            action_record = {"kind": action.kind, "x": action.x, "y": action.y,
+                             "label": action.label, "key": action.key,
+                             "keys": action.keys, "action": action.action,
+                             "duration": action.duration}
 
             if action.kind == "click":
                 client.send({"command": "input", "type": "click", "x": action.x, "y": action.y})
             elif action.kind == "click_label":
                 found = click_label(client, a11y, action.label)
                 action_record["found"] = found
+            elif action.kind == "key":
+                client.send({"command": "input", "type": "key", "key": action.key,
+                             "duration": action.duration})
+            elif action.kind == "key_combo":
+                client.send({"command": "input", "type": "key_combo", "keys": action.keys})
+            elif action.kind == "hold":
+                client.send({"command": "input", "type": "hold", "action": action.action,
+                             "duration": action.duration})
             elif action.kind == "wait":
                 time.sleep(action.seconds)
             # "noop" falls through -- no side effect this tick
 
-            history.append({"tick": tick_num, "state": state, "a11y": a11y, "action": action_record})
+            history.append({"tick": tick_num, "state": state, "a11y": a11y,
+                            "progress": progress_snapshot, "action": action_record})
         else:
             result_reason = f"exhausted max_ticks ({args.max_ticks}) without reaching terminal state"
+            result_outcome = "max_ticks"
     finally:
         write_trace(trace_path, history)
         if process is not None:
@@ -299,8 +352,18 @@ def run_bot_cli(
     if result_ok:
         print(f"✓ PASSED: {result_reason}")
         print(f"  Trace: {trace_path}")
+        print("PLAYTHROUGH_RESULT: " + json.dumps({
+            "status": "success", "outcome": result_outcome,
+            "reason": result_reason, "trace": str(trace_path),
+            "progress": final_progress,
+        }, sort_keys=True))
         sys.exit(0)
     else:
         print(f"✗ FAILED: {result_reason}")
         print(f"  Trace: {trace_path}")
+        print("PLAYTHROUGH_RESULT: " + json.dumps({
+            "status": "failure", "outcome": result_outcome,
+            "reason": result_reason, "trace": str(trace_path),
+            "progress": final_progress,
+        }, sort_keys=True))
         sys.exit(1)

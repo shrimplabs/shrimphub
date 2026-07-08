@@ -1292,6 +1292,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             if tc.get("tool") == "run_command" and isinstance(result, dict):
                 command = str((tc.get("args") or {}).get("command", ""))
                 combined = (result.get("stdout") or "") + (result.get("stderr") or "")
+                _playthrough_receipt = None
+                for _line in combined.splitlines():
+                    if _line.startswith("PLAYTHROUGH_RESULT: "):
+                        try:
+                            _playthrough_receipt = json.loads(_line.split(": ", 1)[1])
+                        except (json.JSONDecodeError, IndexError):
+                            _playthrough_receipt = None
                 if (
                     TASK_TYPE == "playthrough_bot"
                     and re.search(
@@ -1302,6 +1309,11 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     )
                     and result.get("ok") is True
                     and "✓ PASSED:" in combined
+                    and isinstance(_playthrough_receipt, dict)
+                    and _playthrough_receipt.get("status") == "success"
+                    and _playthrough_receipt.get("outcome") == "complete"
+                    and isinstance(_playthrough_receipt.get("progress"), dict)
+                    and _playthrough_receipt["progress"].get("completed") is True
                 ):
                     _playthrough_validation_passed = True
                     log("Playthrough bot validation passed (exit 0)")
