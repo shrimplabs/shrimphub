@@ -228,6 +228,55 @@ def _capture_project_diff_stat(project: Optional[str]) -> str:
     return ""
 
 
+def _build_completion_evidence(project: Optional[str], head_at_spawn: Optional[str],
+                               validation_passed: bool, exit_code: int,
+                               log_marker_present: bool) -> dict:
+    """Corroborating evidence that a task's work actually happened.
+
+    When head_at_spawn is known, attribute commits/diff to THIS agent
+    (head_at_spawn..HEAD) rather than the misleading HEAD~1 diff, which shows
+    the latest commit regardless of who made it. A write-type task completing
+    with new_commits == 0 is the signal the truth layer flags.
+    """
+    evidence = {
+        "new_commits": 0,
+        "commit_hash": None,
+        "diff_stat": "",
+        "validation_passed": bool(validation_passed),
+        "exit_code": exit_code,
+        "log_marker_present": bool(log_marker_present),
+        "attributed": False,
+    }
+    if not (project and head_at_spawn):
+        return evidence
+    al = _al()
+    project_path = al.WORKSPACE / project
+    try:
+        rl = subprocess.run(
+            ["git", "rev-list", "--count", f"{head_at_spawn}..HEAD"],
+            cwd=str(project_path), capture_output=True, text=True, timeout=10,
+        )
+        if rl.returncode == 0 and rl.stdout.strip().isdigit():
+            evidence["new_commits"] = int(rl.stdout.strip())
+            evidence["attributed"] = True
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(project_path), capture_output=True, text=True, timeout=5,
+        )
+        if head.returncode == 0:
+            evidence["commit_hash"] = head.stdout.strip()
+        if evidence["new_commits"] > 0:
+            ds = subprocess.run(
+                ["git", "diff", "--stat", f"{head_at_spawn}..HEAD"],
+                cwd=str(project_path), capture_output=True, text=True, timeout=10,
+            )
+            if ds.returncode == 0:
+                evidence["diff_stat"] = ds.stdout.strip()
+    except Exception:
+        pass
+    return evidence
+
+
 def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int, int, int, int, str, str]:
     """Returns (input, output, cache_read, cache_write, loop_count, provider, model)."""
     input_tokens = 0
@@ -858,6 +907,32 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
 
         if success:
             # Phase 5b -- success path.
+            # Completion truth layer: attach corroborating evidence, and SOFT-flag
+            # write-type tasks that completed with zero new commits since spawn
+            # (record + warn now; enforcement flip to hard is a one-line change
+            # once the false-positive rate is understood from the data).
+            try:
+                from swarm.constants import WRITE_TASK_TYPES
+                _t_meta = (task_snapshot_early or {}).get("metadata") or {}
+                _t_type = (task_snapshot_early or {}).get("type") or ""
+                _evidence = _build_completion_evidence(
+                    project,
+                    _t_meta.get("head_at_spawn"),
+                    validation_passed=not validation_failed_in_worktree,
+                    exit_code=exit_code,
+                    log_marker_present="[Agent] Task complete!" in (full_output or ""),
+                )
+                if (_t_type in WRITE_TASK_TYPES and _evidence.get("attributed")
+                        and _evidence.get("new_commits", 0) == 0):
+                    _evidence["unverified"] = True
+                    print(f"[Evidence] WARNING: write-type task {task_id[:8]} ({_t_type}) "
+                          f"completed with zero commits since spawn -- flagged unverified")
+                _new_meta = dict(_t_meta)
+                _new_meta["completion_evidence"] = _evidence
+                db.task_update(task_id, {"metadata": _new_meta})
+            except Exception as _ev_err:
+                print(f"[Evidence] evidence capture failed for {task_id[:8]}: {_ev_err}")
+
             task_snapshot_pre_complete = _phase_complete_task(task_id, project, diff_stat)
 
             # Terminal recovery continuation: when a bug-recovery-* task completes,

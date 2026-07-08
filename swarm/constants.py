@@ -57,3 +57,13 @@ MAX_RESEARCH_FEEDER_CYCLES: int = 3    # cap on how many feeders one task can sp
 # infrastructure failures without consuming a real attempt are force-escalated to
 # consume one attempt, eventually triggering the research-feeder path.
 INFRA_FREEZE_THRESHOLD: int = 5        # consecutive infra failures before force-escalation
+
+# Task types expected to produce a git commit when they complete. A completed
+# task of one of these types with zero new commits since the agent spawned is
+# suspicious -- the completion truth layer (agent_finish._finish_agent) flags
+# it via metadata.completion_evidence.unverified. Everything not in this set
+# (qa, research, plan, audit, project_plan, manager, triage, ...) is
+# report/orchestration output and legitimately produces no diff.
+WRITE_TASK_TYPES: frozenset = frozenset({
+    "feature", "bug", "refactor", "polish", "art_pass", "integration", "playthrough_bot",
+})

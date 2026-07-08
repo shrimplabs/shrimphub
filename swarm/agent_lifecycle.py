@@ -302,6 +302,25 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
         except Exception as _blerr:
             print(f"[Swarm] WARNING: pre-flight baseline failed for {task['id'][:8]}: {_blerr}")
 
+    # Record the project HEAD at spawn so the completion truth layer can attribute
+    # a diff/commit to THIS agent (agent_finish._finish_agent). Without this, diff
+    # evidence is "git diff HEAD~1" -- whatever the last commit was, regardless of
+    # author -- so a no-op agent inherits the previous commit as false evidence.
+    if task.get("id"):
+        try:
+            _head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(WORKSPACE / project),
+            ).stdout.strip()
+            if _head:
+                _t = db.task_get(task["id"])
+                _meta = dict((_t or {}).get("metadata") or {})
+                _meta["head_at_spawn"] = _head
+                db.task_update(task["id"], {"metadata": _meta})
+        except Exception as _hserr:
+            print(f"[Swarm] WARNING: head_at_spawn capture failed for {task['id'][:8]}: {_hserr}")
+
     script_content = generate_script_fn(task)
     script_path = _get_data_dir() / f"agent_{agent_id}.py"
     script_path.write_text(script_content, encoding="utf-8")

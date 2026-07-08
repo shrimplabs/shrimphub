@@ -462,3 +462,55 @@ class TestPhasePostCompletionPipeline:
             )
 
         assert auto_calls == [], f"Auto-tasks should not be spawned after plan validation failure, got: {auto_calls}"
+
+
+# ---------------------------------------------------------------------------
+# _build_completion_evidence — attributed diff/commit evidence
+# ---------------------------------------------------------------------------
+
+import subprocess as _sp
+
+
+def _git(cwd, *args):
+    _sp.run(["git", *args], cwd=str(cwd), check=True,
+            capture_output=True, text=True)
+
+
+class TestBuildCompletionEvidence:
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        _git(path, "init", "-q")
+        _git(path, "config", "user.email", "t@t.t")
+        _git(path, "config", "user.name", "t")
+        (path / "seed.txt").write_text("seed")
+        _git(path, "add", "-A")
+        _git(path, "commit", "-q", "-m", "seed")
+
+    def test_no_head_at_spawn_returns_unattributed(self, isolated_db):
+        ev = af._build_completion_evidence("proj", None, True, 0, True)
+        assert ev["attributed"] is False
+        assert ev["new_commits"] == 0
+
+    def test_zero_new_commits_when_head_unchanged(self, isolated_db):
+        repo = lifecycle.WORKSPACE / "proj"
+        self._init_repo(repo)
+        head = _sp.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
+                       capture_output=True, text=True).stdout.strip()
+        ev = af._build_completion_evidence("proj", head, True, 0, True)
+        assert ev["attributed"] is True
+        assert ev["new_commits"] == 0
+        assert ev["commit_hash"] == head
+
+    def test_counts_new_commits_since_spawn(self, isolated_db):
+        repo = lifecycle.WORKSPACE / "proj"
+        self._init_repo(repo)
+        spawn_head = _sp.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
+                             capture_output=True, text=True).stdout.strip()
+        # Agent makes a real commit after spawn.
+        (repo / "feature.txt").write_text("work")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "feat: real work")
+        ev = af._build_completion_evidence("proj", spawn_head, True, 0, True)
+        assert ev["attributed"] is True
+        assert ev["new_commits"] == 1
+        assert "feature.txt" in ev["diff_stat"]

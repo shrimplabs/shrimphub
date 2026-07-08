@@ -1424,8 +1424,18 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
 
     if tool_loop_count >= MAX_TOOL_LOOPS and not context_limit_hit:
         loop_limit_hit = True
-        # A playthrough task cannot use the generic continuation-success shortcut
-        # until the bot itself has produced an exit-0 run in this agent session.
+        # Loop-limit exit is not automatically success. The generic
+        # continuation-success shortcut only applies once the type-specific
+        # completion condition is met:
+        #   - playthrough_bot: requires a verified exit-0 bot run this session
+        #     (a receipt, not a bare marker).
+        # For all other types, the original task is marked complete here because
+        # the continuation-spawn logic below either carries the work forward
+        # (dependents get reparented onto the continuation in _finish_agent) or
+        # legitimately terminates the chain (deep-chain / unmanaged / already a
+        # continuation). Cases where nothing is carried forward AND no real work
+        # was done are caught downstream by the completion-evidence layer, which
+        # flags zero-commit write-type completions as metadata.unverified.
         task_complete_hit = TASK_TYPE != "playthrough_bot" or _playthrough_validation_passed
 
     # If context limit was hit, commit progress then spawn a continuation task.
