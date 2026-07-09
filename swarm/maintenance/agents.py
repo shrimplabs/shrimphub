@@ -36,6 +36,7 @@ def reconcile_agent_runtime_state(
         if not process:
             return
         try:
+            logger(f"[SwarmKill] reason=stale_active_handle agent={agent_id[:8]} pid={process.pid}")
             process.kill()
             process.wait(timeout=5)
         except Exception as exc:

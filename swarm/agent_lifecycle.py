@@ -331,6 +331,7 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
     try:
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("SWARM_CONTROLLER_PATH", str(Path(__file__).resolve().parents[1]))
         log_file = open(log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
             [sys.executable, str(script_path)],
@@ -422,6 +423,7 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
               f"deps not met: {unmet} \u2014 killing")
         if process:
             try:
+                print(f"[SwarmKill] reason=dep_violation agent={agent_id[:8]} pid={process.pid}")
                 kill_godot_children(process.pid)
                 process.kill()
                 process.wait(timeout=5)
@@ -429,6 +431,7 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
                 print(f"[Swarm] Dep violation kill error: {_ke}")
         elif pid:
             try:
+                print(f"[SwarmKill] reason=dep_violation agent={agent_id[:8]} pid={pid}")
                 kill_godot_children(pid)
                 os.kill(pid, 9)
             except Exception as _ke:
@@ -496,6 +499,7 @@ def check_agent_status() -> List[threading.Thread]:
     for agent_id, data in timed_out:
         print(f"[Swarm] Agent {agent_id[:8]} timed out after {AGENT_TIMEOUT}s \u2014 killing")
         try:
+            print(f"[SwarmKill] reason=agent_timeout agent={agent_id[:8]} pid={data['process'].pid} timeout={AGENT_TIMEOUT}")
             kill_godot_children(data["process"].pid)
             data["process"].kill()
             data["process"].wait(timeout=5)

@@ -228,6 +228,49 @@ def _capture_project_diff_stat(project: Optional[str]) -> str:
     return ""
 
 
+def _log_external_sigkill_evidence(agent_id: str, project: Optional[str],
+                                   task_id: Optional[str], log_path: Optional[str]) -> None:
+    """Emit lightweight forensic context for agent processes that exited by SIGKILL.
+
+    Controller-originated kills log a ``[SwarmKill]`` reason before the signal is
+    sent.  If an agent reaches finish with exit code -9 and no such provenance
+    line exists in the agent log/server log, the important fact is that the
+    process died outside the normal controller timeout/dep-violation paths.
+    """
+    print(
+        f"[SwarmKill] observed_external_sigkill agent={agent_id[:8]} "
+        f"project={project or ''} task={task_id or ''} log={log_path or ''}"
+    )
+    try:
+        snapshot = subprocess.run(
+            [
+                "ps", "-axo",
+                "pid,ppid,stat,etime,rss,%mem,%cpu,command",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if snapshot.returncode == 0:
+            interesting = []
+            for line in snapshot.stdout.splitlines():
+                lowered = line.lower()
+                if (
+                    "godot" in lowered
+                    or "swarm_runner.py api" in lowered
+                    or "data/agent_" in lowered
+                    or "headroom" in lowered
+                ):
+                    interesting.append(line)
+            if interesting:
+                print("[SwarmKill] process_snapshot_begin")
+                for line in interesting[:40]:
+                    print(f"[SwarmKill] {line}")
+                print("[SwarmKill] process_snapshot_end")
+    except Exception as exc:
+        print(f"[SwarmKill] process_snapshot_failed agent={agent_id[:8]} error={exc}")
+
+
 def _build_completion_evidence(project: Optional[str], head_at_spawn: Optional[str],
                                validation_passed: bool, exit_code: int,
                                log_marker_present: bool) -> dict:
@@ -850,6 +893,8 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     full_output = log_snapshot.full_output
     output = log_snapshot.tail_output
     success = _classify_agent_success(agent_id, exit_code, full_output)
+    if exit_code == -9:
+        _log_external_sigkill_evidence(agent_id, project, task_id, log_path)
     task_snapshot_for_completion = db.task_get(task_id) if task_id else None
     if (
         success
@@ -876,7 +921,11 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     validation_error_output = worktree_result.validation_error
 
     # Phase 4 -- diff, tokens, mark agent finished.
-    diff_stat = _capture_project_diff_stat(project)
+    # Only terminal-success agents should report a project HEAD diff here.
+    # Failed agents often die before their worktree merges; using HEAD~1 for
+    # those failures attributes unrelated prior commits to the dead agent and
+    # creates deeply misleading forensic evidence.
+    diff_stat = _capture_project_diff_stat(project) if success else ""
     # Defensive unpacking: handle both the full 7-tuple (input, output, cache_read,
     _tok_result = _read_agent_token_usage(task_id, agent_id)
     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = _tok_result

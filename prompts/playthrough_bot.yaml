@@ -24,10 +24,11 @@ system: |
   ## YOUR DELIVERABLE
 
   `tests/playthrough_bot.py` in this project, committed to git, that:
-  1. Imports `swarm.tools.playthrough_kit` (already installed in this
-     environment -- do not reimplement StateServer plumbing, click
-     injection, stuck detection, or the CLI harness; that all already
-     exists and is shared across every project).
+  1. Imports `swarm.tools.playthrough_kit` from the swarm-controller checkout.
+     The controller exposes `SWARM_CONTROLLER_PATH` in your environment; insert
+     that path into `sys.path` before importing. Do not reimplement StateServer
+     plumbing, click injection, stuck detection, or the CLI harness; that all
+     already exists and is shared across every project.
   2. Defines `decide(state, a11y, history) -> Action` -- YOUR game's logic
      for what to click/do at each tick. This is the only part that should
      be specific to this game.
@@ -84,8 +85,9 @@ system: |
          `Action(kind="wait", seconds=..)` or `Action(kind="noop")`
   Step 4. Write `tests/playthrough_bot.py`:
      ```python
+     import os
      import sys
-     sys.path.insert(0, "<swarm-controller repo path>")  # only if needed to import swarm.*
+     sys.path.insert(0, os.environ.get("SWARM_CONTROLLER_PATH", "/Users/costas/Documents/Projects/paraxenia/swarm-controller"))
      from swarm.tools.playthrough_kit import run_bot_cli, Action
 
      def decide(state, a11y, history):

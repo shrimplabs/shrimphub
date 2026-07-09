@@ -169,6 +169,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             handle = orchestrator._active_handles.get(agent_id)
         if handle:
             try:
+                print(f"[SwarmKill] reason=manual_api_kill agent={agent_id[:8]} pid={handle['process'].pid}")
                 kill_godot_children(handle["process"].pid)
                 handle["process"].kill()
                 return jsonify({"success": True})
@@ -178,6 +179,7 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
         agent = db.agent_get(agent_id)
         if agent and agent.get("pid"):
             try:
+                print(f"[SwarmKill] reason=manual_api_kill_lost_handle agent={agent_id[:8]} pid={agent['pid']}")
                 kill_pid_tree(int(agent["pid"]))
                 db.agent_update_status(agent_id, "failed")
                 db.task_update_status(agent["task_id"], "pending", agent_id=None)
