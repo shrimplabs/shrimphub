@@ -116,7 +116,7 @@ log "Watchdog started (PID $$) — polling every 30s"
 while true; do
     [ -f "$HEADROOM_VENV/bin/headroom" ] || { sleep 30; continue; }
 
-    check "http://localhost:8090/health" "shrimp-router:8090"        start_shrimp_router     8090
+    check "http://localhost:8090/livez"  "shrimp-router:8090"        start_shrimp_router     8090
     check "http://localhost:8888/livez"  "headroom:8888 (MiniMax)"   start_headroom_minimax  8888
     check "http://localhost:8877/livez"  "headroom:8877 (Codex)"     start_headroom_codex    8877
     [ -n "$OPENCODE_API_KEY" ] && \
