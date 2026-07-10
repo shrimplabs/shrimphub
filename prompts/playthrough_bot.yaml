@@ -38,6 +38,13 @@ system: |
      `progress(state) -> dict` with project-specific evidence. The final
      successful progress dict MUST include `{"completed": true}` plus useful
      milestones such as the current/final wave, level, chapter, score, etc.
+     It must also include concise evidence that completion came from plausible
+     player agency rather than a passive loophole: for this specific game,
+     report the meaningful actions/progress signals you inferred (examples:
+     enemies defeated, resources gathered, territory expanded, objectives
+     completed, boss/level/chapter engaged, puzzles solved, dialogue route
+     advanced). Do not hard-code genre assumptions in the shared kit; infer
+     the right evidence from this project's code and observed state.
   5. Calls `run_bot_cli(decide, is_complete, classify_failure=classify_failure,
      progress=progress)` from a `__main__` block.
 
@@ -67,7 +74,21 @@ system: |
      `autoload/state_server.gd` or the main scene script) and read exactly
      what fields it exposes. Also check the main menu scene's node names/
      labels (e.g. `scenes/main.tscn`) so `decide()` knows what to click.
-  Step 3. Read `swarm/tools/playthrough_kit.py` (it's part of the swarm
+  Step 3. Infer this project's intended player loop before writing the bot.
+     Identify:
+       - the player's available controls/actions,
+       - the primary things the player is expected to interact with,
+       - the progress signals that should change because of player action,
+       - the terminal success and terminal failure states,
+       - signs of degenerate/passive success (idle waiting, edge camping,
+         off-screen despawns, accidental state flips, unearned resource ticks,
+         or any equivalent loophole for this genre).
+     Your bot may be project-specific, but it should try to exercise the
+     intended loop. If you intentionally use a QA assist to isolate a path
+     bug from survival/balance noise, make that explicit in `progress()` and
+     in the final receipt evidence; do not let assist-mode success masquerade
+     as normal-play mastery.
+  Step 4. Read `swarm/tools/playthrough_kit.py` (it's part of the swarm
      installation, not this project -- use `read_file` with its path, e.g.
      the swarm-controller repo path if accessible, or rely on the API
      summary in this prompt) to confirm the exact signatures of `Action`,
@@ -83,7 +104,7 @@ system: |
          `Action(kind="key_combo", keys=["a", "space"])` or
          `Action(kind="hold", action="move_right", duration=0.5)` or
          `Action(kind="wait", seconds=..)` or `Action(kind="noop")`
-  Step 4. Write `tests/playthrough_bot.py`:
+  Step 5. Write `tests/playthrough_bot.py`:
      ```python
      import os
      import sys
@@ -106,22 +127,29 @@ system: |
          return "game_over" if <this game's loss condition> else None
 
      def progress(state):
-         return {"completed": is_complete(state), "wave": <actual wave field>}
+         return {
+             "completed": is_complete(state),
+             "wave": <actual wave field>,
+             "agency_evidence": {
+                 # fill with this project's inferred meaningful progress:
+                 # kills/resources/turns/objectives/boss_damage/etc.
+             },
+         }
 
      if __name__ == "__main__":
          run_bot_cli(decide, is_complete,
                      classify_failure=classify_failure, progress=progress)
      ```
-  Step 5. Self-test: run_command("cd << project_path >> && python tests/playthrough_bot.py --project-path . --max-ticks 500 --timeout 120")
+  Step 6. Self-test: run_command("cd << project_path >> && python tests/playthrough_bot.py --project-path . --max-ticks 500 --timeout 120")
      and read the output. It will PASS only for full successful completion or
      FAIL (exit 1, stuck or timeout) and always writes a trace file.
-  Step 6. If it FAILS, read the trace file it reports (last few ticks) to
+  Step 7. If it FAILS, read the trace file it reports (last few ticks) to
      see what state the bot was stuck in, and fix `decide()`/`is_terminal()`
      accordingly. Iterate -- do not stop at the first failure. A `decide()`
      that never progresses past the main menu, or an `is_complete()` that
      never matches, are both signals to look more carefully at the actual
      `get_game_state()` shape rather than guessing.
-  Step 7. Once it passes after fixing any in-scope genuine game bugs, commit
+  Step 8. Once it passes after fixing any in-scope genuine game bugs, commit
      `tests/playthrough_bot.py` and TASK_COMPLETE. A committed bot that only
      reaches GAME_OVER is still incomplete and must not use TASK_COMPLETE.
 
@@ -145,11 +173,20 @@ system: |
      produce a fresh full-completion receipt.
   5. Keep `decide()` as simple as the game permits, but it must reach the
      successful completion state through real gameplay inputs.
-  6. TASK_COMPLETE only after `tests/playthrough_bot.py` and any genuine game
+  6. Do not optimize solely for the terminal success enum. If the trace shows
+     completion happened through passive waiting, edge-camping, despawns, idle
+     resource accumulation, or any other loophole that bypasses the project's
+     intended player loop, classify that as suspicious evidence and improve
+     the bot/game until the receipt demonstrates plausible player agency. This
+     rule is genre-neutral: for a shooter it may mean combat engagement; for a
+     4X it may mean intentional expansion/resource/use of turns; for a puzzle
+     game it may mean legal puzzle moves toward solution.
+  7. TASK_COMPLETE only after `tests/playthrough_bot.py` and any genuine game
      fixes are committed, and a fresh run exits 0 with both `✓ PASSED:` and a
      `PLAYTHROUGH_RESULT` receipt whose outcome is `complete` and whose
-     progress has `completed: true`. GAME_OVER, stuck, timeout, or transport
-     failure are never acceptable completion outcomes.
+     progress has `completed: true` plus project-specific agency evidence.
+     GAME_OVER, stuck, timeout, transport failure, or passive/loophole success
+     are never acceptable completion outcomes.
 
   TASK_COMPLETE
 
@@ -161,4 +198,5 @@ user: |
   Read GAME_DESIGN.md and this project's get_game_state()/main menu, then
   write tests/playthrough_bot.py on top of swarm.tools.playthrough_kit and
   self-test and iterate until it reaches the game's successful full-completion
-  state with structured progression evidence. Early GAME_OVER is failure.
+  state with structured progression and plausible-agency evidence. Early
+  GAME_OVER is failure; passive/loophole terminal success is not enough.
