@@ -128,6 +128,16 @@ class TestPhaseReparentContinuation:
         dep_task = db.task_get("t-dep")
         assert dep_task["dependencies"] == ["t-cont"]
 
+    def test_continuation_keeps_dependency_on_original(self, isolated_db):
+        _seed_task("t-orig")
+        _seed_task("t-cont")
+        db.task_update("t-cont", {"dependencies": ["t-orig"]})
+
+        af._phase_reparent_continuation("t-orig", "Continuation task created: t-cont")
+
+        cont_task = db.task_get("t-cont")
+        assert cont_task["dependencies"] == ["t-orig"]
+
     def test_non_dependent_tasks_unchanged(self, isolated_db):
         _seed_task("t-orig")
         _seed_task("t-cont")
@@ -305,6 +315,43 @@ class TestFinishAgentOrdering:
         agent_idx = next(i for i, e in enumerate(completion_order) if e[0] == "agent")
         task_idx = next(i for i, e in enumerate(completion_order) if e[0] == "task" and e[1] == "completed")
         assert agent_idx < task_idx, f"Expected agent before task; got: {completion_order}"
+
+    def test_continuation_handoff_completes_original_instead_of_retrying(self, isolated_db, tmp_path):
+        _seed_task("t-orig")
+        _seed_task("t-cont", status="pending")
+        db.task_update("t-cont", {"dependencies": ["t-orig"]})
+        _seed_task("t-downstream", status="pending")
+        db.task_update("t-downstream", {"dependencies": ["t-orig"]})
+        _seed_agent("agent-1", "t-orig")
+
+        log_path = tmp_path / "agent.log"
+        log_path.write_text(
+            "[Agent] Progress saved\n"
+            "[Agent] Continuation task created: t-cont\n"
+            "[Agent] Task ended without TASK_COMPLETE -- marking as failed\n"
+        )
+
+        import swarm.agent_recovery as recovery
+        with patch.object(recovery, "_handle_task_failure") as mock_failure, \
+             patch("swarm.agent_finish._finish_worktree_phase",
+                   return_value=af._WorktreeFinishResult(success=True)), \
+             patch("swarm.agent_finish._capture_project_diff_stat", return_value=""), \
+             patch("swarm.agent_finish._read_agent_token_usage", return_value=(0, 0, 0, 0, 0, "", "")), \
+             patch("swarm.agent_finish._phase_post_completion_pipeline"):
+            af._finish_agent(
+                agent_id="agent-1",
+                exit_code=1,
+                project="proj",
+                task_id="t-orig",
+                script_path=None,
+                log_path=str(log_path),
+            )
+
+        mock_failure.assert_not_called()
+        assert db.task_get("t-orig")["status"] == "completed"
+        assert db.task_get("t-cont")["dependencies"] == ["t-orig"]
+        assert db.task_get("t-downstream")["dependencies"] == ["t-cont"]
+        assert db.agent_get("agent-1")["status"] == "completed"
 
     def test_experiment_metrics_records_terminal_task_status(self, isolated_db, tmp_path):
         _seed_task("t-1", metadata={

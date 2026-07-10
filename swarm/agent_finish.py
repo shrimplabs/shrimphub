@@ -416,6 +416,13 @@ def _phase_reparent_continuation(task_id: str, full_output: str) -> bool:
     cont_id = cont_id_match.group(1)
     reparented = 0
     for t in db.task_get_all():
+        # The continuation itself is expected to depend on the original task.
+        # That preserves branch order: original handoff completes, then the
+        # continuation becomes schedulable. Rewriting the continuation's own
+        # dependency to itself creates a self-cycle; rewriting older
+        # continuations onto newer continuations can also strand the chain.
+        if t.get("id") == cont_id:
+            continue
         deps = t.get("dependencies") or []
         if task_id in deps:
             new_deps = [cont_id if d == task_id else d for d in deps]
@@ -893,6 +900,15 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     full_output = log_snapshot.full_output
     output = log_snapshot.tail_output
     success = _classify_agent_success(agent_id, exit_code, full_output)
+    continuation_spawned_in_output = bool(
+        re.search(r"Continuation task created: ([^\s(]+)", full_output or "")
+    )
+    if not success and continuation_spawned_in_output:
+        print(
+            f"[Swarm] Agent {agent_id[:8]} exited {exit_code} but spawned a continuation "
+            "-- treating original task as successful handoff"
+        )
+        success = True
     if exit_code == -9:
         _log_external_sigkill_evidence(agent_id, project, task_id, log_path)
     task_snapshot_for_completion = db.task_get(task_id) if task_id else None
@@ -954,8 +970,15 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
         # continuation depending on the failed task itself -- permanent deadlock.
         spawned_continuation = _phase_reparent_continuation(task_id, full_output)
 
-        if success:
+        if success or spawned_continuation:
             # Phase 5b -- success path.
+            # A spawned continuation is a successful handoff even if the
+            # process exit was classified as failure (for example loop-limit
+            # agents that emitted "Continuation task created: <id>" but never
+            # reached TASK_COMPLETE). Do not run normal retry/failure handling
+            # on the original task, or the continuation remains blocked behind
+            # a reset-to-pending original.
+            success = True
             # Completion truth layer: attach corroborating evidence, and SOFT-flag
             # write-type tasks that completed with zero new commits since spawn
             # (record + warn now; enforcement flip to hard is a one-line change
