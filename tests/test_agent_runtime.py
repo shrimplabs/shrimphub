@@ -1680,7 +1680,8 @@ class TestMainLoop:
                 "stdout": (
                     "✓ PASSED: terminal state reached\n"
                     'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
-                    '"progress":{"completed":true,"wave":6}}'
+                    '"progress":{"completed":true,"wave":6,'
+                    '"agency_evidence":{"shots":3}}}'
                 ),
                 "stderr": "",
             },
@@ -1688,6 +1689,68 @@ class TestMainLoop:
             code = rt.main()
 
         assert code == 0
+
+    def test_playthrough_bot_accepts_env_prefixed_successful_self_test(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+        responses = iter([
+            '[TOOL_CALL]{"tool": "run_command", "args": '
+            '{"command": "VOID_PATROL_QA_INVINCIBLE=1 timeout 180 python3 tests/playthrough_bot.py --project-path ."}}[/TOOL_CALL]',
+            "TASK_COMPLETE",
+        ])
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            return next(responses), {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), patch(
+            "swarm.agent_runtime.execute_tool",
+            return_value={
+                "ok": True,
+                "stdout": (
+                    "✓ PASSED: terminal state reached\n"
+                    'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
+                    '"progress":{"completed":true,'
+                    '"agency_evidence":{"shots":12,"assist_mode":"invincible"}}}'
+                ),
+                "stderr": "",
+            },
+        ):
+            code = rt.main()
+
+        assert code == 0
+
+    def test_playthrough_bot_rejects_success_without_agency_evidence(self, tmp_path):
+        _init_git(tmp_path / "workspace" / "test-proj")
+        rt.TASK_TYPE = "playthrough_bot"
+        rt.PLAYTHROUGH_BOT_SYSTEM = "Build bot"
+        rt.PLAYTHROUGH_BOT_USER = "Run bot"
+        rt.MAX_TOOL_LOOPS = 2
+        responses = iter([
+            '[TOOL_CALL]{"tool": "run_command", "args": '
+            '{"command": "python3 tests/playthrough_bot.py --project-path ."}}[/TOOL_CALL]',
+            "TASK_COMPLETE",
+        ])
+
+        def fake_llm(sys_p, msgs, **kwargs):
+            return next(responses), {"input": 0, "output": 0}, []
+
+        with patch("swarm.agent_runtime.call_llm", side_effect=fake_llm), patch(
+            "swarm.agent_runtime.execute_tool",
+            return_value={
+                "ok": True,
+                "stdout": (
+                    "✓ PASSED: terminal state reached\n"
+                    'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
+                    '"progress":{"completed":true,"wave":6}}'
+                ),
+                "stderr": "",
+            },
+        ):
+            code = rt.main()
+
+        assert code == 1
 
     def test_playthrough_bot_rejects_early_game_over_receipt(self, tmp_path):
         _init_git(tmp_path / "workspace" / "test-proj")

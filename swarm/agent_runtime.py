@@ -82,6 +82,51 @@ from swarm.tool_dispatch import (  # noqa: F401
 )
 
 
+def _extract_playthrough_receipt_text(output: str) -> dict | None:
+    """Return the last PLAYTHROUGH_RESULT JSON object in command output."""
+    receipt = None
+    for line in (output or "").splitlines():
+        if line.startswith("PLAYTHROUGH_RESULT: "):
+            try:
+                parsed = json.loads(line.split(": ", 1)[1])
+            except (json.JSONDecodeError, IndexError):
+                continue
+            if isinstance(parsed, dict):
+                receipt = parsed
+    return receipt
+
+
+def _playthrough_receipt_is_complete(receipt: dict | None) -> bool:
+    """Validate the production completion receipt for a playthrough bot run."""
+    if not isinstance(receipt, dict):
+        return False
+    progress = receipt.get("progress")
+    if not isinstance(progress, dict):
+        return False
+    agency = progress.get("agency_evidence")
+    return (
+        receipt.get("status") == "success"
+        and receipt.get("outcome") == "complete"
+        and progress.get("completed") is True
+        and isinstance(agency, dict)
+        and bool(agency)
+    )
+
+
+_ENV_ASSIGN_RE = r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|\S+)"
+_PLAYTHROUGH_COMMAND_RE = re.compile(
+    r"(?:^|[;&|]\s*)"
+    rf"(?:(?:timeout\s+\d+(?:\.\d+)?|env|{_ENV_ASSIGN_RE})\s+)*"
+    r"(?:python3?|\.venv/bin/python|/usr/bin/env\s+python3?)\s+"
+    r"(?:\S+\s+)*?"
+    r"tests/playthrough_bot\.py(?:\s|$)"
+)
+
+
+def _looks_like_playthrough_bot_command(command: str) -> bool:
+    return bool(_PLAYTHROUGH_COMMAND_RE.search(command or ""))
+
+
 # ---------------------------------------------------------------------------
 # Config variables -- set by the wrapper before calling main()
 # ---------------------------------------------------------------------------
@@ -1327,28 +1372,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
             if tc.get("tool") == "run_command" and isinstance(result, dict):
                 command = str((tc.get("args") or {}).get("command", ""))
                 combined = (result.get("stdout") or "") + (result.get("stderr") or "")
-                _playthrough_receipt = None
-                for _line in combined.splitlines():
-                    if _line.startswith("PLAYTHROUGH_RESULT: "):
-                        try:
-                            _playthrough_receipt = json.loads(_line.split(": ", 1)[1])
-                        except (json.JSONDecodeError, IndexError):
-                            _playthrough_receipt = None
+                _playthrough_receipt = _extract_playthrough_receipt_text(combined)
                 if (
                     TASK_TYPE == "playthrough_bot"
-                    and re.search(
-                        r"(?:^|&&|;)\s*(?:timeout\s+\d+\s+)?"
-                        r"(?:python3?|\.venv/bin/python)\s+"
-                        r"tests/playthrough_bot\.py(?:\s|$)",
-                        command,
-                    )
+                    and _looks_like_playthrough_bot_command(command)
                     and result.get("ok") is True
                     and "✓ PASSED:" in combined
-                    and isinstance(_playthrough_receipt, dict)
-                    and _playthrough_receipt.get("status") == "success"
-                    and _playthrough_receipt.get("outcome") == "complete"
-                    and isinstance(_playthrough_receipt.get("progress"), dict)
-                    and _playthrough_receipt["progress"].get("completed") is True
+                    and _playthrough_receipt_is_complete(_playthrough_receipt)
                 ):
                     _playthrough_validation_passed = True
                     log("Playthrough bot validation passed (exit 0)")

@@ -158,11 +158,39 @@ class TestExitOneFalseFailures:
         log_path = tmp_db / "agent_a1.log"
         log_path.write_text(
             "[Agent] Playthrough bot validation passed (exit 0)\nTASK_COMPLETE\n"
+            'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
+            '"progress":{"completed":true,"agency_evidence":{"shots":4}}}\n'
         )
 
         orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
 
         assert db.task_get("t1")["status"] == "completed"
+
+    def test_playthrough_bot_accepts_complete_receipt_without_legacy_marker(self, tmp_db):
+        _task(id="t1", status="in_progress", type="playthrough_bot")
+        log_path = tmp_db / "agent_a1.log"
+        log_path.write_text(
+            "TASK_COMPLETE\n"
+            'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
+            '"progress":{"completed":true,"agency_evidence":{"turns":9}}}\n'
+        )
+
+        orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
+
+        assert db.task_get("t1")["status"] == "completed"
+
+    def test_playthrough_bot_rejects_complete_receipt_without_agency_evidence(self, tmp_db):
+        _task(id="t1", status="in_progress", type="playthrough_bot")
+        log_path = tmp_db / "agent_a1.log"
+        log_path.write_text(
+            "[Agent] Playthrough bot validation passed (exit 0)\nTASK_COMPLETE\n"
+            'PLAYTHROUGH_RESULT: {"status":"success","outcome":"complete",'
+            '"progress":{"completed":true}}\n'
+        )
+
+        orchestrator._finish_agent("a1", 0, "proj", "t1", None, str(log_path))
+
+        assert db.task_get("t1")["status"] == "pending"
 
     def test_exit_one_without_task_complete_is_retry(self, tmp_db):
         # attempts=1, max=3 → failure handler increments to 2 < 3 → retry

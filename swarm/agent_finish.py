@@ -447,6 +447,23 @@ def _extract_playthrough_receipt(full_output: str) -> Optional[dict]:
     return receipt
 
 
+def _playthrough_receipt_is_complete(receipt: Optional[dict]) -> bool:
+    """Validate the production completion receipt for a playthrough bot run."""
+    if not isinstance(receipt, dict):
+        return False
+    progress = receipt.get("progress")
+    if not isinstance(progress, dict):
+        return False
+    agency = progress.get("agency_evidence")
+    return (
+        receipt.get("status") == "success"
+        and receipt.get("outcome") == "complete"
+        and progress.get("completed") is True
+        and isinstance(agency, dict)
+        and bool(agency)
+    )
+
+
 def _phase_capture_playthrough_artifacts(task_id: str, agent_id: str, full_output: str) -> Optional[dict]:
     """Persist playthrough trace/receipt artifacts and attach compact metadata.
 
@@ -996,14 +1013,11 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
         success
         and task_snapshot_for_completion
         and task_snapshot_for_completion.get("type") == "playthrough_bot"
-        and not re.search(
-            r"(?m)^\[Agent\] Playthrough bot validation passed \(exit 0\)$",
-            full_output,
-        )
+        and not _playthrough_receipt_is_complete(_extract_playthrough_receipt(full_output))
     ):
         print(
             f"[Swarm] Rejecting playthrough_bot completion for agent {agent_id[:8]}: "
-            "no successful bot execution was recorded"
+            "no complete PLAYTHROUGH_RESULT receipt with agency evidence was recorded"
         )
         success = False
 
