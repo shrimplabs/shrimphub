@@ -136,6 +136,7 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
         agent_timeout=config.get("agent_timeout", AGENT_TIMEOUT),
         project_registry=project_registry,
         human_review_flag_enabled=config.get("human_review_flag_enabled", False),
+        playthrough_auto_enabled=config.get("playthrough_auto_enabled", False),
     )
 
     from swarm.agent_recovery import configure_recovery as _configure_recovery

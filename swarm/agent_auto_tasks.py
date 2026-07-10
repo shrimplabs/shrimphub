@@ -7,6 +7,7 @@ auto-spawn behaviours:
 1. auto_spawn_integration_task  -- wire newly added Godot systems into the game
 2. auto_handle_sprint_qa        -- mark sprint QA complete for auto-replan projects
 3. auto_spawn_qa_task           -- periodic QA trigger for non-sprint Godot projects
+4. auto_spawn_playthrough_task  -- schedule per-project playthrough bot after QA
 
 Each function accepts the values it needs as arguments so it can be called
 from _finish_agent without the extracted module needing to hold global state.
@@ -300,3 +301,74 @@ def auto_spawn_qa_task(
     })
     print(f"[Swarm] Auto-spawned {qa_type} task {qa_id} for {project} {qa_reason} (deps: {len(qa_deps)} task(s))")
 
+
+# ---------------------------------------------------------------------------
+# 4. Auto-playthrough
+# ---------------------------------------------------------------------------
+
+def auto_spawn_playthrough_task(
+    project: str,
+    task_id: str,
+    task_type_finished: str,
+    workspace: Path,
+    validation_failed: bool,
+    spawned_continuation: bool,
+    is_recovery_task: bool,
+    enabled: bool,
+) -> None:
+    """Spawn/rerun a per-project playthrough bot after QA proves basic readiness."""
+    if not enabled:
+        return
+    if validation_failed or spawned_continuation or is_recovery_task:
+        return
+    if task_type_finished not in {"qa", "harness_qa", "hybrid_qa", "scenario_qa"}:
+        return
+
+    project_path = workspace / project
+    if not (project_path / "project.godot").exists():
+        return
+
+    db = _db()
+    existing = db.task_get_by_project(project)
+    has_active_playthrough = any(
+        t.get("type") == "playthrough_bot"
+        and t.get("status") in ("pending", "in_progress")
+        for t in existing
+    )
+    if has_active_playthrough:
+        return
+
+    now = int(time.time())
+    play_id = f"playthrough-auto-{project}-{now}"
+    tc = _task_chains()
+    deps = tc.append_project_head(
+        db, project, [task_id], task_id=play_id, ensure_head=True
+    )
+    desc = (
+        "Auto playthrough bot: build or update this project's deterministic "
+        "completion bot on top of swarm.tools.playthrough_kit. Infer the "
+        "intended player loop from this project's code/UI/state, write or "
+        "update tests/playthrough_bot.py, and self-test until a fresh run "
+        "exits 0 with PLAYTHROUGH_RESULT outcome=complete, "
+        "progress.completed=true, and project-specific agency evidence. "
+        "Do not centralize game-specific bot logic in swarm-controller; this "
+        "project owns its own bot."
+    )
+    db.task_upsert({
+        "id": play_id,
+        "project": project,
+        "type": "playthrough_bot",
+        "description": desc,
+        "priority": 70,
+        "status": "pending",
+        "dependencies": deps,
+        "metadata": stamp_experiment_metadata(project, {
+            "auto_spawned": True,
+            "playthrough_auto": True,
+            "trigger_task_id": task_id,
+            "trigger_task_type": task_type_finished,
+        }, stable=True),
+        "attempts": 0,
+        "max_attempts": 2,
+    })
+    print(f"[Swarm] Auto-spawned playthrough_bot task {play_id} for {project} after {task_type_finished}")

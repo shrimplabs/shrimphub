@@ -128,6 +128,7 @@ AUTO_REPLAN_PROJECTS: list = []
 PAUSED_PROJECTS: list = []
 LOCK_PROJECT: bool = False
 HUMAN_REVIEW_FLAG_ENABLED: bool = False
+PLAYTHROUGH_AUTO_ENABLED: bool = False
 
 # State: agent_id -> handle dict
 _active_handles: Dict[str, Dict] = {}
@@ -161,6 +162,7 @@ def configure(
     qa_auto_threshold: int = 10,
     project_registry=None,
     human_review_flag_enabled: bool = False,
+    playthrough_auto_enabled: bool = False,
     **_kwargs,
 ):
     """Configure module-level settings for the agent lifecycle system.
@@ -181,6 +183,7 @@ def configure(
     global WORKSPACE, DATA_DIR, USE_WORKTREES, _configured
     global WEBHOOK_URL, AUTO_REPLAN_PROJECTS, PAUSED_PROJECTS, LOCK_PROJECT
     global MAX_ACTIVE_AGENTS, AGENT_TIMEOUT, QA_AUTO_THRESHOLD, HUMAN_REVIEW_FLAG_ENABLED
+    global PLAYTHROUGH_AUTO_ENABLED
     global _project_registry
 
     WORKSPACE = workspace
@@ -195,6 +198,7 @@ def configure(
     AGENT_TIMEOUT = agent_timeout
     QA_AUTO_THRESHOLD = qa_auto_threshold
     HUMAN_REVIEW_FLAG_ENABLED = human_review_flag_enabled
+    PLAYTHROUGH_AUTO_ENABLED = playthrough_auto_enabled
     if project_registry is not None:
         _project_registry = project_registry
 

@@ -546,7 +546,9 @@ class TestPhasePostCompletionPipeline:
              patch("swarm.agent_auto_tasks.auto_spawn_integration_task",
                    side_effect=lambda **kw: auto_calls.append("integration")), \
              patch("swarm.agent_auto_tasks.auto_handle_sprint_qa",
-                   side_effect=lambda **kw: auto_calls.append("sprint_qa")):
+                   side_effect=lambda **kw: auto_calls.append("sprint_qa")), \
+             patch("swarm.agent_auto_tasks.auto_spawn_playthrough_task",
+                   side_effect=lambda **kw: auto_calls.append("playthrough")):
             af._phase_post_completion_pipeline(
                 agent_id="agent-1",
                 task_id="t-plan2",

@@ -721,6 +721,7 @@ def _phase_post_completion_pipeline(
         auto_spawn_integration_task,
         auto_handle_sprint_qa,
         auto_spawn_qa_task,
+        auto_spawn_playthrough_task,
     )
 
     # Learnings extraction: fire-and-forget, doesn't block reaping.
@@ -827,6 +828,17 @@ def _phase_post_completion_pipeline(
         validation_failed=validation_failed_after_completion,
         spawned_continuation=spawned_continuation,
         is_recovery_task=is_recovery_task,
+    )
+
+    auto_spawn_playthrough_task(
+        project=project,
+        task_id=task_id,
+        task_type_finished=task_type_finished,
+        workspace=al.WORKSPACE,
+        validation_failed=validation_failed_after_completion,
+        spawned_continuation=spawned_continuation,
+        is_recovery_task=is_recovery_task,
+        enabled=al.PLAYTHROUGH_AUTO_ENABLED,
     )
 
     # Librarian completion counter: increment after every successful non-meta task.
