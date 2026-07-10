@@ -215,12 +215,56 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         }
         return write_project_closure_doc(workspace / project_name, project_name, proposal)
 
+    def _latest_playthrough_payload(project_name: str) -> dict | None:
+        tasks = [
+            t for t in db.task_get_by_project(project_name)
+            if t.get("type") == "playthrough_bot"
+        ]
+        if not tasks:
+            return None
+        tasks.sort(
+            key=lambda t: (
+                t.get("completed") or "",
+                t.get("started") or "",
+                t.get("created") or "",
+                t.get("id") or "",
+            ),
+            reverse=True,
+        )
+        task = tasks[0]
+        meta = task.get("metadata") or {}
+        result = meta.get("playthrough_result") if isinstance(meta.get("playthrough_result"), dict) else {}
+        progress = result.get("progress") if isinstance(result.get("progress"), dict) else {}
+        agency = progress.get("agency_evidence") if isinstance(progress.get("agency_evidence"), dict) else {}
+        return {
+            "task_id": task.get("id"),
+            "task_status": task.get("status"),
+            "agent_id": result.get("agent_id") or task.get("agent_id"),
+            "outcome": result.get("outcome"),
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "completed": progress.get("completed"),
+            "score": progress.get("score"),
+            "level": progress.get("level"),
+            "agency_evidence": agency,
+            "trace_path": result.get("trace_path"),
+            "receipt_path": result.get("receipt_path"),
+            "original_trace_path": result.get("original_trace_path"),
+            "started": task.get("started"),
+            "completed_at": task.get("completed"),
+        }
+
+    def _project_payload(name: str, project) -> dict:
+        payload = project.to_dict()
+        payload["latest_playthrough"] = _latest_playthrough_payload(name)
+        return payload
+
 # ---------- Projects ----------
     @app.route("/api/projects", methods=["GET"])
     def list_projects():
         projects = project_registry.get_all()
         return jsonify({
-            "projects": {k: v.to_dict() for k, v in projects.items()}
+            "projects": {k: _project_payload(k, v) for k, v in projects.items()}
         })
     @app.route("/api/projects", methods=["POST"])
     def add_project():
@@ -304,7 +348,7 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         project, error = _project_or_404(project_name)
         if error:
             return error
-        return jsonify({"project": project.to_dict()})
+        return jsonify({"project": _project_payload(project_name, project)})
     @app.route("/api/projects/<project_name>", methods=["PUT"])
     def update_project(project_name):
         data = request.json or {}

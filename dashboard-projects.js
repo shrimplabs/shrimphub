@@ -704,6 +704,32 @@ async function openProjectClosure(event, name) {
     details.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 
+function renderPlaythroughSummary(data) {
+    const result = data && data.latest_playthrough;
+    if (!result) return '';
+
+    const taskStatus = result.task_status || 'unknown';
+    const outcome = result.outcome || result.status || taskStatus;
+    const completed = result.completed === true || outcome === 'complete';
+    const isActive = ['pending', 'in_progress', 'running'].includes(taskStatus);
+    const color = completed ? '#3fb950' : (isActive ? '#79c0ff' : '#f0883e');
+    const label = completed ? 'complete' : (isActive ? taskStatus.replace('_', ' ') : outcome);
+    const score = result.score != null ? ` · score ${escapeHtml(String(result.score))}` : '';
+    const level = result.level != null ? ` · level ${escapeHtml(String(result.level))}` : '';
+    const agency = result.agency_evidence && typeof result.agency_evidence === 'object'
+        ? Object.entries(result.agency_evidence).slice(0, 2)
+            .map(([k, v]) => `${String(k).replace(/_/g, ' ')} ${v}`)
+            .join(' · ')
+        : '';
+    const agencyHtml = agency ? `<span style="color:#8b949e;margin-left:6px">${escapeHtml(agency)}</span>` : '';
+    const reason = result.reason ? ` title="${escapeHtml(result.reason)}"` : '';
+
+    return `
+        <div class="stat playthrough-summary"${reason} style="border-left:2px solid ${color};padding-left:8px;margin-top:6px">
+            🤖 Playthrough: <span style="color:${color}">${escapeHtml(label)}</span>${score}${level}${agencyHtml}
+        </div>`;
+}
+
 function createProjectCard(name, data, anyTaskCount, velocity) {
     const files = data.files || {};
     const largest = Object.entries(files).sort((a, b) => b[1] - a[1])[0] || ['-', 0];
@@ -752,6 +778,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
     const closureHtml = window.SwarmClosureUI
         ? window.SwarmClosureUI.renderProjectClosureSummary(closure, closureProposal)
         : '';
+    const playthroughHtml = renderPlaythroughSummary(data);
 
     const notesId = `notes-${name.replace(/[^a-z0-9]/gi, '_')}`;
     const blurbId = `blurb-${name.replace(/[^a-z0-9]/gi, '_')}`;
@@ -827,6 +854,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
             </div>
             ${healthHtml}
             ${closureHtml}
+            ${playthroughHtml}
             ${velocityHtml}
             <div class="commit-list">${commitsHtml}</div>
             <details style="margin-top:8px">

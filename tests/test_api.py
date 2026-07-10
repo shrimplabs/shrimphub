@@ -482,6 +482,77 @@ class TestProjects:
         assert r.status_code == 200
         assert r.json["project"]["name"] == "alpha"
 
+    def test_get_project_includes_latest_playthrough(self, client):
+        client.post("/api/projects", json={"name": "alpha"}, content_type="application/json")
+        db.task_upsert({
+            "id": "play-alpha-1",
+            "project": "alpha",
+            "type": "playthrough_bot",
+            "description": "play it",
+            "priority": 70,
+            "status": "completed",
+            "dependencies": [],
+            "metadata": {
+                "playthrough_result": {
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "outcome": "complete",
+                    "reason": "terminal state reached",
+                    "trace_path": "/tmp/trace.jsonl",
+                    "receipt_path": "/tmp/receipt.json",
+                    "progress": {
+                        "completed": True,
+                        "score": 1080,
+                        "level": 2,
+                        "agency_evidence": {"cannon_fires_attempted": 38},
+                    },
+                },
+            },
+            "attempts": 0,
+            "max_attempts": 2,
+            "completed": "2026-07-10T12:00:00",
+        })
+
+        r = client.get("/api/projects/alpha")
+
+        latest = r.json["project"]["latest_playthrough"]
+        assert latest["task_id"] == "play-alpha-1"
+        assert latest["outcome"] == "complete"
+        assert latest["completed"] is True
+        assert latest["score"] == 1080
+        assert latest["level"] == 2
+        assert latest["agency_evidence"]["cannon_fires_attempted"] == 38
+        assert latest["trace_path"] == "/tmp/trace.jsonl"
+
+    def test_list_projects_includes_latest_playthrough(self, client):
+        client.post("/api/projects", json={"name": "alpha"}, content_type="application/json")
+        db.task_upsert({
+            "id": "play-alpha-1",
+            "project": "alpha",
+            "type": "playthrough_bot",
+            "description": "play it",
+            "priority": 70,
+            "status": "completed",
+            "dependencies": [],
+            "metadata": {
+                "playthrough_result": {
+                    "status": "success",
+                    "outcome": "complete",
+                    "progress": {
+                        "completed": True,
+                        "agency_evidence": {"moves": 10},
+                    },
+                },
+            },
+            "attempts": 0,
+            "max_attempts": 2,
+            "completed": "2026-07-10T12:00:00",
+        })
+
+        r = client.get("/api/projects")
+
+        assert r.json["projects"]["alpha"]["latest_playthrough"]["outcome"] == "complete"
+
     def test_get_project_not_found(self, client):
         r = client.get("/api/projects/ghost")
         assert r.status_code == 404

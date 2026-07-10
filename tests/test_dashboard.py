@@ -237,6 +237,29 @@ class TestProjectCards:
         load(page, {"/api/projects": {"projects": PROJECT_DATA}})
         expect(page.locator("#projectsGrid")).to_contain_text("500")
 
+    def test_project_shows_latest_playthrough_result(self, page: Page):
+        project_data = json.loads(json.dumps(PROJECT_DATA))
+        project_data["my-game"]["latest_playthrough"] = {
+            "task_id": "play-1",
+            "task_status": "completed",
+            "status": "success",
+            "outcome": "complete",
+            "completed": True,
+            "score": 1080,
+            "level": 2,
+            "agency_evidence": {"cannon_fires_attempted": 38, "boss_contacts": 1},
+            "reason": "terminal victory reached",
+        }
+
+        load(page, {"/api/projects": {"projects": project_data}})
+
+        grid = page.locator("#projectsGrid")
+        expect(grid).to_contain_text("Playthrough")
+        expect(grid).to_contain_text("complete")
+        expect(grid).to_contain_text("score 1080")
+        expect(grid).to_contain_text("level 2")
+        expect(grid).to_contain_text("cannon fires attempted 38")
+
     def test_project_health_shown_when_available(self, page: Page):
         health = {
             "health_score": 85, "tasks_completed": 10, "tasks_failed": 1,
