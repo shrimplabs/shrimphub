@@ -164,6 +164,59 @@ class TestPhaseReparentContinuation:
 
 
 # ---------------------------------------------------------------------------
+# _phase_capture_playthrough_artifacts
+# ---------------------------------------------------------------------------
+
+class TestPhaseCapturePlaythroughArtifacts:
+    def test_copies_trace_and_records_receipt_metadata(self, isolated_db, tmp_path):
+        _seed_task("t-play", task_type="playthrough_bot")
+        trace_path = tmp_path / "playthrough_trace.jsonl"
+        trace_path.write_text('{"tick": 0}\n', encoding="utf-8")
+        receipt = {
+            "status": "success",
+            "outcome": "complete",
+            "reason": "terminal state reached",
+            "trace": str(trace_path),
+            "progress": {
+                "completed": True,
+                "agency_evidence": {"cannon_fires_attempted": 3},
+            },
+        }
+        output = "noise\nPLAYTHROUGH_RESULT: " + json.dumps(receipt) + "\n"
+
+        artifact = af._phase_capture_playthrough_artifacts("t-play", "agent-1", output)
+
+        assert artifact is not None
+        assert artifact["outcome"] == "complete"
+        copied_trace = lifecycle.DATA_DIR / "playthrough_artifacts" / "t-play" / "agent-1" / "playthrough_trace.jsonl"
+        copied_receipt = lifecycle.DATA_DIR / "playthrough_artifacts" / "t-play" / "agent-1" / "receipt.json"
+        assert copied_trace.read_text(encoding="utf-8") == '{"tick": 0}\n'
+        assert json.loads(copied_receipt.read_text(encoding="utf-8"))["outcome"] == "complete"
+        meta = db.task_get("t-play")["metadata"]
+        assert meta["playthrough_result"]["trace_path"] == str(copied_trace)
+        assert meta["playthrough_result"]["receipt_path"] == str(copied_receipt)
+        assert meta["playthrough_result"]["progress"]["completed"] is True
+
+    def test_records_receipt_even_when_trace_missing(self, isolated_db):
+        _seed_task("t-play", task_type="playthrough_bot")
+        receipt = {
+            "status": "failure",
+            "outcome": "transport_error",
+            "reason": "connection refused",
+            "trace": "/tmp/does-not-exist.jsonl",
+            "progress": {"completed": False},
+        }
+        output = "PLAYTHROUGH_RESULT: " + json.dumps(receipt) + "\n"
+
+        artifact = af._phase_capture_playthrough_artifacts("t-play", "agent-1", output)
+
+        assert artifact is not None
+        assert artifact["trace_path"] is None
+        assert artifact["trace_copy_error"] == "trace file not found"
+        assert db.task_get("t-play")["metadata"]["playthrough_result"]["outcome"] == "transport_error"
+
+
+# ---------------------------------------------------------------------------
 # _phase_complete_task
 # ---------------------------------------------------------------------------
 

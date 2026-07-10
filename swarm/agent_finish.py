@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -431,6 +432,85 @@ def _phase_reparent_continuation(task_id: str, full_output: str) -> bool:
     if reparented:
         print(f"[Swarm] Reparented {reparented} dependent(s) from {task_id} \u2192 continuation {cont_id}")
     return True
+
+
+def _extract_playthrough_receipt(full_output: str) -> Optional[dict]:
+    """Return the last structured PLAYTHROUGH_RESULT receipt in an agent log."""
+    receipt = None
+    for match in re.finditer(r"(?m)^PLAYTHROUGH_RESULT:\s*(\{.*\})\s*$", full_output or ""):
+        try:
+            parsed = json.loads(match.group(1))
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            receipt = parsed
+    return receipt
+
+
+def _phase_capture_playthrough_artifacts(task_id: str, agent_id: str, full_output: str) -> Optional[dict]:
+    """Persist playthrough trace/receipt artifacts and attach compact metadata.
+
+    Project bots intentionally write traces to caller-controlled output
+    directories, often under /tmp. The controller owns durable evidence, so copy
+    the trace and receipt into DATA_DIR/playthrough_artifacts/<task>/<agent>/.
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+
+    task = db.task_get(task_id)
+    if not task or task.get("type") != "playthrough_bot":
+        return None
+
+    receipt = _extract_playthrough_receipt(full_output)
+    if not receipt:
+        return None
+
+    artifact_dir = al.DATA_DIR / "playthrough_artifacts" / task_id / agent_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    receipt_path = artifact_dir / "receipt.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8")
+
+    original_trace = receipt.get("trace")
+    trace_artifact_path = None
+    trace_copy_error = None
+    if isinstance(original_trace, str) and original_trace:
+        try:
+            src = Path(original_trace)
+            if src.exists() and src.is_file():
+                dst = artifact_dir / "playthrough_trace.jsonl"
+                shutil.copyfile(src, dst)
+                trace_artifact_path = str(dst)
+            else:
+                trace_copy_error = "trace file not found"
+        except Exception as exc:
+            trace_copy_error = str(exc)
+
+    artifact_meta = {
+        "agent_id": agent_id,
+        "receipt_path": str(receipt_path),
+        "trace_path": trace_artifact_path,
+        "original_trace_path": original_trace,
+        "status": receipt.get("status"),
+        "outcome": receipt.get("outcome"),
+        "reason": receipt.get("reason"),
+        "progress": receipt.get("progress") if isinstance(receipt.get("progress"), dict) else {},
+    }
+    if trace_copy_error:
+        artifact_meta["trace_copy_error"] = trace_copy_error
+
+    meta = dict(task.get("metadata") or {})
+    meta["playthrough_result"] = artifact_meta
+    history = list(meta.get("playthrough_results") or [])
+    history.append(artifact_meta)
+    meta["playthrough_results"] = history[-10:]
+    db.task_update(task_id, {"metadata": meta})
+    print(
+        f"[Swarm] Captured playthrough artifacts for {task_id[:8]} "
+        f"outcome={artifact_meta.get('outcome')} trace={trace_artifact_path or original_trace or ''}"
+    )
+    return artifact_meta
 
 
 def _phase_complete_task(task_id: str, project: Optional[str], diff_stat: str) -> Optional[dict]:
@@ -964,6 +1044,12 @@ def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
     if task_id:
         # Snapshot the task now, before status mutations or prune_history() races.
         task_snapshot_early = db.task_get(task_id)
+
+        if task_snapshot_early and task_snapshot_early.get("type") == "playthrough_bot":
+            try:
+                _phase_capture_playthrough_artifacts(task_id, agent_id, full_output)
+            except Exception as _pta_err:
+                print(f"[Swarm] WARNING: playthrough artifact capture failed for {task_id[:8]}: {_pta_err}")
 
         # Phase 5a -- reparent any continuation task the agent spawned, regardless of
         # success or failure. If this runs only on success, a failed task leaves the
