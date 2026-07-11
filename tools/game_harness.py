@@ -47,8 +47,15 @@ def load_config() -> dict:
 
 
 def resolve_project_path(project_name: str, config: dict) -> Path:
+    # Resolve the workspace to its canonical (real) path before joining
+    # the project name so symlinked workspace dirs (e.g.
+    # /Users/costas/workspace/marble-mania -> /Users/costas/Documents/Projects/paraxenia/marble-mania)
+    # are passed to Godot as the realpath. Without this, Godot may load
+    # the project but resolve the symlink itself, occasionally leading
+    # to stale project cache state when the same project is mounted via
+    # both the symlink and realpath.
     workspace = config.get("workspace", "~/workspace")
-    return Path(os.path.expanduser(workspace)) / project_name
+    return Path(os.path.expanduser(workspace)).resolve() / project_name
 
 
 # ---------------------------------------------------------------------------

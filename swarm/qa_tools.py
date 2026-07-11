@@ -411,6 +411,71 @@ def sweep_godot_zombies() -> list[int]:
         path.write_text(json.dumps(survivors, indent=2))
         return reaped
 
+
+def _reap_stale_godot_for_path(project_path: str) -> list[int]:
+    """Kill stale Godot processes whose --path argument matches project_path.
+
+    Background: marble-mania agents had a recurring bug where a prior
+    sandbox-SIGKILLed Godot process (or an orphaned headless run) kept
+    port 11009 bound. A subsequent launch_game() then either failed
+    (StateServer: could not bind port) or, worse, leaked port-bound
+    state from the previous project that bled through into the new
+    game session. This helper forces a clean slate for the target
+    project before a fresh launch.
+
+    Only kills Godot processes whose --path argument matches
+    project_path -- never kills processes owned by other projects,
+    so concurrent agents on different projects are safe.
+    """
+    import re as _re
+    import subprocess as _subprocess
+    reaped: list[int] = []
+    if not project_path:
+        return reaped
+    try:
+        ps = _subprocess.run(
+            ["ps", "-axo", "pid=,command="],
+            capture_output=True, text=True, timeout=5,
+        )
+    except Exception as e:
+        log(f"_reap_stale_godot_for_path: ps failed: {e}")
+        return reaped
+    project_norm = str(Path(project_path).resolve())
+    project_norm_alt = project_norm.rstrip("/")
+    for line in ps.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "godot" not in line.lower():
+            continue
+        if "--path" not in line:
+            continue
+        # Match either the resolved path or the symlink path. Both
+        # /Users/costas/workspace/marble-mania and
+        # /Users/costas/Documents/Projects/paraxenia/marble-mania
+        # should be treated as the same project.
+        path_match = False
+        for candidate in {project_norm, project_norm_alt}:
+            if candidate and candidate in line:
+                path_match = True
+                break
+        if not path_match:
+            continue
+        m = _re.match(r"^(\d+)", line)
+        if not m:
+            continue
+        pid = int(m.group(1))
+        try:
+            os.kill(pid, 9)
+            reaped.append(pid)
+            log(f"_reap_stale_godot_for_path: reaped PID {pid} for {project_norm}")
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            log(f"_reap_stale_godot_for_path: PID {pid} owned by another user, skipping")
+    return reaped
+
+
 def _find_free_port_pair(base: int = 11009, max_range: int = 200, project_key: str = None) -> tuple:
     """Find two consecutive free ports (state_port, harness_port = state_port+1).
 
@@ -536,14 +601,21 @@ def launch_game(project_path: str) -> dict:
     # Always resolve to absolute path so Godot cannot resolve to the wrong project
     # when the agent's cwd happens to be inside another Godot project tree.
     resolved_path = str(Path(project_path).resolve())
+
+    # Reap any stale Godot for THIS project path before we bind. A
+    # prior sandbox crash or SIGKILL can leave a Godot process bound
+    # to the StateServer port; without this, the new launch fails
+    # with "could not bind port 11009" and the old (possibly
+    # scene-state-mismatched) Godot appears to be the live game.
+    # Scoped to --path matching resolved_path so concurrent agents on
+    # different projects are NEVER affected.
+    _reap_stale_godot_for_path(resolved_path)
+
     if not Path(resolved_path, "project.godot").exists():
         return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
 
     # Allocate a free port pair for this agent's StateServer and TestHarness.
     # Each concurrent QA agent gets its own ports so they don't collide.
-    resolved_path = str(Path(project_path).resolve())
-    if not Path(resolved_path, "project.godot").exists():
-        return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
 
     # Use project path as key to derive project-specific ports and reduce race conditions
     # with concurrent launches of other projects
@@ -648,6 +720,11 @@ def launch_game_headless(project_path: str) -> dict:
     import time as _time
 
     resolved_path = str(Path(project_path).resolve())
+
+    # Reap any stale Godot for THIS project path before we bind. See
+    # launch_game() above for the full rationale.
+    _reap_stale_godot_for_path(resolved_path)
+
     if not Path(resolved_path, "project.godot").exists():
         return {"ok": False, "error": f"No project.godot found at {resolved_path!r}"}
 
