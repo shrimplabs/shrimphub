@@ -101,12 +101,20 @@ def _build_chromadb_backend():
 
 
 def _make_caching_get_model():
-    """Return a method that lazily caches a FakeSentenceTransformer on first call."""
+    """Return a method that lazily caches a FakeSentenceTransformer on first call.
+
+    Sets both the closure's local cache AND the backend instance's `self._model`
+    attribute so the production code's `if self._model is None` guard also
+    protects against re-instantiation (defence in depth against closure replacement).
+    """
     cached = {"model": None}
 
     def _get_model(self_unused=None):
         if cached["model"] is None:
             cached["model"] = FakeSentenceTransformer("BAAI/bge-small-en-v1.5")
+        if self_unused is not None:
+            # Mirror onto instance so prod guard `if self._model is None` catches it too
+            self_unused._model = cached["model"]
         return cached["model"]
 
     return _get_model
