@@ -655,7 +655,7 @@ def _fire_idle_gardener() -> None:
                     "Run the gardener meta-agent. Survey all active projects in the swarm, "
                     "identify cross-project failure patterns, and create targeted fix tasks "
                     "where the same bug is affecting multiple projects. "
-                    "Write findings to data/swarm_knowledge.jsonl and data/SWARM_KNOWLEDGE.md."
+                    "Write findings to data/swarm_knowledge.jsonl and data/GARDENER_REPORT.md."
                 ),
                 "priority": 60,
                 "status": "pending",

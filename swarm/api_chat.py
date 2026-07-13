@@ -810,7 +810,7 @@ Agent tools:
 - list_agents(project="") -- list active agents
 
 Memory tools:
-- write_swarm_memory(content) -- overwrite the swarm-level knowledge file (data/SWARM_KNOWLEDGE.md)
+- write_swarm_memory(content) -- overwrite the human-authored swarm knowledge file (data/SWARM_KNOWLEDGE.md). Gardener auto-generated patterns live in data/gardener_patterns.md and are injected as a separate memory section.
 - write_project_memory(project, content) -- overwrite a project knowledge file (data/project_knowledge/<project>.md)
 
 When asked about priorities or what to work on next, call get_critical_path() first.
@@ -818,24 +818,42 @@ When asked about project state, read AGENT_KNOWLEDGE.md if present."""
 
 
 def _load_unified_memory(data_dir: Path, project: str = "") -> str:
-    """Load swarm-level and optionally project-level memory files."""
+    """Load swarm-level and optionally project-level memory files.
+
+    Ownership:
+    - data/SWARM_KNOWLEDGE.md is HUMAN/CHAT-AUTHORED memory (write_swarm_memory tool).
+      Never overwritten by auto-generated code paths.
+    - data/gardener_patterns.md is the GARDENER auto-generated patterns view.
+      Rendered from data/swarm_knowledge.jsonl by swarm.gardener_knowledge.render_markdown().
+      Read-only here; never written by this module.
+    Both files are injected as separate memory sections so neither can clobber the other.
+    """
     sections = []
+
+    # Human/chat-authored swarm knowledge (write_swarm_memory)
     swarm_mem = data_dir / "SWARM_KNOWLEDGE.md"
     if swarm_mem.exists():
-        content = swarm_mem.read_text(encoding="utf-8", errors="replace").strip()
-        if content:
-            sections.append(f"## Swarm Knowledge\n{content}")
+        text = swarm_mem.read_text(encoding="utf-8", errors="replace").strip()
+        if text:
+            sections.append(f"## Swarm Knowledge\n{text}")
+
+    # Gardener auto-generated patterns (gardener_knowledge.render_markdown)
+    gardener_mem = data_dir / "gardener_patterns.md"
+    if gardener_mem.exists():
+        text = gardener_mem.read_text(encoding="utf-8", errors="replace").strip()
+        if text:
+            sections.append(f"## Gardener Patterns\n{text}")
 
     if project and project != _UNIFIED_GLOBAL_SCOPE:
         proj_mem = data_dir / "project_knowledge" / f"{project}.md"
         if proj_mem.exists():
-            content = proj_mem.read_text(encoding="utf-8", errors="replace").strip()
-            if content:
-                sections.append(f"## Project Knowledge: {project}\n{content}")
+            text = proj_mem.read_text(encoding="utf-8", errors="replace").strip()
+            if text:
+                sections.append(f"## Project Knowledge: {project}\n{text}")
 
     if not sections:
         return ""
-    return "--- MEMORY ---\n" + "\n\n".join(sections) + "\n--- END MEMORY ---"
+    return "--- MEMORY ---\n" + "\n\n".join(sections) + "\n--- END MEMORY---"
 
 
 def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
@@ -854,9 +872,12 @@ def _execute_unified_tool(tool: str, args: dict, scope: str, workspace: Path,
                 return f"Error: command hard-blocked for safety: {blocked!r}", False
     # --- Memory write tools ---
     if tool == "write_swarm_memory":
-        content = args.get("content", "")
+        # OWNER: api_chat.write_swarm_memory. data/SWARM_KNOWLEDGE.md is
+        # human/chat-authored. Gardener auto-generated content lives at
+        # data/gardener_patterns.md and is NEVER touched here.
+        text = args.get("content", "")
         swarm_mem = data_dir / "SWARM_KNOWLEDGE.md"
-        swarm_mem.write_text(content, encoding="utf-8")
+        swarm_mem.write_text(text, encoding="utf-8")
         return "Swarm knowledge file updated.", False
 
     if tool == "write_project_memory":

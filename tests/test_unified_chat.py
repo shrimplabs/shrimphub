@@ -344,6 +344,9 @@ class TestMemoryInjection:
         swarm_mem = data_dir / "SWARM_KNOWLEDGE.md"
         assert swarm_mem.exists()
         assert "max agents is 5" in swarm_mem.read_text()
+        # write_swarm_memory must NOT touch the auto-generated gardener_patterns.md
+        gardener_mem = data_dir / "gardener_patterns.md"
+        assert not gardener_mem.exists()
 
     def test_write_project_memory(self, app, client):
         data_dir = Path(app.config["DATA_DIR"])
@@ -373,6 +376,27 @@ class TestMemoryInjection:
             client.post("/api/unified-chat", json={"message": "what do you know?"})
 
         assert any("MiniMax by default" in p for p in captured_prompts)
+
+    def test_gardener_patterns_injected_into_system_prompt(self, app, client):
+        """data/gardener_patterns.md is the gardener auto-generated view; it should
+        be injected as a separate '## Gardener Patterns' memory section.
+        """
+        data_dir = Path(app.config["DATA_DIR"])
+        gardener_mem = data_dir / "gardener_patterns.md"
+        gardener_mem.parent.mkdir(parents=True, exist_ok=True)
+        gardener_mem.write_text("Gardener pattern: GUT false positive -- ignore stderr noise")
+
+        captured_prompts = []
+
+        def capture_llm(system_prompt, messages, config):
+            captured_prompts.append(system_prompt)
+            return "OK"
+
+        with patch("swarm.api_chat._chat_call_llm", side_effect=capture_llm):
+            client.post("/api/unified-chat", json={"message": "what do you know?"})
+
+        assert any("GUT false positive" in p for p in captured_prompts)
+        assert any("## Gardener Patterns" in p for p in captured_prompts)
 
     def test_project_memory_injected_into_system_prompt(self, app, client):
         data_dir = Path(app.config["DATA_DIR"])

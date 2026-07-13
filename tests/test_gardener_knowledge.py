@@ -16,7 +16,7 @@ def patched_paths(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gk, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(gk, "JSONL_PATH", tmp_path / "swarm_knowledge.jsonl")
-    monkeypatch.setattr(gk, "MARKDOWN_PATH", tmp_path / "SWARM_KNOWLEDGE.md")
+    monkeypatch.setattr(gk, "MARKDOWN_PATH", tmp_path / "gardener_patterns.md")
 
 
 # ---------------------------------------------------------------------------
