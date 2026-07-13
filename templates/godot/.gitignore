@@ -7,7 +7,6 @@
 
 # Export artifacts
 export.cfg
-export_presets.cfg
 *.apk
 *.aab
 *.ipa

@@ -744,6 +744,9 @@ def _bootstrap_godot_project_support(project_name: str, project_path: Path):
     icon_src = templates_root / "icon.svg"
     if icon_src.exists() and not (project_path / "icon.svg").exists():
         shutil.copy2(icon_src, project_path / "icon.svg")
+    export_presets_src = templates_root / "export_presets.cfg"
+    if export_presets_src.exists() and not (project_path / "export_presets.cfg").exists():
+        shutil.copy2(export_presets_src, project_path / "export_presets.cfg")
 
     scenes_dir = project_path / "scenes"
     scripts_dir = project_path / "scripts"
@@ -1479,7 +1482,7 @@ def _scaffold_project_repo(project_name, project_path: Path, project_type: str, 
         gitignore_content = (
             "# Godot editor cache and generated files\n.godot/\n*.uid\n\n"
             "# Imported assets (regenerated from source)\n.import/\n\n"
-            "# Export artifacts\nexport.cfg\nexport_presets.cfg\n"
+            "# Export artifacts\nexport.cfg\n"
             "*.apk\n*.aab\n*.ipa\n*.exe\n*.pck\n*.zip\n\n"
             "# macOS\n.DS_Store\n\n# Logs\n*.log\n"
         )
@@ -1500,7 +1503,7 @@ def _scaffold_project_repo(project_name, project_path: Path, project_type: str, 
         (project_path / "PROJECT_CLOSURE.md").write_text(closure_spec)
         add_files.append("PROJECT_CLOSURE.md")
     if project_type == "godot":
-        add_files.extend(["addons", "autoload", "check_scripts.gd", "project.godot", "scenes", "scripts", "test"])
+        add_files.extend(["addons", "autoload", "check_scripts.gd", "export_presets.cfg", "project.godot", "scenes", "scripts", "test"])
 
     _run("git", "add", *add_files)
     _run("git", "commit", "-m", "Initial commit")
