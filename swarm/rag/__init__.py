@@ -7,9 +7,14 @@ Supports: ChromaDB, FAISS, Pinecone, etc.
 
 import os
 import json
+import hashlib
+import numpy as np
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+
+_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
 
 class RAGBackend(ABC):
@@ -58,6 +63,7 @@ class ChromaDBBackend(RAGBackend):
         )
         self._client = None
         self._collection = None
+        self._model = None
     
     def _get_client(self):
         """Lazy initialization of ChromaDB client."""
@@ -83,14 +89,20 @@ class ChromaDBBackend(RAGBackend):
                 self._collection = client.create_collection(name=collection_name)
         return self._collection
     
+    def _get_model(self):
+        """Lazy singleton: cache the embedding model on this backend instance."""
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(_EMBEDDING_MODEL_NAME)
+        return self._model
+    
     def query(self, question: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Query ChromaDB for relevant documents."""
         try:
             collection = self._get_collection()
             
-            # Get embeddings model for query
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+            # Get embeddings model for query (cached after first call)
+            model = self._get_model()
             query_embedding = model.encode([question]).tolist()
             
             results = collection.query(
@@ -122,11 +134,16 @@ class ChromaDBBackend(RAGBackend):
         try:
             collection = self._get_collection()
             
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+            model = self._get_model()
             embeddings = model.encode(texts).tolist()
             
-            ids = [f"doc_{i}" for i in range(len(texts))]
+            # Hash-derived IDs make repeated ingest of identical content idempotent
+            # (ChromaDB raises on duplicate IDs; sha256[:16] is collision-resistant
+            # enough for per-corpus dedup and stable across runs).
+            ids = [
+                "doc_" + hashlib.sha256(t.encode("utf-8")).hexdigest()[:16]
+                for t in texts
+            ]
             
             collection.add(
                 documents=texts,
@@ -162,6 +179,14 @@ class FAISSBackend(RAGBackend):
         self.index_path = index_path
         self._index = None
         self._texts = []
+        self._model = None
+    
+    def _get_model(self):
+        """Lazy singleton: cache the embedding model on this backend instance."""
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(_EMBEDDING_MODEL_NAME)
+        return self._model
     
     def query(self, question: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Query FAISS index."""
@@ -169,12 +194,13 @@ class FAISSBackend(RAGBackend):
             return [{'error': 'Index not loaded'}]
         
         try:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+            model = self._get_model()
             query_embedding = model.encode([question]).tolist()
             
+            # FAISS requires np.ndarray with float32 dtype; convert from list
+            query_vec = np.asarray([query_embedding[0]], dtype="float32")
             scores, indices = self._index.search(
-                [query_embedding[0]], 
+                query_vec,
                 min(top_k, len(self._texts))
             )
             
@@ -194,19 +220,23 @@ class FAISSBackend(RAGBackend):
     def ingest(self, texts: List[str], metadata: List[Dict]) -> int:
         """Build FAISS index from texts."""
         try:
-            import faiss
-            from sentence_transformers import SentenceTransformer
-            
-            model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+            # Load the embedding model first so a missing faiss install doesn't
+            # prevent lazy model warm-up (tests assert _get_model is exercised
+            # even when faiss is unavailable).
+            model = self._get_model()
             embeddings = model.encode(texts).tolist()
-            
-            dim = len(embeddings[0])
+
+            import faiss
+
+            # FAISS requires np.ndarray with float32 dtype; convert from list
+            vectors = np.asarray(embeddings, dtype="float32")
+            dim = vectors.shape[1]
             self._index = faiss.IndexFlatL2(dim)
-            self._index.add(embeddings)
+            self._index.add(vectors)
             self._texts = texts
-            
+
             return len(texts)
-            
+
         except Exception as e:
             return 0
     
