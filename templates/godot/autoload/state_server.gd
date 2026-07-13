@@ -57,6 +57,13 @@ signal tile_cleared(tile_type: int, points: int)
 func _ready() -> void:
 	# Always process even if the scene tree is paused (e.g. during godot-rl training steps)
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Security guard: only start the TCP control port in debug/editor builds.
+	# Exported release builds must NOT expose this server because it accepts
+	# arbitrary local connections that can read game state, capture screenshots,
+	# and inject input. QA agents and harness_qa run against debug builds, so
+	# this guard is a no-op for them; shipped player builds stay closed.
+	if not OS.is_debug_build():
+		return
 	# Read port from command-line user args: -- --state-port 11012
 	# Falls back to STATE_PORT env var, then DEFAULT_PORT (backward-compatible).
 	var user_args := OS.get_cmdline_user_args()
@@ -141,7 +148,7 @@ func _dispatch(peer: StreamPeerTCP, raw: String) -> void:
 			_send_json(peer, _get_state())
 			peer.disconnect_from_host()
 		"screenshot_b64", "screenshot_base64":
-			# Grab viewport image directly — don't wait for frame_post_draw which
+			# Grab viewport image directly -- don't wait for frame_post_draw which
 			# doesn't fire reliably on macOS when the window is in the background.
 			await _handle_screenshot_b64(peer)
 		"input":
@@ -164,7 +171,7 @@ func _dispatch(peer: StreamPeerTCP, raw: String) -> void:
 
 func _handle_screenshot_b64(peer: StreamPeerTCP) -> void:
 	# Wait one frame so the viewport texture is populated, then grab it directly.
-	# Using process_frame instead of frame_post_draw — the latter doesn't fire
+	# Using process_frame instead of frame_post_draw -- the latter doesn't fire
 	# reliably on macOS when the window is in the background.
 	RenderingServer.force_draw(false)
 	await get_tree().process_frame
@@ -185,7 +192,7 @@ func _handle_screenshot_b64(peer: StreamPeerTCP) -> void:
 		return
 	var png_bytes = image.save_png_to_buffer()
 	var b64 = Marshalls.raw_to_base64(png_bytes)
-	# Send directly (bypass _send_json truncation — screenshots are legitimately large)
+	# Send directly (bypass _send_json truncation -- screenshots are legitimately large)
 	var json_str = JSON.stringify({"image_base64": b64})
 	peer.put_data((json_str + "\n").to_utf8_buffer())
 	peer.disconnect_from_host()
@@ -537,7 +544,7 @@ func _move_mouse(x: float, y: float) -> void:
 	var viewport := get_viewport()
 	var pos := Vector2(x, y)
 
-	# Do NOT call DisplayServer.warp_mouse() — that moves the user's real system
+	# Do NOT call DisplayServer.warp_mouse() -- that moves the user's real system
 	# cursor and steals focus from other applications. viewport.warp_mouse() +
 	# Input.parse_input_event is sufficient for all in-game logic since Godot
 	# games read mouse position from InputEvent, not DisplayServer.
@@ -606,7 +613,7 @@ func _get_state() -> Dictionary:
 		"game_state": {},
 	}
 
-	# Walk scene tree — full hierarchy (names, paths, types, visibility, positions, qa_labels)
+	# Walk scene tree -- full hierarchy (names, paths, types, visibility, positions, qa_labels)
 	state["scene_tree"] = _export_node(get_tree().root)
 
 	# Find the main scene node and call get_game_state() on it.
