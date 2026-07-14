@@ -57,12 +57,12 @@ signal tile_cleared(tile_type: int, points: int)
 func _ready() -> void:
 	# Always process even if the scene tree is paused (e.g. during godot-rl training steps)
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	# Security guard: only start the TCP control port in debug/editor builds.
+	# Security guard: only start the TCP control port in debug/editor/headless runs.
 	# Exported release builds must NOT expose this server because it accepts
 	# arbitrary local connections that can read game state, capture screenshots,
-	# and inject input. QA agents and harness_qa run against debug builds, so
-	# this guard is a no-op for them; shipped player builds stay closed.
-	if not OS.is_debug_build():
+	# and inject input. QA agents, harness_qa, and playthrough bots run headlessly
+	# (OS.is_debug_build() == false in headless mode) so we also allow headless.
+	if not OS.is_debug_build() and not OS.has_feature("headless"):
 		return
 	# Read port from command-line user args: -- --state-port 11012
 	# Falls back to STATE_PORT env var, then DEFAULT_PORT (backward-compatible).
