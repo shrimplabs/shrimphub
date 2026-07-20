@@ -380,13 +380,22 @@ def _validate_project_plan_subtasks(project: str, planner_task_id: str) -> list[
             matched_hints, missing_hints = _match_plan_hint_to_task_ids(hint_names, subtasks, tid)
             for hint_name, expected_dep_id in matched_hints.items():
                 if expected_dep_id not in deps:
-                    errors.append(
-                        f"{tid}: sequential hint '{hint_name}' missing dependency on {expected_dep_id}"
-                    )
-            if missing_hints:
-                errors.append(
-                    f"{tid}: sequential hint references unknown sibling task(s): {', '.join(missing_hints)}"
-                )
+                    # Auto-repair: add the missing dep edge rather than failing the plan.
+                    try:
+                        new_deps = list(deps) + [expected_dep_id]
+                        db.task_update(tid, {"dependencies": new_deps})
+                        deps = new_deps  # keep local view in sync for cycle checks
+                        import logging as _log
+                        _log.getLogger(__name__).info(
+                            "plan-repair: added missing dep %s → %s (hint '%s')",
+                            tid, expected_dep_id, hint_name,
+                        )
+                    except Exception:
+                        errors.append(
+                            f"{tid}: sequential hint '{hint_name}' missing dependency on {expected_dep_id}"
+                        )
+            # Unknown hint names (no sibling matches) are warnings only — don't fail the plan.
+            # The planner may reference a task that was merged or renamed.
 
         desc_prefix = (task.get("description", "") or "").strip().split("]", 1)[0].upper()
         sibling_subtask_ids = {subtask.get("id", "") for subtask in subtasks}

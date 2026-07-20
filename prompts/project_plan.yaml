@@ -179,15 +179,37 @@ system: |
     - priority: 75
     - Must depend on the polish task
 
+    PLAYTHROUGH BOT TASK — ALWAYS REQUIRED:
+    Every sprint DAG MUST include a playthrough_bot task after the qa/harness_qa task.
+    This is the final completion gate — it proves the game is autonomously playable
+    end-to-end, not just syntactically valid.
+
+    The bot must:
+    - Launch the game via playthrough_kit
+    - Navigate from the main menu through at least the core gameplay loop
+    - Emit PLAYTHROUGH_RESULT JSON with status=success, outcome=complete,
+      progress.completed=true, and progress.agency_evidence (non-empty dict)
+
+    Check: does tests/playthrough_bot.py exist?
+    - YES → agent should run it and verify it passes, fixing any issues found
+    - NO  → agent must create tests/playthrough_bot.py using swarm.tools.playthrough_kit,
+             wiring milestones to match GAME_DESIGN.md's victory condition
+
+    - type: "playthrough_bot"
+    - files: ["tests/playthrough_bot.py"]
+    - priority: 75
+    - max_attempts: 20
+    - Must depend on the qa/harness_qa task
+
     AUDIT TASK — ALWAYS REQUIRED:
-    Every sprint DAG MUST end with an audit task depending on the qa task.
+    Every sprint DAG MUST end with an audit task depending on the playthrough_bot task.
     The audit compares the codebase against GAME_DESIGN.md, writes CONFORMANCE_REPORT.md,
     and spawns the next project_plan. This closes the sprint loop.
 
     - type: "audit"
     - files: []
     - priority: 70
-    - Must depend on the qa/harness_qa task (SEQUENTIAL: final task in every sprint)
+    - Must depend on the playthrough_bot task (SEQUENTIAL: final task in every sprint)
 
     Then assign each task a label:
     - [PARALLEL] — no shared files with any other task AND does not add itself to any

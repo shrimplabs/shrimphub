@@ -1,7 +1,7 @@
 # Swarm Controller Roadmap
 
 *Drafted 2026-07-03, following the full code review in [punch-list-2026-07-03.md](punch-list-2026-07-03.md).*
-*Last updated 2026-07-04: items #1, #2, #3, #5, #12 completed/decided.*
+*Last updated 2026-07-13: items #1, #2, #3, #5, #6, #7, #8, #10, #12 completed/decided. #17 telemetry spec written.*
 
 ## What this system is (and what it's becoming)
 
@@ -79,12 +79,14 @@ replaced with research-feeder model. README updated with CLI section. Memory
 updated. All four "known failures" in CLAUDE.md confirmed as real bugs (tracked
 as beads), not stale test noise.
 
-### 6. Close out run-11 and codify the winner
-The experiment infrastructure only earns its complexity if results change
-defaults. When run-11 (control vs per-task art vs integration checkpoints)
-concludes: write the analysis doc, promote the winning pipeline to the default
-for new projects, and archive the losing arms' config. Each run should end with
-a decision, not just a dataset.
+### 6. ~~Close out run-11 and codify the winner~~ ✅ Done 2026-07-12
+Analysis: `docs/experiment-designs/run11-analysis.md`. Art arm won (2.8x value/repair
+vs 0.95x control, 0.86x integration). Decision: **adaptive-flat + per-task art_pass
+is the new default for run-12 and all new projects.** Integration checkpoints dropped.
+`void-patrol-bot-proof-run12` is the first project built on this baseline, with
+playthrough_bot as the final completion gate. Analytics panel wired up in the dashboard
+(value-repair and ship-candidates now filter to managed projects only, ship-candidates
+ranks by bot status + repair rate).
 
 ---
 
@@ -167,7 +169,20 @@ project isn't done when tests pass; it's done when a stranger can play it.
 This also creates the ultimate QA signal — real playtesting telemetry feeding
 back into bug tasks.
 
-### 15. A real learning loop across projects
+### 15. Player telemetry — closing the feedback loop
+The system currently optimizes for "passes QA." Telemetry makes it optimize for
+"players enjoy it." Two anonymous tiers: scene/outcome events (always on,
+ephemeral session ID, no IP logged, no consent required) and positional/input
+stream (opt-in per game, same privacy guarantees). Data flows into a separate
+`telemetry.db`, surfaced via `/api/telemetry/<game>/summary`, and injected into
+`project_plan.yaml` prompts so the planner sees quit-points and death-causes when
+deciding what to fix next. An opt-out toggle in game options is the only UX
+change required — not a consent gate, since no personal data is collected.
+
+Full spec: `docs/telemetry-spec.md`. Build order: Godot autoload → API ingest →
+SQLite layer → dashboard panel → prompt injection (8 discrete swarm tasks).
+
+### 16. A real learning loop across projects
 `learnings.py`, audit learnings, broadcast knowledge, and project memories are
 four partial implementations of the same idea. Unify into one knowledge system
 with retrieval at prompt-build time (the RAG backend is the natural substrate):
@@ -216,10 +231,10 @@ a thing you babysit and starts being a thing you allocate.
                                           │
 #6 run-11 ──────────────────────────────►─┤
                                           ▼
-#10 QA/harness convergence ──► #14 shipped games
+#10 QA/harness convergence ──► #14 shipped games ──► #17 telemetry ──► #15 learning loop
 #5 docs ──► #13 public identity
 #11 review queue   #12 security ──► #13
-#15 learning loop  #16 meta-agents (both gated on #7)
+#16 meta-agents (gated on #7)
 ```
 
 Two rules embedded in that graph:

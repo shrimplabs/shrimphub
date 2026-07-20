@@ -1,4 +1,5 @@
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -6,6 +7,18 @@ from typing import Optional, Tuple
 from swarm import db
 from swarm.branch_intent import branch_intent_metadata, format_branch_intent
 from swarm.experiment_metadata import stamp_experiment_metadata
+
+# Per-project merge lock: prevents two finish daemons from racing on git merge
+# for the same project (would cause index.lock collisions → spurious bug tasks).
+_merge_locks: dict[str, threading.Lock] = {}
+_merge_locks_mu = threading.Lock()
+
+
+def _get_merge_lock(project: str) -> threading.Lock:
+    with _merge_locks_mu:
+        if project not in _merge_locks:
+            _merge_locks[project] = threading.Lock()
+        return _merge_locks[project]
 
 MAX_WORKTREE_AGE_SECONDS: int = 21600  # 6 hours
 
@@ -58,7 +71,17 @@ def _merge_worktree_branch(project_path: Path, branch: str, agent_id: str,
     """
     Merge agent branch into current HEAD of the main project.
     Returns True on success, False on conflict (spawns a bug-merge-* task).
+    Serialized per-project to prevent index.lock collisions from concurrent finishes.
     """
+    with _get_merge_lock(project_path.name):
+        return _merge_worktree_branch_locked(
+            project_path, branch, agent_id, task_id, worktree_path
+        )
+
+
+def _merge_worktree_branch_locked(project_path: Path, branch: str, agent_id: str,
+                                   task_id: Optional[str],
+                                   worktree_path: Optional[Path] = None) -> bool:
     try:
         result = subprocess.run(
             ["git", "merge", "--ff-only", branch],

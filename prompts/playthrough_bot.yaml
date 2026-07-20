@@ -32,26 +32,39 @@ system: |
   2. Defines `decide(state, a11y, history) -> Action` -- YOUR game's logic
      for what to click/do at each tick. This is the only part that should
      be specific to this game.
-  3. Defines `is_complete(state) -> bool` -- YOUR game's successful completion
-     condition. An early loss / GAME_OVER is NOT completion.
+  3. Defines an ordered `MILESTONES` list of `Milestone` objects -- the
+     game's progress ladder from menu to victory. The last milestone is the
+     completion gate. Each milestone's predicate must use REAL field names
+     from this project's `get_game_state()`, not guessed generic names.
+     Simple single-predicate `is_complete(state) -> bool` is still accepted
+     for trivially short arcade games but milestone form is strongly preferred.
   4. Defines `classify_failure(state) -> str | None` for terminal losses and
      `progress(state) -> dict` with project-specific evidence. The final
-     successful progress dict MUST include `{"completed": true}` plus useful
-     milestones such as the current/final wave, level, chapter, score, etc.
-     It must also include concise evidence that completion came from plausible
-     player agency rather than a passive loophole: for this specific game,
-     report the meaningful actions/progress signals you inferred (examples:
-     enemies defeated, resources gathered, territory expanded, objectives
-     completed, boss/level/chapter engaged, puzzles solved, dialogue route
-     advanced). Do not hard-code genre assumptions in the shared kit; infer
-     the right evidence from this project's code and observed state.
-  5. Calls `run_bot_cli(decide, is_complete, classify_failure=classify_failure,
-     progress=progress)` from a `__main__` block.
+     successful progress dict MUST include `{"completed": true}` plus
+     concise evidence that completion came from plausible player agency
+     (examples: enemies defeated, resources gathered, objectives completed,
+     waves survived, boss engaged). Infer the right evidence from this
+     project's code; do not hard-code genre assumptions.
+  5. Calls `run_bot_cli(decide, milestones=MILESTONES, classify_failure=...,
+     progress=...)` from a `__main__` block.
 
   Do NOT centralize genre logic, do NOT write your own TCP client for
   StateServer, do NOT use press_button for the "real click" test (use
   `Action(kind="click", x=.., y=..)` or `Action(kind="click_label",
   label="...")`, which route through real coordinate-based input).
+
+  ## CRITICAL: DO NOT LAUNCH GODOT MANUALLY
+
+  Never run `godot --headless` or probe StateServer ports manually.
+  Headless mode does NOT run the game loop — StateServer never initializes,
+  TCP port 11009 never opens, and every connection attempt returns
+  "Connection refused". This is a dead end that burns loops.
+
+  To explore the game's scene tree, a11y_tree, or state shape: write a
+  minimal bot that calls `launch_game()`, queries `get_game_state()` and
+  `a11y_tree()`, prints the results, and exits. Run it with
+  `python3 tests/playthrough_bot.py --time-scale 1`. That is the ONLY
+  correct way to inspect live game state.
 
   << godot_status >>
   PROJECT PATH: << project_path >>
@@ -103,52 +116,69 @@ system: |
          `Action(kind="key", key="space", duration=0.2)` or
          `Action(kind="key_combo", keys=["a", "space"])` or
          `Action(kind="hold", action="move_right", duration=0.5)` or
-         `Action(kind="wait", seconds=..)` or `Action(kind="noop")`
-  Step 5. Write `tests/playthrough_bot.py`:
+         `Action(kind="wait", seconds=..)` (game-seconds; divided by
+         --time-scale automatically -- do NOT adjust manually) or
+         `Action(kind="noop")`
+     Also read `Milestone` -- you need it for the milestone ladder in Step 5.
+  Step 5. Write `tests/playthrough_bot.py` using the MILESTONE FORM:
      ```python
      import os
      import sys
      sys.path.insert(0, os.environ.get("SWARM_CONTROLLER_PATH", "/Users/costas/Documents/Projects/paraxenia/swarm-controller"))
-     from swarm.tools.playthrough_kit import run_bot_cli, Action
+     from swarm.tools.playthrough_kit import run_bot_cli, Action, Milestone
+
+     # Ordered milestone ladder -- last milestone = completion gate.
+     # Use REAL field names from get_game_state() output, not guesses.
+     MILESTONES = [
+         Milestone("menu_passed",  lambda s: s.get("game_state", {}).get("scene") == "game"),
+         Milestone("<milestone2>", lambda s: <this game's mid-game condition>),
+         Milestone("victory",      lambda s: s.get("game_state", {}).get("<field>") == "<win_value>"),
+     ]
 
      def decide(state, a11y, history):
          gs = state.get("game_state", {})
-         # e.g.: if on menu, click "start"; if playing, click_label a fire
-         # button or Action(kind="click", x=.., y=..) toward the action zone;
-         # if on game-over/victory screen, click "retry"/"menu"
+         # Click through real coordinates/labels; never use press_button.
          ...
          return Action(kind="click_label", label="start")
 
-     def is_complete(state):
-         gs = state.get("game_state", {})
-         return gs.get(<this game's own status field>) == <successful ending>
-
      def classify_failure(state):
+         gs = state.get("game_state", {})
          return "game_over" if <this game's loss condition> else None
 
      def progress(state):
+         gs = state.get("game_state", {})
          return {
-             "completed": is_complete(state),
-             "wave": <actual wave field>,
+             "completed": gs.get("<field>") == "<win_value>",
              "agency_evidence": {
-                 # fill with this project's inferred meaningful progress:
-                 # kills/resources/turns/objectives/boss_damage/etc.
+                 # infer from this game: kills/score/waves/levels/etc.
              },
          }
 
      if __name__ == "__main__":
-         run_bot_cli(decide, is_complete,
-                     classify_failure=classify_failure, progress=progress)
+         run_bot_cli(decide,
+                     milestones=MILESTONES,
+                     classify_failure=classify_failure,
+                     progress=progress)
      ```
-  Step 6. Self-test: run_command("cd << project_path >> && python tests/playthrough_bot.py --project-path . --max-ticks 500 --timeout 120")
-     and read the output. It will PASS only for full successful completion or
-     FAIL (exit 1, stuck or timeout) and always writes a trace file.
-  Step 7. If it FAILS, read the trace file it reports (last few ticks) to
-     see what state the bot was stuck in, and fix `decide()`/`is_terminal()`
-     accordingly. Iterate -- do not stop at the first failure. A `decide()`
-     that never progresses past the main menu, or an `is_complete()` that
-     never matches, are both signals to look more carefully at the actual
-     `get_game_state()` shape rather than guessing.
+     Simple `is_complete=` form still accepted for single-screen arcade games,
+     but milestone form is strongly preferred -- gives stuck detection, richer
+     failure context, and `furthest_milestone` in the receipt automatically.
+  Step 6. Self-test:
+     run_command("cd << project_path >> && python tests/playthrough_bot.py --project-path . --timeout 120")
+     For games longer than ~3 min realtime, add `--time-scale 4` once you've
+     verified physics are stable at that speed. `--max-ticks` is a safety
+     fuse only -- omit it; `--timeout` is the real budget.
+     The run PASSES only for full milestone-ladder completion or FAILS (exit 1)
+     and always writes a trace file AND failure_context.json + screenshot.
+  Step 7. If it FAILS, read `failure_context.json` (NOT the full trace) to
+     see `furthest_milestone`, `pending_milestone`, `milestone_timeline`, and
+     the last 50 ticks. Check `failure_screenshot.png` if present.
+     Fix `decide()` or milestone predicates and re-run. Common mistakes:
+       - Wrong field name in milestone predicate (print actual get_game_state()
+         output, don't guess field names)
+       - decide() never advances past the main menu (check a11y labels)
+       - Fire rate too high for physics to settle (add Action(kind="wait",
+         seconds=1.5) between actions and watch accumulation drop)
   Step 8. Once it passes after fixing any in-scope genuine game bugs, commit
      `tests/playthrough_bot.py` and TASK_COMPLETE. A committed bot that only
      reaches GAME_OVER is still incomplete and must not use TASK_COMPLETE.
@@ -187,6 +217,10 @@ system: |
      progress has `completed: true` plus project-specific agency evidence.
      GAME_OVER, stuck, timeout, transport failure, or passive/loophole success
      are never acceptable completion outcomes.
+     CRITICAL: After running the bot, copy the exact `PLAYTHROUGH_RESULT: {...}`
+     line from the command output verbatim into your response — the completion
+     gate scans your session log for that exact line. Paraphrasing it ("outcome
+     was complete") is not sufficient and will cause the task to be rejected.
 
   TASK_COMPLETE
 

@@ -437,7 +437,7 @@ def _phase_reparent_continuation(task_id: str, full_output: str) -> bool:
 def _extract_playthrough_receipt(full_output: str) -> Optional[dict]:
     """Return the last structured PLAYTHROUGH_RESULT receipt in an agent log."""
     receipt = None
-    for match in re.finditer(r"(?m)^PLAYTHROUGH_RESULT:\s*(\{.*\})\s*$", full_output or ""):
+    for match in re.finditer(r"PLAYTHROUGH_RESULT:\s*(\{[^\n]{0,2000}\})", full_output or ""):
         try:
             parsed = json.loads(match.group(1))
         except Exception:

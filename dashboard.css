@@ -2893,3 +2893,30 @@ input[id*="webhook"], input[id*="Webhook"] {
     color: #f0883e;
     font-weight: 700;
 }
+
+/* ── Services health bar ─────────────────────────────────────────────────── */
+#services-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--bg-secondary, #161b22);
+    border-bottom: 1px solid var(--border, #30363d);
+    flex-wrap: wrap;
+}
+.svc-chip {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #30363d);
+    color: var(--text-faint, #8b949e);
+    background: transparent;
+    cursor: default;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+.svc-chip.ok    { color: var(--green, #3fb950); border-color: rgba(63,185,80,0.4); }
+.svc-chip.warn  { color: #f0883e;                border-color: rgba(240,136,62,0.4); }
+.svc-chip.down  { color: var(--red, #f85149);    border-color: rgba(248,81,73,0.4); }
+.svc-chip.unknown { color: var(--text-faint, #8b949e); border-color: var(--border, #30363d); }

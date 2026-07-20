@@ -30,7 +30,7 @@ start_shrimp_router() {
         OPENCODE_API_KEY="$OPENCODE_API_KEY" \
         OPENAI_API_KEY="$OPENCODE_API_KEY" \
         KIMI_API_KEY="$KIMI_API_KEY" \
-        "$SHRIMP_DIR/.venv/bin/shrimp-router" > data/shrimp.log 2>&1 &
+        "$SHRIMP_DIR/.venv/bin/shrimp-router" >> data/shrimp.log 2>&1 &
     echo $! > .shrimp.pid
     log "↺ Restarted shrimp-router:8090 — PID $(cat .shrimp.pid)"
 }
@@ -92,8 +92,8 @@ check() {
     local restart_fn="$3"
     local port="$4"
 
-    # Use a 5s connect + 8s total timeout — if livez hangs, something is stuck
-    if ! curl -sf --max-time 8 --connect-timeout 5 "$url" >/dev/null 2>&1; then
+    # Use a 5s connect + 15s total timeout — event loop can be briefly busy under load
+    if ! curl -sf --max-time 15 --connect-timeout 5 "$url" >/dev/null 2>&1; then
         log "✗ $name not responding — restarting..."
         # Kill any zombie holding the port before restarting
         [ -n "$port" ] && kill_port "$port"

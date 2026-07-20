@@ -10,6 +10,7 @@ import time
 from swarm.task_chains import chain_to_project_head
 from swarm.api_projects import _sync_managed_projects
 from swarm.dependencies import is_dependency_met
+import swarm.orchestrator as _orchestrator_mod
 
 
 def register_routes(app, task_source, orchestrator, generate_task_script, config, db, auto_mode_state, data_dir, workspace, project_registry=None, config_file=None, config_write_lock=None):
@@ -85,7 +86,8 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
             if task.status != "pending":
                 task.status = "pending"
                 task_source.update_task(task)
-            agent_id = orchestrator.spawn_agent(task.to_dict(), generate_task_script)
+            with _orchestrator_mod._fill_slots_lock:
+                agent_id = orchestrator.spawn_agent(task.to_dict(), generate_task_script)
             if agent_id:
                 return jsonify({"status": "spawned", "success": True, "agent_id": agent_id, "task_id": task.id, "project": task.project})
             return jsonify({"success": False, "error": "Failed to spawn agent"}), 500
@@ -120,7 +122,8 @@ def register_routes(app, task_source, orchestrator, generate_task_script, config
             )
             task_source.add_task(task)
 
-        agent_id = orchestrator.spawn_agent(task.to_dict(), generate_task_script)
+        with _orchestrator_mod._fill_slots_lock:
+            agent_id = orchestrator.spawn_agent(task.to_dict(), generate_task_script)
         if agent_id:
             return jsonify({
                 "status": "spawned",

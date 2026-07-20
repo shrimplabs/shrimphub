@@ -39,6 +39,14 @@
             <div class="stat-pill stat-pill-warn" id="promptWarnPill" title="Prompt template warnings — missing variables detected (click for details)" style="display:none" onclick="showPromptWarnings()"><span class="stat-pill-value" id="promptWarnCount">0</span><span class="stat-pill-label">⚠ prompt vars</span></div>
             <div class="stat-pill stat-pill-warn" id="staleCodeChip" style="display:none"><span class="stat-pill-label">⚠ stale code — restart server</span></div>
         </div>
+        <div id="services-bar">
+            <div class="svc-chip" id="svc-swarm" title="Swarm controller API">⬤ Swarm</div>
+            <div class="svc-chip" id="svc-headroom-8888" title="Headroom proxy :8888 (MiniMax)">⬤ Headroom 8888</div>
+            <div class="svc-chip" id="svc-headroom-8877" title="Headroom proxy :8877 (Codex)">⬤ Headroom 8877</div>
+            <div class="svc-chip" id="svc-shrimp" title="Shrimp-router :8090 (VLM round-robin)">⬤ Shrimp 8090</div>
+            <div class="svc-chip" id="svc-minimax" title="MiniMax backend (via shrimp-router)">⬤ MiniMax</div>
+            <div class="svc-chip" id="svc-vlm" title="Local VLM backend (via shrimp-router)">⬤ VLM local</div>
+        </div>
         <div class="header-actions">
             <button onclick="openNewProjectModal()" class="header-action-btn" title="Describe your project in chat -- AI will plan tasks for you">✦ New Project</button>
             <button onclick="openWizard()" class="header-action-btn" title="Fill in a form -- AI generates a task plan from your inputs">🧙 Wizard</button>
@@ -89,6 +97,16 @@
                 <div>
                     <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Recovery Mechanism Efficacy</div>
                     <div id="analytics-mechanisms"></div>
+                </div>
+            </div>
+            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Avg Loops by Task Type</div>
+                    <div id="analytics-loops"></div>
+                </div>
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Research Feeder ROI</div>
+                    <div id="analytics-roi"></div>
                 </div>
             </div>
         </div>

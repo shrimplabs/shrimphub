@@ -982,7 +982,7 @@ class TestPlannerLifecycle:
         assert generated["status"] == "cancelled"
         assert plans == []
 
-    def test_project_plan_rejects_sequential_hint_without_matching_dependencies(self, isolated_orc):
+    def test_project_plan_repairs_sequential_hint_without_matching_dependencies(self, isolated_orc):
         db.project_upsert({"name": "plan-proj", "status": "active"})
         db.task_upsert({
             "id": "planner-2",
@@ -1029,8 +1029,12 @@ class TestPlannerLifecycle:
 
         errors = lifecycle._validate_project_plan_subtasks("plan-proj", "planner-2")
 
-        assert "wire-task: sequential hint 'SoundManager' missing dependency on sound-task" in errors
-        assert "wire-task: sequential hint 'LevelUpNotification' missing dependency on notif-task" in errors
+        # Hint mismatches are now auto-repaired (dep edges added) rather than failing the plan.
+        assert not any("sequential hint" in e for e in errors)
+        # Verify the missing deps were actually added
+        wire = db.task_get("wire-task")
+        assert "sound-task" in (wire.get("dependencies") or [])
+        assert "notif-task" in (wire.get("dependencies") or [])
 
     def test_project_plan_rejects_parallel_hint_with_sibling_dependency(self, isolated_orc):
         db.project_upsert({"name": "plan-proj", "status": "active"})

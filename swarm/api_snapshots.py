@@ -91,7 +91,13 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         if not config_file:
             return
         try:
-            Path(config_file).write_text(json.dumps(config, indent=2), encoding="utf-8")
+            cfg_path = Path(config_file)
+            # Read-merge: patch the existing file rather than overwriting it wholesale.
+            # Writing config directly would clobber managed_projects edits made via
+            # POST /api/managed-projects, since the in-memory dict may lag the registry.
+            existing = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+            existing.update(config)
+            cfg_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         except Exception as e:
             print(f"[Snapshots] WARNING: failed to persist config: {e}")
 
@@ -153,6 +159,7 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         art_id = f"{source_project}-{chain_id}-art"
         polish_id = f"{source_project}-{chain_id}-polish"
         qa_id = f"{source_project}-{chain_id}-qa"
+        bot_id = f"{source_project}-{chain_id}-bot"
 
         art_meta = dict(
             base_meta,
@@ -174,6 +181,12 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         if qa_focus:
             qa_meta["qa_focus"] = qa_focus
             qa_meta["quality_gate_focus"] = qa_focus
+
+        bot_meta = dict(
+            base_meta,
+            tail_stage="playthrough_bot",
+            quality_gate_stage="playthrough_bot",
+        )
 
         tasks.extend([
             {
@@ -217,8 +230,26 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 "attempts": 0,
                 "max_attempts": 2,
             },
+            {
+                "id": bot_id,
+                "project": source_project,
+                "type": "playthrough_bot",
+                "description": (
+                    "Playthrough bot final gate: run tests/playthrough_bot.py to prove the game is autonomously "
+                    "playable end-to-end. If tests/playthrough_bot.py does not exist, create it using "
+                    "swarm.tools.playthrough_kit with milestones matching GAME_DESIGN.md's victory condition. "
+                    "Must emit PLAYTHROUGH_RESULT with status=success, outcome=complete, "
+                    "progress.completed=true, and progress.agency_evidence (non-empty dict)."
+                ),
+                "priority": 75,
+                "status": "pending",
+                "dependencies": [qa_id],
+                "metadata": bot_meta,
+                "attempts": 0,
+                "max_attempts": 20,
+            },
         ])
-        return 3
+        return 4
 
     def _append_seeded_tail_tasks(
         snapshot: dict,
@@ -237,7 +268,7 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
         project_path = workspace / source_project
         if not (project_path / "project.godot").exists():
             return 0
-        if any(t.get("type") in {"art_pass", "polish", "harness_qa", "qa", "hybrid_qa", "scenario_qa"} for t in tasks):
+        if any(t.get("type") in {"art_pass", "polish", "harness_qa", "qa", "hybrid_qa", "scenario_qa", "playthrough_bot"} for t in tasks):
             return 0
 
         def implementation_tasks() -> list[dict]:
@@ -287,14 +318,15 @@ def register_routes(app, project_registry, workspace, db, config, data_dir, orch
                 qa_type=qa_type,
                 qa_focus="playability",
             )
-            mid_qa_id = f"{source_project}-run9-mid-qa"
+            # Point second-half tasks to the bot (final task in the mid-gate chain).
+            mid_gate_tail_id = f"{source_project}-run9-mid-bot"
             for task in second_half:
                 deps = _as_dependency_list(task.get("dependencies"))
                 if not any(d in first_half_ids for d in deps):
                     continue
                 new_deps = [d for d in deps if d not in first_half_ids]
-                if mid_qa_id not in new_deps:
-                    new_deps.append(mid_qa_id)
+                if mid_gate_tail_id not in new_deps:
+                    new_deps.append(mid_gate_tail_id)
                 task["dependencies"] = new_deps
                 meta = dict(task.get("metadata") or {})
                 meta["run9_mid_gate_dependency_rewrite"] = True

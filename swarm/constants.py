@@ -18,7 +18,9 @@ LLM_PROVIDER: str = "minimax"
 FALLBACK_PROVIDERS: list = []
 
 # Agent runtime constants
-# Maximum number of tool-use iterations allowed per agent task before forcing termination
+# Default maximum tool-use iterations per agent task before forcing termination.
+# playthrough_bot tasks get 500 (set in swarm_runner.py) — they legitimately
+# need to fix game bugs AND write/iterate a bot in the same task.
 MAX_TOOL_LOOPS: int = 200
 API_PORT: int = 5001
 QA_MAX_CYCLES: int = 3

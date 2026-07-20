@@ -1274,7 +1274,7 @@ rt.TASK_ID          = {repr(task_id)}
 rt.TASK_PRIORITY    = {repr(task.get("priority", 50))}
 rt.TASK_METADATA    = {repr(metadata)}
 rt.API_PORT         = {API_PORT}
-rt.MAX_TOOL_LOOPS   = 200
+rt.MAX_TOOL_LOOPS   = {500 if task_type == "playthrough_bot" else 200}
 rt.MAX_LINES        = {MAX_LINES}
 rt.IGNORE_DIRS      = {repr(IGNORE_DIRS)}
 rt.IGNORE_EXTENSIONS = {repr(IGNORE_EXTENSIONS)}

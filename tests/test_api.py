@@ -320,22 +320,24 @@ class TestProjects:
         }, content_type="application/json")
 
         assert r.status_code == 200
-        assert r.json["seeded_tail_tasks"] == 3
+        assert r.json["seeded_tail_tasks"] == 4
 
         tasks = client.get("/api/tasks?project=godot-game-chaos&include_completed=true").json["tasks"]
         by_type = {t["type"]: t for t in tasks if (t.get("metadata") or {}).get("seeded_experiment_tail")}
-        assert set(by_type) == {"art_pass", "polish", "harness_qa"}
+        assert set(by_type) == {"art_pass", "polish", "harness_qa", "playthrough_bot"}
 
         art = by_type["art_pass"]
         polish = by_type["polish"]
         qa = by_type["harness_qa"]
+        bot = by_type["playthrough_bot"]
         cloned_t2 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "godot-game-t2")
 
         assert art["dependencies"] == [cloned_t2["id"]]
         assert polish["dependencies"] == [art["id"]]
         assert qa["dependencies"] == [polish["id"]]
+        assert bot["dependencies"] == [qa["id"]]
 
-        for task in (art, polish, qa):
+        for task in (art, polish, qa, bot):
             meta = task["metadata"]
             assert meta["experiment_id"] == "exp-tail"
             assert meta["experiment_variant"] == "variant-d"
@@ -381,7 +383,7 @@ class TestProjects:
         }, content_type="application/json")
 
         assert r.status_code == 200
-        assert r.json["seeded_tail_tasks"] == 6
+        assert r.json["seeded_tail_tasks"] == 8
         assert r.json["quality_gate_mode"] == "run9_mid_final"
 
         tasks = client.get("/api/tasks?project=run9-game-c&include_completed=true").json["tasks"]
@@ -389,7 +391,7 @@ class TestProjects:
             t for t in tasks
             if (t.get("metadata") or {}).get("seeded_experiment_tail")
         ]
-        assert len(gates) == 6
+        assert len(gates) == 8
 
         by_chain_stage = {
             (t["metadata"]["quality_gate_chain"], t["metadata"]["quality_gate_stage"]): t
@@ -398,9 +400,11 @@ class TestProjects:
         mid_art = by_chain_stage[("run9-mid", "art_pass")]
         mid_polish = by_chain_stage[("run9-mid", "polish")]
         mid_qa = by_chain_stage[("run9-mid", "harness_qa")]
+        mid_bot = by_chain_stage[("run9-mid", "playthrough_bot")]
         final_art = by_chain_stage[("run9-final", "art_pass")]
         final_polish = by_chain_stage[("run9-final", "polish")]
         final_qa = by_chain_stage[("run9-final", "harness_qa")]
+        final_bot = by_chain_stage[("run9-final", "playthrough_bot")]
 
         cloned_t2 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "run9-game-t2")
         cloned_t3 = next(t for t in tasks if (t.get("metadata") or {}).get("source_task_id") == "run9-game-t3")
@@ -409,11 +413,13 @@ class TestProjects:
         assert mid_art["dependencies"] == [cloned_t2["id"]]
         assert mid_polish["dependencies"] == [mid_art["id"]]
         assert mid_qa["dependencies"] == [mid_polish["id"]]
-        assert cloned_t3["dependencies"] == [mid_qa["id"]]
+        assert mid_bot["dependencies"] == [mid_qa["id"]]
+        assert cloned_t3["dependencies"] == [mid_bot["id"]]
         assert cloned_t3["metadata"]["run9_mid_gate_dependency_rewrite"] is True
         assert final_art["dependencies"] == [cloned_t4["id"]]
         assert final_polish["dependencies"] == [final_art["id"]]
         assert final_qa["dependencies"] == [final_polish["id"]]
+        assert final_bot["dependencies"] == [final_qa["id"]]
 
         assert mid_art["metadata"]["phase_loop_limits"] == {"work": 200}
         assert final_polish["metadata"]["phase_loop_limits"] == {"work": 200}

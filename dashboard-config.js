@@ -980,23 +980,31 @@ async function loadAnalytics() {
     } catch (e) {}
 
     try {
-        const vr = await fetch('/api/analytics/value-repair').then(r => r.json());
-        const rows = (vr.by_project || []).slice(0, 12);
+        const vr = await fetch('/api/analytics/value-repair?managed=true').then(r => r.json());
+        const rows = (vr.by_project || []).slice(0, 20);
         document.getElementById('analytics-value-repair').innerHTML = rows.length
             ? `<table class="analytics-table"><tr><th>Project</th><th>Value</th><th>Repair</th><th>Ratio</th></tr>${
-                rows.map(r => `<tr><td>${r.project}</td><td>${r.value_tasks}</td><td>${r.repair_tasks}</td><td class="${r.value_repair_ratio >= 1 ? 'success' : 'danger'}">${r.value_repair_ratio}x</td></tr>`).join('')
-              }</table>`
+                rows.map(r => {
+                    const ratio = r.value_repair_ratio;
+                    const cls = ratio >= 2 ? 'success' : ratio >= 1 ? '' : 'danger';
+                    return `<tr><td>${r.project}</td><td>${r.value_tasks}</td><td>${r.repair_tasks}</td><td class="${cls}">${ratio}x</td></tr>`;
+                }).join('')
+              }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Managed projects only</div>`
             : '<div class="analytics-empty">No completed tasks yet</div>';
     } catch (e) {}
 
     try {
-        const sc = await fetch('/api/analytics/ship-candidates').then(r => r.json());
-        const rows = (sc.candidates || []).slice(0, 12);
+        const sc = await fetch('/api/analytics/ship-candidates?managed=true').then(r => r.json());
+        const rows = (sc.candidates || []).slice(0, 20);
+        const botIcon = s => s === 'done' ? '✓' : s === 'pending' ? '…' : '–';
         document.getElementById('analytics-ship').innerHTML = rows.length
-            ? `<table class="analytics-table"><tr><th>Project</th><th>Closure</th><th>Val bugs</th><th>Unverif</th></tr>${
-                rows.map(r => `<tr><td>${r.project}</td><td>${r.closure_status}</td><td>${r.validation_bugs_last50}</td><td>${r.unverified_completions}</td></tr>`).join('')
-              }</table>`
-            : '<div class="analytics-empty">No Godot projects found</div>';
+            ? `<table class="analytics-table"><tr><th>Project</th><th>Bot</th><th>Pending</th><th>Val bugs</th></tr>${
+                rows.map(r => {
+                    const botCls = r.playthrough_bot === 'done' ? 'success' : r.playthrough_bot === 'pending' ? 'info' : '';
+                    return `<tr><td>${r.project}</td><td class="${botCls}">${botIcon(r.playthrough_bot)}</td><td>${r.pending_tasks}</td><td class="${r.validation_bugs_last50 > 0 ? 'danger' : ''}">${r.validation_bugs_last50}</td></tr>`;
+                }).join('')
+              }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Managed Godot projects only · Bot ✓=complete …=pending –=none</div>`
+            : '<div class="analytics-empty">No managed Godot projects found</div>';
     } catch (e) {}
 
     try {
@@ -1005,7 +1013,7 @@ async function loadAnalytics() {
             document.getElementById('analytics-deaths').innerHTML = '<div class="analytics-empty">No agent signals yet (needs log_extract_signals + finished agents)</div>';
         } else {
             const ts = Object.entries(d.terminal_status || {}).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
-            const errs = (d.top_errors || []).slice(0, 5).map(([e, n]) => `<tr><td style="font-family:monospace;font-size:11px">${(e || '').replace(/</g, '&lt;')}</td><td>${n}</td></tr>`).join('');
+            const errs = (d.top_errors || []).slice(0, 5).map(([e, n]) => `<tr><td style="font-family:monospace;font-size:11px">${(e || '').slice(0, 80).replace(/</g, '&lt;')}</td><td>${n}</td></tr>`).join('');
             document.getElementById('analytics-deaths').innerHTML =
                 `<table class="analytics-table"><tr><th>Terminal status</th><th>#</th></tr>${ts}</table>` +
                 (errs ? `<table class="analytics-table" style="margin-top:8px"><tr><th>Top errors</th><th>#</th></tr>${errs}</table>` : '');
@@ -1022,9 +1030,46 @@ async function loadAnalytics() {
         } else {
             document.getElementById('analytics-mechanisms').innerHTML =
                 `<table class="analytics-table"><tr><th>Mechanism</th><th>Fired</th><th>Completion rate</th></tr>${
-                    mechs.map(([name, s]) => `<tr><td>${name}</td><td>${s.fired_runs}</td><td>${s.completion_rate ?? '—'}</td></tr>`).join('')
-                }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Baseline (no mechanism): ${m.completion_rate_without_any_mechanism ?? '—'}</div>`;
+                    mechs.map(([name, s]) => {
+                        const rate = s.completion_rate ?? null;
+                        const cls = rate !== null ? (rate >= 0.6 ? 'success' : rate >= 0.4 ? '' : 'danger') : '';
+                        return `<tr><td>${name}</td><td>${s.fired_runs}</td><td class="${cls}">${rate !== null ? (rate * 100).toFixed(0) + '%' : '—'}</td></tr>`;
+                    }).join('')
+                }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Baseline (no mechanism): ${((m.completion_rate_without_any_mechanism ?? 0) * 100).toFixed(0)}%</div>`;
         }
+    } catch (e) {}
+
+    try {
+        const d = await fetch('/api/analytics/deaths').then(r => r.json());
+        const loops = Object.entries(d.avg_loop_by_type || {}).sort((a, b) => b[1] - a[1]);
+        document.getElementById('analytics-loops').innerHTML = loops.length
+            ? `<table class="analytics-table"><tr><th>Task type</th><th>Avg loops</th><th>Wall risk</th></tr>${
+                loops.map(([type, avg]) => {
+                    const cls = avg >= 150 ? 'danger' : avg >= 80 ? '' : 'success';
+                    const risk = avg >= 150 ? 'high' : avg >= 80 ? 'med' : 'low';
+                    return `<tr><td>${type}</td><td class="${cls}">${avg.toFixed(1)}</td><td class="${cls}">${risk}</td></tr>`;
+                }).join('')
+              }</table>`
+            : '<div class="analytics-empty">No signals yet</div>';
+    } catch (e) {}
+
+    try {
+        const roi = await fetch('/api/analytics/research-roi').then(r => r.json());
+        const rate = roi.unblock_rate !== null ? (roi.unblock_rate * 100).toFixed(0) + '%' : '—';
+        const rateCls = roi.unblock_rate >= 0.7 ? 'success' : roi.unblock_rate >= 0.5 ? '' : 'danger';
+        document.getElementById('analytics-roi').innerHTML = roi.total_feeders
+            ? `<div style="margin-bottom:8px">
+                <span class="metric-label">Unblock rate: </span>
+                <span class="metric-value ${rateCls}" style="font-size:18px">${rate}</span>
+                <span style="font-size:11px;color:var(--text-faint,#8b949e);margin-left:8px">${roi.unblocked}/${roi.total_feeders} feeders succeeded</span>
+               </div>
+               <table class="analytics-table"><tr><th>Project</th><th>Total</th><th>Rate</th></tr>${
+                   (roi.by_project || []).slice(0, 8).map(r => {
+                       const cls = r.rate >= 0.7 ? 'success' : r.rate >= 0.5 ? '' : 'danger';
+                       return `<tr><td>${r.project}</td><td>${r.total}</td><td class="${cls}">${(r.rate * 100).toFixed(0)}%</td></tr>`;
+                   }).join('')
+               }</table>`
+            : '<div class="analytics-empty">No research feeders found</div>';
     } catch (e) {}
 }
 

@@ -87,13 +87,21 @@ def choose_adaptive_flat_provider(
     task_type: str = "",
     loop_index: int = 0,
     last_tools: list[str] | tuple[str, ...] | None = None,
+    next_tools: list[str] | tuple[str, ...] | None = None,
     consecutive_cheap_loops: int = 0,
 ) -> RoutingDecision:
     """Choose a provider for the next flat-loop LLM call.
 
-    The policy is deliberately conservative: use the strong/default model for
-    intent-setting, edits, validation, vision, completion, and qualitative task
-    types; use the fast model only for bounded read-only exploration.
+    Routing priority:
+    1. next_tools (lookahead): tools the agent just requested — zero-lag signal.
+       If the current LLM response requested only read-only tools, route the
+       next call to the fast provider immediately. If it requested any strong
+       tool, stay on strong.
+    2. last_tools (trailing fallback): tools executed in the previous loop.
+       Used when next_tools is unavailable (e.g. first loop after a write).
+
+    The policy stays conservative for intent-setting, edits, validation, vision,
+    completion, and qualitative task types.
     """
 
     cfg = dict(config or {})
@@ -108,12 +116,30 @@ def choose_adaptive_flat_provider(
     if not fast or fast == strong:
         return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "no_distinct_fast_provider")
 
-    tools = [str(t) for t in (last_tools or []) if t]
     if loop_index <= 0 and cheap_after_first:
         return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "first_loop_sets_intent")
 
     if consecutive_cheap_loops >= max_cheap:
         return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "cheap_loop_cap")
+
+    # Lookahead: route based on what the agent just requested (zero-lag).
+    # next_tools is set from the parsed tool calls of the current LLM response
+    # before they are executed, so it predicts what the *next* loop needs.
+    requested = [str(t) for t in (next_tools or []) if t]
+    if requested:
+        if task_type in STRONG_TASK_TYPES:
+            # Qualitative tasks stay strong unless it's a pure read probe.
+            if all(t in READ_ONLY_TOOLS for t in requested) and consecutive_cheap_loops == 0:
+                return RoutingDecision(_provider_or_none(fast, default_provider), "cheap", "lookahead_qualitative_read")
+            return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "strong_task_type")
+        if any(t in STRONG_TOOLS for t in requested):
+            return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "lookahead_strong_tool")
+        if all(t in READ_ONLY_TOOLS for t in requested):
+            return RoutingDecision(_provider_or_none(fast, default_provider), "cheap", "lookahead_read_only")
+        return RoutingDecision(_provider_or_none(strong, default_provider), "strong", "lookahead_mixed_tools")
+
+    # Trailing fallback: use tools executed in the previous loop.
+    tools = [str(t) for t in (last_tools or []) if t]
 
     if task_type in STRONG_TASK_TYPES:
         if tools and all(t in READ_ONLY_TOOLS for t in tools) and consecutive_cheap_loops == 0:

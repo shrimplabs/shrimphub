@@ -121,10 +121,15 @@ def value_repair(db, project: Optional[str] = None) -> dict:
     }
 
 
-def value_repair_by_project(db) -> list[dict]:
-    """value/repair for every project that has completed tasks, ratio descending."""
-    projects = sorted(db.project_get_all().keys())
-    rows = [value_repair(db, p) for p in projects]
+def value_repair_by_project(db, projects: Optional[list] = None) -> list[dict]:
+    """value/repair for every project that has completed tasks, ratio descending.
+
+    If ``projects`` is given, only those projects are included.
+    """
+    all_projects = sorted(db.project_get_all().keys())
+    if projects is not None:
+        all_projects = [p for p in all_projects if p in set(projects)]
+    rows = [value_repair(db, p) for p in all_projects]
     rows = [r for r in rows if r["value_tasks"] or r["repair_tasks"]]
     rows.sort(key=lambda r: r["value_repair_ratio"], reverse=True)
     return rows
@@ -219,7 +224,7 @@ def mechanisms(db, project: Optional[str] = None) -> dict:
 # 5. Ship candidates (which Godot game is closest to releasable)
 # ---------------------------------------------------------------------------
 
-def ship_candidates(db, data_dir: Path, workspace: Path) -> list[dict]:
+def ship_candidates(db, data_dir: Path, workspace: Path, projects: Optional[list] = None) -> list[dict]:
     """Rank Godot projects by shippability signals.
 
     Signals per project: closure_status, validation-bug rate over the last N
@@ -231,8 +236,11 @@ def ship_candidates(db, data_dir: Path, workspace: Path) -> list[dict]:
     except Exception:
         derive_closure_status = None
 
+    project_filter = set(projects) if projects is not None else None
     out = []
     for name in sorted(db.project_get_all().keys()):
+        if project_filter is not None and name not in project_filter:
+            continue
         proj_dir = workspace / name
         if not (proj_dir / "project.godot").exists():
             continue  # Godot projects only
@@ -259,14 +267,85 @@ def ship_candidates(db, data_dir: Path, workspace: Path) -> list[dict]:
             except Exception:
                 closure = None
 
+        pending = sum(1 for t in tasks if t.get("status") == "pending")
+        has_bot = any(t.get("type") == "playthrough_bot" and t.get("status") == "completed" for t in tasks)
+        bot_pending = any(t.get("type") == "playthrough_bot" and t.get("status") == "pending" for t in tasks)
+
         out.append({
             "project": name,
             "closure_status": (closure.get("status") if isinstance(closure, dict) else closure) or "unknown",
             "validation_bugs_last50": val_bugs,
             "unverified_completions": unverified,
             "recent_task_sample": len(recent),
+            "pending_tasks": pending,
+            "playthrough_bot": "done" if has_bot else ("pending" if bot_pending else "none"),
         })
 
-    # Rank: fewest validation bugs + unverified completions first.
-    out.sort(key=lambda r: (r["validation_bugs_last50"] + r["unverified_completions"]))
+    # Rank: bot done first, then fewest validation bugs + unverified + pending tasks.
+    out.sort(key=lambda r: (
+        0 if r["playthrough_bot"] == "done" else (1 if r["playthrough_bot"] == "pending" else 2),
+        r["validation_bugs_last50"] + r["unverified_completions"],
+        r["pending_tasks"],
+    ))
     return out
+
+
+def research_feeder_roi(db, project: Optional[str] = None) -> dict:
+    """How often does a research feeder diagnosis actually unblock the original task?
+
+    Returns counts and unblock rate across all research feeder tasks.
+    """
+    import json as _json
+
+    conn = db._connect()
+    q = "SELECT id, project, status, metadata FROM tasks WHERE type='research' AND metadata LIKE '%feeds_into_task_id%'"
+    params: list = []
+    if project:
+        q += " AND project=?"
+        params.append(project)
+    feeders = conn.execute(q, params).fetchall()
+
+    total = 0
+    unblocked = 0
+    still_failed = 0
+    still_pending = 0
+    by_project: dict = {}
+
+    for f in feeders:
+        try:
+            meta = _json.loads(f[3]) if f[3] else {}
+        except Exception:
+            continue
+        orig_id = meta.get("feeds_into_task_id")
+        if not orig_id:
+            continue
+        orig = conn.execute("SELECT status, project FROM tasks WHERE id=?", (orig_id,)).fetchone()
+        if not orig:
+            continue
+        total += 1
+        proj = f[1]
+        if proj not in by_project:
+            by_project[proj] = {"total": 0, "unblocked": 0, "failed": 0}
+        by_project[proj]["total"] += 1
+        if orig[0] == "completed":
+            unblocked += 1
+            by_project[proj]["unblocked"] += 1
+        elif orig[0] in ("failed", "cancelled"):
+            still_failed += 1
+            by_project[proj]["failed"] += 1
+        else:
+            still_pending += 1
+
+    rate = round(unblocked / total, 3) if total else None
+    return {
+        "total_feeders": total,
+        "unblocked": unblocked,
+        "still_failed": still_failed,
+        "still_pending": still_pending,
+        "unblock_rate": rate,
+        "by_project": sorted(
+            [{"project": p, **v, "rate": round(v["unblocked"] / v["total"], 2) if v["total"] else 0}
+             for p, v in by_project.items()],
+            key=lambda r: -r["total"],
+        )[:20],
+    }

@@ -151,6 +151,9 @@ def _try_parse_multi(block: str) -> list:
 
 
 def parse_tool_calls(text: str) -> list:
+    # Strip Qwen3/DeepSeek thinking blocks — tool calls appear after </think>
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
     # MiniMax-M3 occasionally returns a valid JSON body and the literal closing
     # tag ``[/TOOL_CALL`` while omitting only its final ``]``. Repair only this
     # exact end-of-response suffix; genuinely partial calls remain unparseable.
@@ -160,29 +163,29 @@ def parse_tool_calls(text: str) -> list:
 
     def _try_parse(json_str):
         # Sanitize common MiniMax formatting quirks before parsing
-        import re as _re2
+        import re as re
         # Replace Ruby/PHP-style hash rockets: "key" => "value" → "key": "value"
-        sanitized = _re2.sub(r'"(\w+)"\s*=>\s*', r'"\1": ', json_str)
+        sanitized = re.sub(r'"(\w+)"\s*=>\s*', r'"\1": ', json_str)
         # Also handle unquoted key => value: key => "value" → "key": "value"
-        sanitized = _re2.sub(r'(\w+)\s*=>\s*', r'"\1": ', sanitized)
+        sanitized = re.sub(r'(\w+)\s*=>\s*', r'"\1": ', sanitized)
         # Replace CLI-style flag args: --key "value" → "key": "value"
         # e.g. {"tool": "x", "args": {\n--command "echo hi"\n}}
-        sanitized = _re2.sub(r'--(\w+)\s+"([^"]*)"', r'"\1": "\2"', sanitized)
-        sanitized = _re2.sub(r"--(\w+)\s+'([^']*)'", r'"\1": "\2"', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+"([^"]*)"', r'"\1": "\2"', sanitized)
+        sanitized = re.sub(r"--(\w+)\s+'([^']*)'", r'"\1": "\2"', sanitized)
         # Handle --key [...] (JSON array value, keep as-is)
-        sanitized = _re2.sub(r'--(\w+)\s+(\[.*?\])', r'"\1": \2', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+(\[.*?\])', r'"\1": \2', sanitized)
         # Handle --key {...} (JSON object value, keep as-is)
-        sanitized = _re2.sub(r'--(\w+)\s+(\{.*?\})', r'"\1": \2', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+(\{.*?\})', r'"\1": \2', sanitized)
         # Handle --key number → "key": number
-        sanitized = _re2.sub(r'--(\w+)\s+(\d+(?:\.\d+)?)\b', r'"\1": \2', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+(\d+(?:\.\d+)?)\b', r'"\1": \2', sanitized)
         # Handle --key true/false/null
-        sanitized = _re2.sub(r'--(\w+)\s+(true|false|null)\b', r'"\1": \2', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+(true|false|null)\b', r'"\1": \2', sanitized)
         # Handle remaining --key value (unquoted string) → "key": "value"
-        sanitized = _re2.sub(r'--(\w+)\s+(\S+)', r'"\1": "\2"', sanitized)
+        sanitized = re.sub(r'--(\w+)\s+(\S+)', r'"\1": "\2"', sanitized)
         # Fix missing commas between "key": value pairs on adjacent lines
-        sanitized = _re2.sub(r'(":\s*(?:"[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\}))\s*\n(\s*")', r'\1,\n\2', sanitized)
+        sanitized = re.sub(r'(":\s*(?:"[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\}))\s*\n(\s*")', r'\1,\n\2', sanitized)
         # Remove trailing commas before closing braces/brackets
-        sanitized = _re2.sub(r',(\s*[}\]])', r'\1', sanitized)
+        sanitized = re.sub(r',(\s*[}\]])', r'\1', sanitized)
         for candidate in ([sanitized, json_str] if sanitized != json_str else [json_str]):
             try:
                 return json.loads(candidate)
@@ -192,6 +195,28 @@ def parse_tool_calls(text: str) -> list:
                         return json.loads(candidate + extra)
                     except json.JSONDecodeError:
                         pass
+
+        # Function-call style: tool_name(key="val", key2=val2, ...)
+        # Emitted by Qwen3 and some other models as their natural tool format.
+        fn_match = re.match(r'^(\w+)\s*\((.*)\)\s*$', json_str.strip(), re.DOTALL)
+        if fn_match:
+            tool_name = fn_match.group(1)
+            raw_args = fn_match.group(2).strip()
+            args = {}
+            # Parse key=value pairs (handles quoted strings, numbers, booleans)
+            for m in re.finditer(r'(\w+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|(\d+(?:\.\d+)?)|(\w+))', raw_args):
+                key = m.group(1)
+                if m.group(2) is not None:
+                    args[key] = m.group(2)
+                elif m.group(3) is not None:
+                    args[key] = m.group(3)
+                elif m.group(4) is not None:
+                    args[key] = float(m.group(4)) if '.' in m.group(4) else int(m.group(4))
+                elif m.group(5) is not None:
+                    val = m.group(5)
+                    args[key] = True if val == 'true' else False if val == 'false' else None if val == 'null' else val
+            return {"tool": tool_name, "args": args}
+
         return None
 
     # [TOOL_CALL]...[/TOOL_CALL]

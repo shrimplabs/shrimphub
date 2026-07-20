@@ -19,6 +19,7 @@ if (window.SwarmDepsIntegrityUI) {
 
 function refreshAll() { loadData().then(() => { if (_depsVisible) renderDepsGraph(); }); }
 loadData();
+_probeHeadroom();
 // Click outside modals to close
 document.getElementById('outputModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
 document.getElementById('editTaskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditTaskModal(); });
@@ -45,3 +46,4 @@ setInterval(syncAutoMode, 5000);
 setInterval(syncProviders, 30000);
 setInterval(loadMetrics, 30000);
 setInterval(() => { if (typeof loadAnalytics === 'function') loadAnalytics(); }, 30000);
+setInterval(_probeHeadroom, 30000);

@@ -24,9 +24,14 @@ def register_routes(app, db, data_dir, workspace):
     @app.route("/api/analytics/value-repair", methods=["GET"])
     def analytics_value_repair():
         project = request.args.get("project") or None
+        managed_only = request.args.get("managed", "").lower() in ("1", "true", "yes")
         if project:
             return jsonify(analytics.value_repair(db, project=project))
-        return jsonify({"by_project": analytics.value_repair_by_project(db),
+        managed_projects = None
+        if managed_only:
+            from swarm import orchestrator as _orch
+            managed_projects = getattr(_orch, "MANAGED_PROJECTS", None) or None
+        return jsonify({"by_project": analytics.value_repair_by_project(db, projects=managed_projects),
                         "overall": analytics.value_repair(db)})
 
     @app.route("/api/analytics/deaths", methods=["GET"])
@@ -39,6 +44,16 @@ def register_routes(app, db, data_dir, workspace):
         project = request.args.get("project") or None
         return jsonify(analytics.mechanisms(db, project=project))
 
+    @app.route("/api/analytics/research-roi", methods=["GET"])
+    def analytics_research_roi():
+        project = request.args.get("project") or None
+        return jsonify(analytics.research_feeder_roi(db, project=project))
+
     @app.route("/api/analytics/ship-candidates", methods=["GET"])
     def analytics_ship_candidates():
-        return jsonify({"candidates": analytics.ship_candidates(db, data_dir, workspace)})
+        managed_only = request.args.get("managed", "").lower() in ("1", "true", "yes")
+        managed_projects = None
+        if managed_only:
+            from swarm import orchestrator as _orch
+            managed_projects = getattr(_orch, "MANAGED_PROJECTS", None) or None
+        return jsonify({"candidates": analytics.ship_candidates(db, data_dir, workspace, projects=managed_projects)})

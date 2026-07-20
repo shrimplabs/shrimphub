@@ -283,7 +283,7 @@ PHASE_LOOP_LIMITS: dict = {}   # optional per-phase loop overrides, e.g. {"plan"
 
 # EXPERIMENT: adaptive_flat keeps the legacy continuous transcript but routes
 # individual loops between fast and strong providers based on recent tool use.
-ADAPTIVE_FLAT: bool = False
+ADAPTIVE_FLAT: bool = True  # run-12 policy: adaptive flat is the default for all tasks
 LOOP_MODEL_ROUTING: dict = {}
 
 # Write-blocked tools during scout phase -- enforced at dispatch level.
@@ -806,6 +806,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         or TASK_METADATA.get("pipeline_mode") == "adaptive_flat"
     )
     _last_tools_for_routing: list[str] = []
+    _next_tools_for_routing: list[str] = []  # lookahead: tools requested in current loop
     _adaptive_flat_stats = {
         "enabled": _adaptive_flat_enabled,
         "cheap_loops": 0,
@@ -1037,7 +1038,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         _provider_reason = "default_provider"
         if _adaptive_flat_enabled and not _active_provider:
             try:
-                from swarm.model_routing import choose_adaptive_flat_provider
+                from swarm.model_routing import choose_adaptive_flat_provider, STRONG_TOOLS
                 _decision = choose_adaptive_flat_provider(
                     LOOP_MODEL_ROUTING,
                     default_provider=LLM_PROVIDER,
@@ -1046,6 +1047,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     task_type=TASK_TYPE,
                     loop_index=tool_loop_count,
                     last_tools=_last_tools_for_routing,
+                    next_tools=_next_tools_for_routing,
                     consecutive_cheap_loops=_consecutive_cheap_loops,
                 )
                 _active_provider = _decision.provider
@@ -1076,12 +1078,13 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 "tier": _provider_tier,
                 "reason": _provider_reason,
                 "last_tools": list(_last_tools_for_routing),
+                "next_tools": list(_next_tools_for_routing),
             })
             if len(_adaptive_flat_stats["decisions"]) > 40:
                 _adaptive_flat_stats["decisions"] = _adaptive_flat_stats["decisions"][-40:]
             log(
                 f"[AdaptiveFlat] provider={_provider_name} tier={_provider_tier} "
-                f"reason={_provider_reason} last_tools={_last_tools_for_routing}"
+                f"reason={_provider_reason} next_tools={_next_tools_for_routing} last_tools={_last_tools_for_routing}"
             )
             try:
                 import swarm.agent_runtime as _self_mod
@@ -1172,6 +1175,26 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         _has_task_complete = "TASK_COMPLETE" in _response_sans_tools
 
         tool_calls = parse_tool_calls(response)
+        _next_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
+
+        # Escalate-and-retry: if the cheap provider emitted a strong tool, discard its
+        # response and re-run the same conversation on the strong provider immediately.
+        # This leaves no synthetic messages in history (no poisoning) and costs one extra
+        # LLM call instead of a wasted loop.
+        if (
+            _adaptive_flat_enabled
+            and _provider_tier == "cheap"
+            and any(t in STRONG_TOOLS for t in _next_tools_for_routing)
+        ):
+            _strong_prov = str((LOOP_MODEL_ROUTING or {}).get("strong_provider", "") or LLM_PROVIDER)
+            log(f"[AdaptiveFlat] Cheap provider emitted strong tool(s) {_next_tools_for_routing} -- escalating to {_strong_prov}")
+            response, _esc_tokens, thinking_blocks = call_llm(system_with_budget, conv_with_prefix, provider=_strong_prov)
+            total_input_tokens += _esc_tokens.get("input", 0)
+            total_output_tokens += _esc_tokens.get("output", 0)
+            tool_calls = parse_tool_calls(response)
+            _next_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
+            _provider_tier = "strong"
+            _adaptive_flat_stats["model_switches"] = _adaptive_flat_stats.get("model_switches", 0) + 1
         if _adaptive_flat_enabled and _provider_tier == "cheap" and _has_task_complete:
             _adaptive_flat_stats["cheap_completion_blocks"] += 1
             _has_task_complete = False
@@ -1183,6 +1206,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 "confirm completion on the next loop."
             )})
             _last_tools_for_routing = []
+            _next_tools_for_routing = []
             _consecutive_cheap_loops = int(LOOP_MODEL_ROUTING.get("max_consecutive_cheap_loops", LOOP_MODEL_ROUTING.get("max_cheap_loops", 3)) or 3)
             tool_loop_count += 1
             continue
@@ -1307,6 +1331,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         _last_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
         _last_run_outputs = []   # reset each loop; only keep the latest batch
         _no_tool_call_nudged = False  # reset -- model is back to using tools
+
 
         for tc in tool_calls:
             log(f"Tool call: {tc}")
@@ -1566,7 +1591,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with _ur.urlopen(req, timeout=10) as resp:
+            with _ur.urlopen(req, timeout=60) as resp:
                 result = _json.loads(resp.read())
                 new_id = result.get("task", {}).get("id", "?")
                 log(f"Continuation task created: {new_id}" + (f" (inheriting worktree {PROJECT_PATH_OVERRIDE})" if PROJECT_PATH_OVERRIDE else ""))
@@ -1812,7 +1837,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with _ur.urlopen(req, timeout=10) as resp:
+                with _ur.urlopen(req, timeout=60) as resp:
                     result = json.loads(resp.read())
                     new_id = result.get("task", {}).get("id", "?")
                     log(f"Continuation task created: {new_id}" + (f" (inheriting worktree {PROJECT_PATH_OVERRIDE})" if PROJECT_PATH_OVERRIDE else ""))

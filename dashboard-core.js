@@ -18,6 +18,34 @@ function applyTheme(theme) {
 }
 
 // Debug mode — shows internal panels (429 pressure chart, etc.)
+// ── Services bar helpers ──────────────────────────────────────────────────
+function _setSvcChip(id, ok, tooltip) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('ok', 'warn', 'down', 'unknown');
+    if (ok === true)       el.classList.add('ok');
+    else if (ok === false) el.classList.add('down');
+    else                   el.classList.add('unknown');
+    if (tooltip) el.title = tooltip;
+}
+
+async function _probeHeadroom() {
+    const probes = [
+        { id: 'svc-headroom-8888', port: 8888, label: 'Headroom 8888 (MiniMax)' },
+        { id: 'svc-headroom-8877', port: 8877, label: 'Headroom 8877 (Codex)' },
+    ];
+    for (const p of probes) {
+        try {
+            const res = await fetch(`http://localhost:${p.port}/health`, { signal: AbortSignal.timeout(3000) });
+            const data = res.ok ? await res.json() : null;
+            const ok = data && data.status === 'healthy';
+            _setSvcChip(p.id, ok, ok ? `${p.label} — healthy` : `${p.label} — unhealthy`);
+        } catch {
+            _setSvcChip(p.id, false, `${p.label} — unreachable`);
+        }
+    }
+}
+
 let _debugMode = localStorage.getItem('swarm-debug') === '1';
 function _applyDebugMode() {
     const panel = document.getElementById('rlHistoryPanel');
@@ -95,7 +123,7 @@ async function loadData() {
         }
         const quotaData = await quotaRes.json();
 
-        // Prompt warnings from /api/health
+        // Prompt warnings + service health from /api/health
         if (healthRes.ok) {
             const healthData = await healthRes.json();
             const warnings = healthData.prompt_warnings || [];
@@ -105,7 +133,7 @@ async function loadData() {
                 pill.style.display = warnings.length > 0 ? '' : 'none';
                 document.getElementById('promptWarnCount').textContent = warnings.length;
             }
-            // Stale-code chip: server process running an older commit than the repo
+            // Stale-code chip
             const staleChip = document.getElementById('staleCodeChip');
             if (staleChip) {
                 if (healthData.code_stale) {
@@ -115,6 +143,22 @@ async function loadData() {
                     staleChip.style.display = 'none';
                 }
             }
+            // Services bar
+            _setSvcChip('svc-swarm', true, `Swarm :5001 — monitor lag ${healthData.monitor_lag_seconds}s, uptime ${Math.round((healthData.uptime_seconds||0)/60)}m`);
+            const sr = healthData.shrimp_router;
+            if (sr != null) {
+                _setSvcChip('svc-shrimp', sr.ok, sr.ok ? `Shrimp-router :8090 — ${Object.keys(sr.backends||{}).length} backends` : 'Shrimp-router :8090 DOWN');
+                const mm = sr.backends && sr.backends['minimax'];
+                _setSvcChip('svc-minimax', mm === true, mm === true ? 'MiniMax reachable' : mm === false ? 'MiniMax unreachable' : null);
+                const vlm = sr.backends && sr.backends['vlm-local'];
+                _setSvcChip('svc-vlm', vlm === true, vlm === true ? 'VLM local reachable' : vlm === false ? 'VLM local down' : null);
+            } else {
+                _setSvcChip('svc-shrimp', null);
+                _setSvcChip('svc-minimax', null);
+                _setSvcChip('svc-vlm', null);
+            }
+        } else {
+            _setSvcChip('svc-swarm', false, 'Swarm API unreachable');
         }
 
         // Quota meter (use "general" model entry, fall back to first)

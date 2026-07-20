@@ -5,6 +5,7 @@ from flask import jsonify, request
 import json
 import os
 import time
+import urllib.request
 from pathlib import Path
 from flask import Response, jsonify, request, send_file
 
@@ -16,6 +17,25 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
     # Stale-code detection state: compare the commit this process is running
     # against the repo's current HEAD, re-checked at most once per 60s.
     _repo_commit_cache = {"value": "", "checked_at": 0.0}
+    _shrimp_cache: dict = {"ok": None, "backends": {}, "checked_at": 0.0}
+
+    def _check_shrimp_router() -> dict:
+        now = time.time()
+        if now - _shrimp_cache["checked_at"] > 30:
+            try:
+                req = urllib.request.Request(
+                    "http://localhost:8090/health",
+                    headers={"Accept": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read())
+                _shrimp_cache["ok"] = bool(data.get("ok"))
+                _shrimp_cache["backends"] = data.get("backends", {})
+            except Exception:
+                _shrimp_cache["ok"] = False
+                _shrimp_cache["backends"] = {}
+            _shrimp_cache["checked_at"] = now
+        return _shrimp_cache
 
     def _current_repo_commit() -> str:
         now = time.time()
@@ -235,4 +255,5 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "running_commit": running_commit,
             "repo_commit": repo_commit,
             "code_stale": bool(running_commit and repo_commit and running_commit != repo_commit),
+            "shrimp_router": _check_shrimp_router(),
         })
