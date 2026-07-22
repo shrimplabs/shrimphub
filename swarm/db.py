@@ -647,6 +647,14 @@ def task_get_by_project(project: str) -> List[Dict]:
     return [_task_row(r) for r in rows]
 
 
+def task_get_by_type(task_type: str) -> List[Dict]:
+    rows = _connect().execute(
+        "SELECT * FROM tasks WHERE type=? ORDER BY priority DESC",
+        (task_type,),
+    ).fetchall()
+    return [_task_row(r) for r in rows]
+
+
 def task_get_active(statuses: tuple = ("pending", "in_progress", "failed"),
                     project: Optional[str] = None) -> List[Dict]:
     """Fetch only the active working set -- avoids full-table scan for the dashboard.

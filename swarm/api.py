@@ -260,6 +260,18 @@ def create_app(
     app.config["DATA_DIR"] = str(data_dir)
     app.config["CONFIG_FILE"] = str(config_file)
 
+    try:
+        from flask_compress import Compress
+        app.config["COMPRESS_MIMETYPES"] = [
+            "application/json", "text/html", "text/css",
+            "application/javascript", "text/javascript",
+        ]
+        app.config["COMPRESS_LEVEL"] = 6
+        app.config["COMPRESS_MIN_SIZE"] = 4096
+        Compress(app)
+    except ImportError:
+        pass  # flask-compress not installed; responses uncompressed
+
     # Import modules after app creation to avoid circular imports
     from swarm import db
     from swarm.tasks import SQLiteTaskSource
@@ -1376,7 +1388,32 @@ def run_app(
     except Exception:
         _cfg = {}
     bind_host = "127.0.0.1" if _cfg.get("login_required") else "0.0.0.0"
-    app.run(host=bind_host, port=port, debug=False, threaded=True)
+    try:
+        from gunicorn.app.base import BaseApplication
+
+        class _GunicornApp(BaseApplication):
+            def __init__(self, application, options=None):
+                self.application = application
+                self.options = options or {}
+                super().__init__()
+            def load_config(self):
+                for k, v in self.options.items():
+                    if k in self.cfg.settings and v is not None:
+                        self.cfg.set(k.lower(), v)
+            def load(self):
+                return self.application
+
+        _GunicornApp(app, {
+            "bind": f"{bind_host}:{port}",
+            "workers": 1,
+            "threads": 16,
+            "worker_class": "gthread",
+            "timeout": 300,
+            "keepalive": 5,
+            "loglevel": "warning",
+        }).run()
+    except ImportError:
+        app.run(host=bind_host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

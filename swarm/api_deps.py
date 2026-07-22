@@ -601,7 +601,12 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     @app.route("/api/dependencies", methods=["GET"])
     def get_dependency_graph():
         from swarm.dependencies import build_graph_from_tasks
-        tasks = task_source.get_all_tasks(exclude_statuses=("completed", "archived", "cancelled"))
+        project = _req.args.get("project", "").strip()
+        projects = [project] if project else (config.get("managed_projects") or None)
+        tasks = task_source.get_all_tasks(
+            exclude_statuses=("completed", "archived", "cancelled", "failed"),
+            projects=projects,
+        )
         graph = build_graph_from_tasks(tasks)
         return jsonify(graph.get_stats())
 
@@ -609,8 +614,13 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     def get_dependency_dot():
         from swarm.dependencies import build_graph_from_tasks
 
-        active_tasks = task_source.get_all_tasks(exclude_statuses=("archived",))
         project = _req.args.get("project", "").strip()
+        # Scope to the project (or managed projects) to avoid a full 18k-row scan.
+        _dot_projects = [project] if project else (config.get("managed_projects") or None)
+        active_tasks = task_source.get_all_tasks(
+            exclude_statuses=("archived",),
+            projects=_dot_projects,
+        )
         try:
             history_depth = int((_req.args.get("history_depth") or _req.args.get("history_limit") or "2").strip())
         except Exception:

@@ -1,4 +1,6 @@
 flask>=3.0
+flask-compress>=1.14
+gunicorn>=22.0
 requests>=2.31
 certifi>=2024.0
 pyyaml>=6.0

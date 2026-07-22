@@ -314,8 +314,18 @@ def register_routes(app, task_source, db, workspace, config=None):
 
         from swarm.tasks import Task
         tasks = [Task.from_dict(r) for r in raw]
+        # Slim down failed tasks: strip description + metadata to cut payload from
+        # ~17MB to ~1MB.  Full details are available via GET /api/tasks/<id>.
+        _SLIM_KEYS = {"id","project","type","status","priority","attempts",
+                      "max_attempts","dependencies","created","started","completed",
+                      "run_after","plan_id","agent_id"}
+        def _serialize(t):
+            d = t.to_dict()
+            if d.get("status") == "failed":
+                return {k: v for k, v in d.items() if k in _SLIM_KEYS}
+            return d
         return jsonify({
-            "tasks": [t.to_dict() for t in tasks]
+            "tasks": [_serialize(t) for t in tasks]
         })
     @app.route("/api/tasks", methods=["POST"])
     def add_task():

@@ -215,11 +215,11 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
         }
         return write_project_closure_doc(workspace / project_name, project_name, proposal)
 
-    def _latest_playthrough_payload(project_name: str) -> dict | None:
-        tasks = [
-            t for t in db.task_get_by_project(project_name)
-            if t.get("type") == "playthrough_bot"
-        ]
+    def _latest_playthrough_payload(project_name: str, playthrough_by_project: dict = None) -> dict | None:
+        if playthrough_by_project is not None:
+            tasks = playthrough_by_project.get(project_name, [])
+        else:
+            tasks = [t for t in db.task_get_by_project(project_name) if t.get("type") == "playthrough_bot"]
         if not tasks:
             return None
         tasks.sort(
@@ -254,17 +254,23 @@ def register_routes(app, project_registry, workspace, task_source, orchestrator,
             "completed_at": task.get("completed"),
         }
 
-    def _project_payload(name: str, project) -> dict:
+    def _project_payload(name: str, project, playthrough_by_project: dict = None) -> dict:
         payload = project.to_dict()
-        payload["latest_playthrough"] = _latest_playthrough_payload(name)
+        payload["latest_playthrough"] = _latest_playthrough_payload(name, playthrough_by_project)
         return payload
 
 # ---------- Projects ----------
     @app.route("/api/projects", methods=["GET"])
     def list_projects():
         projects = project_registry.get_all()
+        # Fetch all playthrough tasks in one query and group by project,
+        # rather than one query per project (N=34+ queries → 1).
+        all_playthroughs = db.task_get_by_type("playthrough_bot")
+        playthrough_by_project: dict = {}
+        for t in all_playthroughs:
+            playthrough_by_project.setdefault(t["project"], []).append(t)
         return jsonify({
-            "projects": {k: _project_payload(k, v) for k, v in projects.items()}
+            "projects": {k: _project_payload(k, v, playthrough_by_project) for k, v in projects.items()}
         })
     @app.route("/api/projects", methods=["POST"])
     def add_project():

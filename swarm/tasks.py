@@ -250,8 +250,8 @@ class SQLiteTaskSource(TaskSource):
         from swarm import db as _db
         self._db = _db
 
-    def get_all_tasks(self, exclude_statuses: tuple = ()) -> List[Task]:
-        return [Task.from_dict(t) for t in self._db.task_get_all(exclude_statuses=exclude_statuses)]
+    def get_all_tasks(self, exclude_statuses: tuple = (), projects: list = None) -> List[Task]:
+        return [Task.from_dict(t) for t in self._db.task_get_all(exclude_statuses=exclude_statuses, projects=projects)]
 
     def get_pending_tasks(self) -> List[Task]:
         return [Task.from_dict(t) for t in self._db.task_get_by_status("pending")]
