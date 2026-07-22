@@ -183,12 +183,15 @@ def _connect() -> sqlite3.Connection:
     if getattr(_local, "conn", None) is None:
         if _db_path is None:
             raise RuntimeError("swarm.db.init() must be called before use")
-        conn = sqlite3.connect(str(_db_path), check_same_thread=False)
+        conn = sqlite3.connect(str(_db_path), check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         # WAL allows concurrent readers; NORMAL sync is safe + fast
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # Let readers wait up to 10s for write locks instead of failing fast
+        # and forcing Python-level retries that each take 5s (default timeout).
+        conn.execute("PRAGMA busy_timeout=10000")
         _local.conn = conn
     return _local.conn
 
@@ -576,9 +579,15 @@ def task_get_all(exclude_statuses: tuple = (), projects: list = None) -> List[Di
     return [_task_row(r) for r in rows]
 
 
-def task_get_all_ids() -> set:
+def task_get_all_ids(projects: list = None) -> set:
     """Return the set of all task IDs — lightweight, no full row deserialisation."""
-    rows = _connect().execute("SELECT id FROM tasks").fetchall()
+    if projects:
+        placeholders = ",".join("?" * len(projects))
+        rows = _connect().execute(
+            f"SELECT id FROM tasks WHERE project IN ({placeholders})", projects
+        ).fetchall()
+    else:
+        rows = _connect().execute("SELECT id FROM tasks").fetchall()
     return {r[0] for r in rows}
 
 

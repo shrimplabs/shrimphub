@@ -610,7 +610,7 @@ def create_app(
                 # (old void-patrol-run4, etc.) should not be scanned every 5s.
                 _managed = config.get("managed_projects") or None  # None = no filter (all)
                 _cycle_completed_ids = db.task_get_completed_ids(projects=_managed)
-                _cycle_all_task_ids = {t["id"] for t in db.task_get_all(projects=_managed)}
+                _cycle_all_task_ids = db.task_get_all_ids(projects=_managed)
                 orchestrator.check_ghost_merge_tasks()
                 orchestrator.check_dep_violations(
                     completed_ids=_cycle_completed_ids,

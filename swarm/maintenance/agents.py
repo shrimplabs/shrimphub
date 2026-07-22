@@ -81,6 +81,7 @@ def reconcile_agent_runtime_state(
             except Exception as exc:
                 logger(f"[Swarm] Could not repair stale live ownership for {aid[:8]}: {exc}")
 
+    finish_threads = []
     for agent in db.agent_get_active():
         aid = agent["id"]
         if aid in known:
@@ -97,26 +98,30 @@ def reconcile_agent_runtime_state(
         if pid and is_pid_running(pid):
             continue
         exit_code = agent.get("exit_code") or 1
-        try:
-            finish_agent(
-                aid, exit_code,
-                agent.get("project"), agent.get("task_id"),
-                agent.get("script_path"), agent.get("log_path"),
-            )
-            repaired_agents.append(aid)
-        except Exception as exc:
-            logger(f"[Swarm] Error finishing stale agent {aid[:8]}: {exc} - forcing to failed")
+        repaired_agents.append(aid)
+        # Finish in a background thread — finish_agent runs the full completion
+        # pipeline (git diff, auto-task spawning, etc.) and can block for seconds.
+        def _run_reconcile_finish(
+            _aid=aid, _exit_code=exit_code,
+            _proj=agent.get("project"), _tid=agent.get("task_id"),
+            _sp=agent.get("script_path"), _lp=agent.get("log_path"),
+        ):
             try:
-                db.agent_update_status(aid, "failed", exit_code=exit_code)
-                repaired_agents.append(aid)
-                task_id = agent.get("task_id")
-                if task_id:
-                    task = db.task_get(task_id)
-                    if task and task.get("status") == "in_progress":
-                        task_mutations.reset_task_to_pending(db, task_id, reset_attempts=False)
-                        reset_tasks.append(task_id)
-            except Exception as exc2:
-                logger(f"[Swarm] Could not even force-fail agent {aid[:8]}: {exc2}")
+                finish_agent(_aid, _exit_code, _proj, _tid, _sp, _lp)
+            except Exception as exc:
+                logger(f"[Swarm] Error finishing stale agent {_aid[:8]}: {exc} - forcing to failed")
+                try:
+                    db.agent_update_status(_aid, "failed", exit_code=_exit_code)
+                    if _tid:
+                        t = db.task_get(_tid)
+                        if t and t.get("status") == "in_progress":
+                            task_mutations.reset_task_to_pending(db, _tid, reset_attempts=False)
+                except Exception as exc2:
+                    logger(f"[Swarm] Could not even force-fail agent {_aid[:8]}: {exc2}")
+        import threading as _threading
+        t = _threading.Thread(target=_run_reconcile_finish, daemon=True, name=f"reconcile-{aid[:8]}")
+        t.start()
+        finish_threads.append(t)
 
     in_prog = db.task_get_by_status("in_progress")
     active_agents_by_task = {

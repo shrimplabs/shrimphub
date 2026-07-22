@@ -72,7 +72,7 @@ MINIMAX_BASE_URL: str = constants.MINIMAX_BASE_URL
 
 # Max agents to spawn per fill_slots call -- prevents burst spawning after a cooldown.
 # Set low (e.g. 2-3) so slots fill gradually across monitor cycles rather than all at once.
-SPAWN_PER_CYCLE: int = 3
+SPAWN_PER_CYCLE: int = 1
 
 # Auto-scaling: when enabled, the monitor adjusts MAX_ACTIVE_AGENTS dynamically based
 # on observed 429 pressure, up to the configured ceiling (max_active_agents in config).
@@ -357,10 +357,10 @@ def check_infra_freeze(db, config: dict) -> None:
     """
     threshold = int(config.get("infra_freeze_threshold", constants.INFRA_FREEZE_THRESHOLD))
     try:
-        tasks = db.task_get_all()
+        pending_tasks = db.task_get_by_status("pending")
+        _managed = set(MANAGED_PROJECTS) if MANAGED_PROJECTS else None
+        tasks = [t for t in pending_tasks if _managed is None or t.get("project") in _managed]
         for t in tasks:
-            if t.get("status") != "pending":
-                continue
             meta = t.get("metadata") or {}
             if not meta.get("infrastructure_retry_pending"):
                 continue

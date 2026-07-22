@@ -296,15 +296,23 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
     # Pre-flight baseline: capture which validation errors exist BEFORE the agent
     # touches anything.  Post-task validation diffs against this so only NEW errors
     # count as failures.  Only runs for task types that go through post-validation.
+    # Runs asynchronously in a background thread so it never blocks the monitor loop —
+    # capture_validation_baseline can take up to 60s (Godot headless validation).
+    # The baseline is stored in task metadata before the agent does meaningful work;
+    # agents spend their first several tool-loops reading files, so there's ample
+    # window before any writes occur.
     _BASELINE_SKIP_TYPES = {"manager", "project_create", "qa", "research",
                             "harness_qa", "hybrid_qa", "project_plan", "audit",
                             "triage", "art_pass", "scenario_qa"}
     _baseline_path = worktree_path if worktree_path is not None else (WORKSPACE / project)
-    if task.get("id") and task.get("type") not in _BASELINE_SKIP_TYPES and _baseline_path.exists():
-        try:
-            _validation.capture_validation_baseline(project, task["id"], _baseline_path)
-        except Exception as _blerr:
-            print(f"[Swarm] WARNING: pre-flight baseline failed for {task['id'][:8]}: {_blerr}")
+    _do_baseline = task.get("id") and task.get("type") not in _BASELINE_SKIP_TYPES and _baseline_path.exists()
+    if _do_baseline:
+        def _run_baseline(proj=project, tid=task["id"], bpath=_baseline_path):
+            try:
+                _validation.capture_validation_baseline(proj, tid, bpath)
+            except Exception as _blerr:
+                print(f"[Swarm] WARNING: pre-flight baseline failed for {tid[:8]}: {_blerr}")
+        threading.Thread(target=_run_baseline, daemon=True, name=f"preflight-{task['id'][:8]}").start()
 
     # Record the project HEAD at spawn so the completion truth layer can attribute
     # a diff/commit to THIS agent (agent_finish._finish_agent). Without this, diff
@@ -683,11 +691,12 @@ def prune_history():
 
     # Update each project's head_task_id to the most recent continuity-eligible
     # task, but do not overwrite a live continuation with a failed/cancelled tail.
-    # Use the SQL-level projects filter to avoid a full-table scan.
+    # Only run this scan when agents actually finished — it fetches 15k+ rows and
+    # would block the monitor for seconds on every cycle if run unconditionally.
     all_terminal = db.task_get_all(
         exclude_statuses=("pending", "in_progress"),
         projects=_managed,
-    )
+    ) if finished else []
     if all_terminal:
         latest_by_project: Dict[str, tuple[str, str]] = {}
         for task in all_terminal:
