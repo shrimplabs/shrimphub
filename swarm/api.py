@@ -1215,6 +1215,29 @@ def create_app(
             print(f"[Warning] Could not persist auto_replan_projects: {e}")
         return jsonify({"project": project_name, "enabled": enabled, "auto_replan_projects": current})
 
+    @app.route("/api/xogot-projects", methods=["GET"])
+    def get_xogot_projects():
+        return jsonify({"xogot_projects": config.get("xogot_projects", [])})
+
+    @app.route("/api/xogot-projects/<project_name>", methods=["POST"])
+    def toggle_xogot_project(project_name):
+        data = request.json or {}
+        enabled = data.get("enabled", True)
+        current = list(config.get("xogot_projects", []))
+        if enabled and project_name not in current:
+            current.append(project_name)
+        elif not enabled and project_name in current:
+            current.remove(project_name)
+        config["xogot_projects"] = current
+        try:
+            with _config_write_lock:
+                existing_cfg = json.loads(config_file.read_text()) if config_file.exists() else {}
+                existing_cfg["xogot_projects"] = current
+                config_file.write_text(json.dumps(existing_cfg, indent=2))
+        except Exception as e:
+            print(f"[Warning] Could not persist xogot_projects: {e}")
+        return jsonify({"project": project_name, "enabled": enabled, "xogot_projects": current})
+
     from swarm.api_deps import register_routes as _register_deps_routes
     _register_deps_routes(app, task_source=task_source, db=db, data_dir=data_dir, project_registry=project_registry)
 
@@ -1347,7 +1370,13 @@ def run_app(
 ):
     """Run the Flask app"""
     app = create_app(workspace, data_dir)
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    try:
+        import json as _json
+        _cfg = _json.loads((Path(__file__).parent.parent / "config.json").read_text())
+    except Exception:
+        _cfg = {}
+    bind_host = "127.0.0.1" if _cfg.get("login_required") else "0.0.0.0"
+    app.run(host=bind_host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

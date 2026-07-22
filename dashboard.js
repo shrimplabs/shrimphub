@@ -33,6 +33,7 @@ syncStrategy();
 loadThinking();
 loadHumanReviewFlag();
 loadAutoReplan();
+loadXogotProjects();
 loadMetrics();
 loadWebhook();
 syncVisionProviders();

@@ -13,8 +13,8 @@ from pathlib import Path
 
 def normalize_project_type(project_type: str | None) -> str:
     value = (project_type or "godot").strip().lower()
-    if value in {"game", "godot-game", "godot_game"}:
-        return "godot"
+    if value in {"game", "godot-game", "godot_game", "xogot", "xogot-game", "xogot_game"}:
+        return "godot"  # xogot is godot-compatible; treated identically for scaffolding
     if value in {"software", "programming", "app", "python-app", "python_app"}:
         return "python"
     if value in {"godot", "python"}:

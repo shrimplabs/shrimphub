@@ -92,6 +92,32 @@ async function loadAutoReplan() {
     } catch(e) {}
 }
 
+let _xogotProjects = new Set();
+async function loadXogotProjects() {
+    try {
+        const data = await fetch(API + '/api/xogot-projects').then(r => r.json());
+        _xogotProjects = new Set(data.xogot_projects || []);
+    } catch(e) {}
+}
+
+async function toggleXogot(event, name) {
+    const btn = event.target;
+    const nowEnabled = !_xogotProjects.has(name);
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API}/api/xogot-projects/${encodeURIComponent(name)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: nowEnabled}),
+        });
+        const data = await res.json();
+        _xogotProjects = new Set(data.xogot_projects || []);
+        showToast(`Xogot ${nowEnabled ? 'enabled' : 'disabled'} for <strong>${escapeHtml(name)}</strong>`, nowEnabled ? '#f0883e' : '#8b949e');
+        loadData();
+    } catch(e) { showToast('Error toggling Xogot', '#f85149'); }
+    finally { btn.disabled = false; }
+}
+
 async function toggleAutoReplan(event, name) {
     const btn = event.target;
     const nowEnabled = !_autoReplanProjects.has(name);
@@ -807,6 +833,11 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
         title="Queue an art pass → polish → QA chain for this project">🎨 Art Sprint</button>`;
 
     const isAutoReplan = _autoReplanProjects.has(name);
+    const isXogot = _xogotProjects.has(name);
+    const xogotBtn = `<button onclick="toggleXogot(event,'${escapeHtml(name)}')"
+        style="font-size:10px;padding:2px 6px;border-radius:3px;border:1px solid ${isXogot ? '#f0883e' : '#30363d'};background:${isXogot ? '#2d1800' : 'transparent'};color:${isXogot ? '#f0883e' : '#8b949e'};cursor:pointer"
+        title="${isXogot ? 'Disable Xogot (use standard Godot)' : 'Enable Xogot for this project'}">Xogot</button>`;
+
     const autoReplanBtn = `<button onclick="toggleAutoReplan(event,'${escapeHtml(name)}')"
         style="background:transparent;color:${isAutoReplan ? '#a371f7' : '#8b949e'};border:1px solid ${isAutoReplan ? '#a371f7' : '#30363d'};border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
         title="${isAutoReplan ? 'Auto re-plan ON — will spawn new plan when tasks run out' : 'Auto re-plan OFF'}">♻ Auto</button>`;
@@ -834,6 +865,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                 <span class="project-name">
                     ${activeLed}${isLocked ? '<span class="locked-badge"></span>' : ''}${escapeHtml(name)}
                     ${isPaused ? '<span style="font-size:10px;color:#f0883e;margin-left:6px">PAUSED</span>' : ''}
+                    ${isXogot ? '<span style="font-size:10px;color:#f0883e;margin-left:6px;border:1px solid #f0883e;border-radius:3px;padding:0 4px">XOGOT</span>' : ''}
                     ${projectTokensHtml}
                 </span>
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
@@ -842,6 +874,7 @@ function createProjectCard(name, data, anyTaskCount, velocity) {
                     ${repairBtns}
                     ${replanBtn}
                     ${artSprintBtn}
+                    ${xogotBtn}
                     ${autoReplanBtn}
                     ${snapshotBtn}
                     ${removeProjectBtn}

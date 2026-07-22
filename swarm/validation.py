@@ -310,7 +310,7 @@ def _post_task_validation_in_worktree(
     task_type = task_record.get("type", "") if task_record else ""
 
     if project_type == "godot":
-        _GODOT = resolve_godot_binary()
+        _GODOT = resolve_godot_binary(project=project)
         if not godot_binary_available(_GODOT):
             error_output = (
                 f"{CONTROLLER_CONFIG_BLOCKER_PREFIX} Godot executable is not configured or "
@@ -1428,7 +1428,7 @@ def _spawn_validation_bug_task(
         attempted_section = "\n".join(f"- {note}" for note in concise_notes) if concise_notes else "- none"
         commit_section = "\n".join(f"- {line}" for line in git_history_lines) if git_history_lines else "- none"
 
-        godot_cmd = shell_quote_command_arg(resolve_godot_binary())
+        godot_cmd = shell_quote_command_arg(resolve_godot_binary(project=project))
         description = (
             f"[WORKTREE MODE -- read this carefully before doing anything]\n\n"
             f"You are taking over a bug-fix chain. Previous agents have already made "

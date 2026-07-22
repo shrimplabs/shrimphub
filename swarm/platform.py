@@ -150,8 +150,25 @@ def _is_executable_file(path: Path) -> bool:
         return False
 
 
-def resolve_godot_binary() -> str:
-    """Return the best available Godot executable path or a generic command name."""
+def resolve_godot_binary(project: str | None = None) -> str:
+    """Return the best available Godot executable path or a generic command name.
+
+    If ``project`` is listed in config ``xogot_projects`` and ``xogot_path``
+    is set, returns the Xogot binary instead of standard Godot.
+    """
+    if project:
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            _cfg_file = _Path(__file__).parent.parent / "config.json"
+            _cfg = _json.loads(_cfg_file.read_text()) if _cfg_file.exists() else {}
+            if project in _cfg.get("xogot_projects", []):
+                xogot = _cfg.get("xogot_path", "")
+                if xogot and _is_executable_file(_Path(xogot)):
+                    return xogot
+        except Exception:
+            pass
+
     for candidate in _candidate_godot_paths():
         for expanded in _expanded_godot_candidates(candidate):
             if _is_executable_file(expanded):

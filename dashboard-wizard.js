@@ -9,7 +9,9 @@ let _npProjectType = 'godot';
 const NP_DRAFT_STORAGE_KEY = 'swarm.newProjectDraft.v1';
 
 function normalizeNpProjectType(value) {
-    return value === 'python' ? 'python' : 'godot';
+    if (value === 'python') return 'python';
+    if (value === 'xogot') return 'xogot';
+    return 'godot';
 }
 
 function getNpProjectType() {
@@ -605,6 +607,12 @@ async function confirmNpTasks() {
             if (proposal) {
                 appendNpMessage('assistant', summarizeClosureProposalForNp(proposal, data.project));
             }
+            if (getNpProjectType() === 'xogot' && data.project) {
+                fetch(`${API}/api/xogot-projects/${encodeURIComponent(data.project)}`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: true}),
+                }).catch(() => {});
+            }
             clearNpDraft();
             loadData();
         }
@@ -679,6 +687,12 @@ async function runInstantProject() {
                 } else if (evt.type === 'done') {
                     status.textContent = `✓ ${evt.project_name} — ${evt.tasks_created} tasks queued`;
                     btn.textContent = evt.index < evt.count ? `⏳ ${evt.index}/${evt.count} done…` : '✓ Done';
+                    if (type === 'xogot' && evt.project_name) {
+                        fetch(`/api/xogot-projects/${encodeURIComponent(evt.project_name)}`, {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({enabled: true}),
+                        }).catch(() => {});
+                    }
                 } else if (evt.type === 'error') {
                     const name = evt.project_name ? `${evt.project_name}: ` : '';
                     status.textContent = `✗ ${name}${evt.message}`;

@@ -1486,7 +1486,8 @@ IMPORTANT RULES:
         data = request.get_json(force=True) or {}
         user_message = (data.get("message") or "").strip()
         history = data.get("history") or []
-        project_type = _normalize_project_type(data.get("project_type", "godot"))
+        raw_project_type = data.get("project_type", "godot")
+        project_type = _normalize_project_type(raw_project_type)
         if not user_message:
             return jsonify({"error": "message required"}), 400
 
@@ -1703,7 +1704,7 @@ PHASE OVERRIDE:
             "history": updated_history,
             "tasks_preview": tasks_preview,
             "project_name": project_name,
-            "project_type": project_type,
+            "project_type": raw_project_type,
             "overview": resp_overview,
             "quality_gates": quality_gates,
             "design_doc": prd_content or "",
@@ -1772,7 +1773,8 @@ FORMAT:
         """Create a project and its tasks from a confirmed PRD task list."""
         data = request.get_json(force=True) or {}
         project_name = data.get("project_name", "").strip()
-        project_type = _normalize_project_type(data.get("project_type", "godot"))
+        raw_project_type = data.get("project_type", "godot")
+        project_type = _normalize_project_type(raw_project_type)
         tasks = data.get("tasks", [])
         if not project_name:
             return jsonify({"error": "project_name required"}), 400
@@ -2056,7 +2058,7 @@ FORMAT:
         return jsonify({
             "created": len(created_tasks),
             "project": project_name,
-            "project_type": project_type,
+            "project_type": raw_project_type,
             "closure_proposal": closure_proposal,
             "task_ids": [t["id"] for t in created_tasks],
             "git_log": git_log,

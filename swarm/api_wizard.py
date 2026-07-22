@@ -267,6 +267,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
 
         type_hints = {
             "godot":      "a Godot 4 game (GDScript)",
+            "xogot":      "a Xogot game (Godot 4 fork for iPad/Mac, GDScript)",
             "python":     "a Python application or tool",
             "typescript": "a TypeScript/Node application",
             "other":      "a software project",
