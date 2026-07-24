@@ -594,7 +594,7 @@ def _summarize_integrity_findings(active, findings, history=None):
     return summary, live_findings, archival_findings
 
 
-def register_routes(app, task_source, db, data_dir=None, project_registry=None):
+def register_routes(app, task_source, db, data_dir=None, project_registry=None, config=None):
     """Register dependency graph routes on the Flask app."""
     # ---------- Dependency Graph ----------
 
@@ -602,7 +602,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
     def get_dependency_graph():
         from swarm.dependencies import build_graph_from_tasks
         project = _req.args.get("project", "").strip()
-        projects = [project] if project else (config.get("managed_projects") or None)
+        projects = [project] if project else ((config or {}).get("managed_projects") or None)
         tasks = task_source.get_all_tasks(
             exclude_statuses=("completed", "archived", "cancelled", "failed"),
             projects=projects,
@@ -616,7 +616,7 @@ def register_routes(app, task_source, db, data_dir=None, project_registry=None):
 
         project = _req.args.get("project", "").strip()
         # Scope to the project (or managed projects) to avoid a full 18k-row scan.
-        _dot_projects = [project] if project else (config.get("managed_projects") or None)
+        _dot_projects = [project] if project else ((config or {}).get("managed_projects") or None)
         active_tasks = task_source.get_all_tasks(
             exclude_statuses=("archived",),
             projects=_dot_projects,

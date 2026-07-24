@@ -234,6 +234,10 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
     @app.route("/api/agents/reconcile", methods=["POST"])
     def reconcile_agents():
         result = orchestrator.reconcile_agent_runtime_state()
+        # Join finish threads so the response reflects final task state.
+        # This is a manual admin endpoint; a short block is acceptable.
+        for t in result.pop("_finish_threads", []):
+            t.join(timeout=30)
         return jsonify(result)
     @app.route("/api/health", methods=["GET"])
     def health():

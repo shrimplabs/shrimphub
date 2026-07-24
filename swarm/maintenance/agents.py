@@ -139,4 +139,5 @@ def reconcile_agent_runtime_state(
     return {
         "repaired_agent_ids": list(dict.fromkeys(repaired_agents)),
         "reset_task_ids": list(dict.fromkeys(reset_tasks)),
+        "_finish_threads": finish_threads,  # callers that need sync completion can join these
     }

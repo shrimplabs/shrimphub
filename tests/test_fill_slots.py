@@ -291,6 +291,7 @@ class TestFillSlots:
         for i in range(3):
             _task()
 
+        orc.SPAWN_PER_CYCLE = 10  # allow all tasks to spawn in one cycle
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             spawned, _ = orc.fill_slots(lambda t: "")
 
@@ -323,6 +324,7 @@ class TestFillSlots:
         for i in range(10):
             _task()
 
+        orc.SPAWN_PER_CYCLE = 10  # don't let cycle limit shadow max_spawn
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             spawned, _ = orc.fill_slots(lambda t: "", max_spawn=3)
 
@@ -407,6 +409,7 @@ class TestFillSlots:
         _task(task_id="a1", project="alpha")
         _task(task_id="b1", project="beta")
 
+        orc.SPAWN_PER_CYCLE = 10  # allow both projects to spawn in one cycle
         with patch("swarm.orchestrator.spawn_agent", side_effect=_fake_spawn):
             spawned, _ = orc.fill_slots(lambda t: "")
 

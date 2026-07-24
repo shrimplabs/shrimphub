@@ -1263,7 +1263,7 @@ def create_app(
         return jsonify({"project": project_name, "enabled": enabled, "xogot_projects": current})
 
     from swarm.api_deps import register_routes as _register_deps_routes
-    _register_deps_routes(app, task_source=task_source, db=db, data_dir=data_dir, project_registry=project_registry)
+    _register_deps_routes(app, task_source=task_source, db=db, data_dir=data_dir, project_registry=project_registry, config=config)
 
     from swarm.api_broadcast import register_routes as _register_broadcast_routes
     _register_broadcast_routes(app, data_dir=data_dir)
