@@ -537,6 +537,24 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
             _kill_dep_violator(task_id, agent_id, unmet, pid=agent.get("pid"))
 
 
+def wait_for_all_finishes(timeout: float = 10.0) -> bool:
+    """Block until _finishing_agents is empty or *timeout* seconds pass.
+
+    Use in tests after check_agent_status() to ensure _finish_agent has
+    completed regardless of whether the sweep or a waiter thread claimed
+    teardown.  Not needed in production (monitor doesn't care).
+    """
+    import time as _time
+    deadline = _time.time() + timeout
+    while _time.time() < deadline:
+        with _finishing_lock:
+            if not _finishing_agents:
+                return True
+        _time.sleep(0.05)
+    with _finishing_lock:
+        return not _finishing_agents
+
+
 def claim_finish(agent_id: str) -> Optional[Dict]:
     """Atomically claim teardown ownership for an agent.
 

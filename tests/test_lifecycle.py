@@ -85,6 +85,12 @@ def isolated_orc(tmp_path):
         data_dir=data_dir,
     )
 
+    # Reset event bus between tests: clears subscribers, stats, and disables
+    # the bus.  configure() above re-subscribes _on_agent_exited, so each
+    # test starts with exactly one handler registered (not accumulating).
+    from swarm.events import bus as _test_bus
+    _test_bus.reset_for_tests()
+
     # Clear in-process handle registry
     with lifecycle._handle_lock:
         lifecycle._active_handles.clear()
@@ -143,15 +149,17 @@ def _wait_for_subprocess(agent_id, timeout=5.0) -> bool:
 
 
 def _check_agent_status_sync():
-    """Call check_agent_status() and join all finish threads before returning.
+    """Call check_agent_status() and wait for all finish work to complete.
 
-    Tests need synchronous completion of _finish_agent (DB updates, status
-    changes) before asserting on task/agent state.  The production monitor
-    loop discards the threads so it is never blocked.
+    When the event bus is enabled, waiter threads may claim teardown before
+    the sweep runs, so check_agent_status() returns an empty thread list.
+    wait_for_all_finishes() handles both cases: it polls _finishing_agents
+    until all teardown threads (sweep-started or waiter-started) are done.
     """
     threads = orc.check_agent_status()
     for t in threads:
         t.join(timeout=10)
+    lifecycle.wait_for_all_finishes(timeout=10)
 
 
 # ---------------------------------------------------------------------------
