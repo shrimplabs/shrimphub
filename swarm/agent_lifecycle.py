@@ -129,6 +129,7 @@ PAUSED_PROJECTS: list = []
 LOCK_PROJECT: bool = False
 HUMAN_REVIEW_FLAG_ENABLED: bool = False
 PLAYTHROUGH_AUTO_ENABLED: bool = False
+EVENT_BUS_ENABLED: bool = False
 
 # State: agent_id -> handle dict
 _active_handles: Dict[str, Dict] = {}
@@ -163,6 +164,7 @@ def configure(
     project_registry=None,
     human_review_flag_enabled: bool = False,
     playthrough_auto_enabled: bool = False,
+    event_bus_enabled: bool = False,
     **_kwargs,
 ):
     """Configure module-level settings for the agent lifecycle system.
@@ -199,6 +201,14 @@ def configure(
     QA_AUTO_THRESHOLD = qa_auto_threshold
     HUMAN_REVIEW_FLAG_ENABLED = human_review_flag_enabled
     PLAYTHROUGH_AUTO_ENABLED = playthrough_auto_enabled
+
+    # Event bus — wire up before enabling so the handler is registered first.
+    _env_flag = os.environ.get("SWARM_EVENT_BUS", "")
+    _bus_on = event_bus_enabled or _env_flag in ("1", "true", "yes")
+    EVENT_BUS_ENABLED = _bus_on
+    from swarm.events import bus as _event_bus
+    _event_bus.subscribe("AGENT_EXITED", _on_agent_exited)
+    _event_bus.set_enabled(_bus_on)
     if project_registry is not None:
         _project_registry = project_registry
 
@@ -366,6 +376,22 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
                 "worktree_branch": worktree_branch,
             }
 
+        # Waiter thread: blocks on proc.wait() and fires AGENT_EXITED the
+        # instant the process exits.  The flag gates the publish — if the bus
+        # is disabled the thread exits immediately after proc.wait() with no
+        # effect.  Sweep still runs normally as the fallback.
+        def _waiter(aid=agent_id, p=proc, tid=task.get("id"), proj=project):
+            _ec = p.wait()
+            from swarm.events import bus as _eb
+            if not _eb.enabled:
+                return
+            _eb.publish("AGENT_EXITED", agent_id=aid, exit_code=_ec,
+                        task_id=tid, project=proj)
+
+        threading.Thread(
+            target=_waiter, daemon=True, name=f"waiter-{agent_id[:8]}"
+        ).start()
+
         db.agent_upsert({
             "id": agent_id,
             "project": project,
@@ -398,6 +424,29 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
 # Agent status checking
 # (Agent completion pipeline is in swarm/agent_finish.py)
 # ---------------------------------------------------------------------------
+
+def _on_agent_exited(ev) -> None:
+    """Event bus handler: an agent process exited — claim teardown and finish it.
+
+    Fires on the dispatcher thread.  Must not block (starts a finish thread and
+    returns immediately).  If the sweep already claimed teardown, this is a
+    no-op.
+    """
+    agent_id = ev.payload.get("agent_id")
+    exit_code = ev.payload.get("exit_code", -1)
+    if not agent_id:
+        return
+    data = claim_finish(agent_id)
+    if data is None:
+        return  # sweep or dep-violator kill beat us to it
+    try:
+        kill_godot_children(data["process"].pid)
+    except Exception:
+        pass
+    print(f"[EventBus] agent {agent_id[:8]} exited → finish "
+          f"(latency {time.time() - ev.ts:.3f}s)")
+    start_finish_thread(agent_id, exit_code, data, name_suffix="waiter")
+
 
 def check_dep_violations(completed_ids=None, all_task_ids=None):
     """Kill any running agent whose task dependencies are not yet satisfied.
@@ -448,14 +497,17 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
                 os.kill(pid, 9)
             except Exception as _ke:
                 print(f"[Swarm] Dep violation PID kill error: {_ke}")
+        # claim_finish removes from _active_handles and blocks any concurrent
+        # waiter thread from also running _finish_agent for this agent.
+        claim_finish(agent_id)
         try:
             db.task_update_status(task_id, "pending", agent_id=None)
             db.agent_update_status(agent_id, "failed",
                                    completed_at=datetime.now().isoformat(), exit_code=-1)
         except Exception as _de:
             print(f"[Swarm] Dep violation DB error: {_de}")
-        with _handle_lock:
-            _active_handles.pop(agent_id, None)
+        with _finishing_lock:
+            _finishing_agents.discard(agent_id)
 
     # Check in-memory handles
     for agent_id, data in handles_snapshot:
@@ -483,6 +535,61 @@ def check_dep_violations(completed_ids=None, all_task_ids=None):
         unmet = [d for d in deps if d not in completed_ids and d in all_task_ids]
         if unmet:
             _kill_dep_violator(task_id, agent_id, unmet, pid=agent.get("pid"))
+
+
+def claim_finish(agent_id: str) -> Optional[Dict]:
+    """Atomically claim teardown ownership for an agent.
+
+    Moves the agent from ``_active_handles`` into ``_finishing_agents`` in one
+    operation so that exactly one caller (sweep, waiter thread, or dep-violator
+    kill) wins teardown rights.
+
+    Returns the handle dict if this caller won, ``None`` if another caller
+    already claimed it (double-claim guard).
+    """
+    with _finishing_lock:
+        if agent_id in _finishing_agents:
+            return None  # another path already owns teardown
+        _finishing_agents.add(agent_id)
+    with _handle_lock:
+        return _active_handles.pop(agent_id, None)
+
+
+def start_finish_thread(
+    agent_id: str,
+    exit_code: int,
+    data: Dict,
+    *,
+    name_suffix: str = "",
+) -> threading.Thread:
+    """Start a daemon thread that runs ``_finish_agent`` for *agent_id*.
+
+    ``claim_finish()`` must have been called (and returned non-None) before
+    calling this.  The thread removes the agent from ``_finishing_agents`` when
+    done regardless of success or failure.
+
+    Returns the started thread so callers that need synchronous completion
+    (e.g. tests) can join it.
+    """
+    _lazy_imports()
+
+    def _run(aid=agent_id, ec=exit_code, d=data):
+        try:
+            _finish_agent(
+                aid, ec,
+                d.get("project"), d.get("task_id"),
+                d.get("script_path"), d.get("log_path"),
+            )
+        except Exception as e:
+            print(f"[Swarm] Error finishing agent {aid[:8]}: {e}")
+        finally:
+            with _finishing_lock:
+                _finishing_agents.discard(aid)
+
+    label = f"finish-{agent_id[:8]}{('-' + name_suffix) if name_suffix else ''}"
+    t = threading.Thread(target=_run, daemon=True, name=label)
+    t.start()
+    return t
 
 
 def check_agent_status() -> List[threading.Thread]:
@@ -517,26 +624,12 @@ def check_agent_status() -> List[threading.Thread]:
             data["process"].wait(timeout=5)
         except Exception:
             pass
-        with _finishing_lock:
-            _finishing_agents.add(agent_id)
-        with _handle_lock:
-            _active_handles.pop(agent_id, None)
-
-        def _run_finish_timeout(aid=agent_id, d=data):
-            try:
-                _finish_agent(
-                    aid, -1,
-                    d.get("project"), d.get("task_id"),
-                    d.get("script_path"), d.get("log_path"),
-                )
-            except Exception as e:
-                print(f"[Swarm] Error finishing timed-out agent {aid[:8]}: {e}")
-            finally:
-                with _finishing_lock:
-                    _finishing_agents.discard(aid)
-
-        t = threading.Thread(target=_run_finish_timeout, daemon=True)
-        t.start()
+        # claim_finish pops from _active_handles; if it returns None another path
+        # already owns teardown (shouldn't happen for timeout, but guard anyway).
+        claimed = claim_finish(agent_id)
+        if claimed is None:
+            continue
+        t = start_finish_thread(agent_id, -1, data, name_suffix="timeout")
         finish_threads.append(t)
 
     for agent_id, exit_code, data in finished:
@@ -546,30 +639,12 @@ def check_agent_status() -> List[threading.Thread]:
             kill_godot_children(data["process"].pid)
         except Exception:
             pass
-        # Remove from active handles immediately -- the process has exited, so the
-        # concurrency slot is free.  _finish_agent() (which runs Godot validation
-        # and can block for up to ~5 minutes) is offloaded to a daemon thread so
-        # the monitor loop is never stalled waiting for subprocess completion.
-        with _finishing_lock:
-            _finishing_agents.add(agent_id)
-        with _handle_lock:
-            _active_handles.pop(agent_id, None)
-
-        def _run_finish(aid=agent_id, ec=exit_code, d=data):
-            try:
-                _finish_agent(
-                    aid, ec,
-                    d.get("project"), d.get("task_id"),
-                    d.get("script_path"), d.get("log_path"),
-                )
-            except Exception as e:
-                print(f"[Swarm] Error finishing agent {aid[:8]}: {e}")
-            finally:
-                with _finishing_lock:
-                    _finishing_agents.discard(aid)
-
-        t = threading.Thread(target=_run_finish, daemon=True)
-        t.start()
+        # claim_finish atomically moves agent to _finishing_agents and pops the
+        # handle.  Returns None if a waiter thread already claimed teardown.
+        claimed = claim_finish(agent_id)
+        if claimed is None:
+            continue
+        t = start_finish_thread(agent_id, exit_code, data)
         finish_threads.append(t)
 
     reconcile_agent_runtime_state(prune=False)

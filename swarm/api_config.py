@@ -478,6 +478,42 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
         print(f"[Config] vision_providers updated: {list(updated.keys())}")
         return jsonify({"ok": True, **updated})
 
+    # ---------- Event Bus ----------
+    @app.route("/api/event-bus", methods=["GET"])
+    def get_event_bus():
+        from swarm.events import bus as _eb
+        from swarm import agent_lifecycle as _lc
+        return jsonify({
+            "enabled": _eb.enabled,
+            "stats": {
+                "published": _eb.stats["published"],
+                "dropped_disabled": _eb.stats["dropped_disabled"],
+                "handled": _eb.stats["handled"],
+                "handler_errors": _eb.stats["handler_errors"],
+                "by_type": dict(_eb.stats["by_type"]),
+            },
+        })
+
+    @app.route("/api/event-bus", methods=["POST"])
+    def set_event_bus():
+        from swarm.events import bus as _eb
+        from swarm import agent_lifecycle as _lc
+        body = request.get_json(silent=True) or {}
+        enabled = bool(body.get("enabled", False))
+        _eb.set_enabled(enabled)
+        _lc.EVENT_BUS_ENABLED = enabled
+        config["event_bus_enabled"] = enabled
+        config_file = data_dir.parent / "config.json"
+        if config_file.exists():
+            try:
+                cfg = json.loads(config_file.read_text())
+            except Exception:
+                cfg = {}
+            cfg["event_bus_enabled"] = enabled
+            config_file.write_text(json.dumps(cfg, indent=2) + "\n")
+        print(f"[Config] event_bus_enabled={enabled}")
+        return jsonify({"ok": True, "enabled": enabled})
+
     # ---------- Log Rotation ----------
     @app.route("/api/log-rotation", methods=["GET"])
     def get_log_rotation():
