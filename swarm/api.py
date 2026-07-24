@@ -614,7 +614,8 @@ def create_app(
                     mode_on = auto_mode_state["enabled"]
                     suspended = auto_mode_state["suspended_for_quota"]
                 sleep_secs = 5 if (active > 0 or mode_on or suspended) else 30
-                time.sleep(sleep_secs)
+                _monitor_wake.wait(timeout=sleep_secs)
+                _monitor_wake.clear()
 
                 _last_monitor_tick[0] = time.time()
                 # Pre-fetch shared state once per cycle to avoid redundant full-table
@@ -961,6 +962,16 @@ def create_app(
                             _agents_frozen = False
                 except Exception as _qw_err:
                     print(f"[Quota] Watcher error: {_qw_err}")
+
+        # Wake event: set by AGENT_FINISHED bus subscribers so the monitor
+        # skips its sleep and runs fill_slots immediately after teardown.
+        _monitor_wake = threading.Event()
+
+        def _on_agent_finished_wake(ev):
+            _monitor_wake.set()
+
+        from swarm.events import bus as _event_bus
+        _event_bus.subscribe("AGENT_FINISHED", _on_agent_finished_wake)
 
         monitor_thread = threading.Thread(target=_monitor, daemon=True)
         monitor_thread.start()

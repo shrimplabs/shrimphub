@@ -574,17 +574,27 @@ def start_finish_thread(
     _lazy_imports()
 
     def _run(aid=agent_id, ec=exit_code, d=data):
+        final_status = "failed"
         try:
             _finish_agent(
                 aid, ec,
                 d.get("project"), d.get("task_id"),
                 d.get("script_path"), d.get("log_path"),
             )
+            final_status = "completed"
         except Exception as e:
             print(f"[Swarm] Error finishing agent {aid[:8]}: {e}")
         finally:
             with _finishing_lock:
                 _finishing_agents.discard(aid)
+            from swarm.events import bus as _eb
+            _eb.publish(
+                "AGENT_FINISHED",
+                agent_id=aid,
+                task_id=d.get("task_id"),
+                project=d.get("project"),
+                final_status=final_status,
+            )
 
     label = f"finish-{agent_id[:8]}{('-' + name_suffix) if name_suffix else ''}"
     t = threading.Thread(target=_run, daemon=True, name=label)
