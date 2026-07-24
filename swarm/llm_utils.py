@@ -267,26 +267,37 @@ def parse_tool_calls(text: str) -> list:
             if parsed:
                 tool_calls.append(parsed)
             else:
-                # MiniMax native format: funcName(key="val", ...) lines separated by "- "
-                import re as _re_mm
-                for line in _re_mm.split(r'\n-\s+|\n', block):
-                    line = line.strip().lstrip('- ').strip()
-                    if not line:
-                        continue
-                    m = _re_mm.match(r'(\w+)\((.*)\)$', line, _re_mm.DOTALL)
-                    if not m:
-                        continue
-                    tool_name = m.group(1)
-                    args_str = m.group(2).strip()
+                # Laguna/llama.cpp XML arg format:
+                # <tool_call>tool_name<arg_key>k</arg_key><arg_value>v</arg_value>...</tool_call>
+                import re as _re_xml
+                xml_name = _re_xml.match(r'^(\w+)', block)
+                if xml_name and '<arg_key>' in block:
+                    tool_name = xml_name.group(1)
                     args = {}
-                    # Parse key=value or key="value" pairs
-                    for kv in _re_mm.finditer(r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|\S+)', args_str):
-                        k, v = kv.group(1), kv.group(2)
-                        try:
-                            args[k] = json.loads(v)
-                        except Exception:
-                            args[k] = v.strip('"')
-                    tool_calls.append({"tool": tool_name, "args": args})
+                    for kv in _re_xml.finditer(r'<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>', block, _re_xml.DOTALL):
+                        args[kv.group(1).strip()] = kv.group(2).strip()
+                    if tool_name and args:
+                        tool_calls.append({"tool": tool_name, "args": args})
+                else:
+                    # MiniMax native format: funcName(key="val", ...) lines separated by "- "
+                    import re as _re_mm
+                    for line in _re_mm.split(r'\n-\s+|\n', block):
+                        line = line.strip().lstrip('- ').strip()
+                        if not line:
+                            continue
+                        m = _re_mm.match(r'(\w+)\((.*)\)$', line, _re_mm.DOTALL)
+                        if not m:
+                            continue
+                        tool_name = m.group(1)
+                        args_str = m.group(2).strip()
+                        args = {}
+                        for kv in _re_mm.finditer(r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|\S+)', args_str):
+                            k, v = kv.group(1), kv.group(2)
+                            try:
+                                args[k] = json.loads(v)
+                            except Exception:
+                                args[k] = v.strip('"')
+                        tool_calls.append({"tool": tool_name, "args": args})
             pos = end + len(close_tag)
 
     # <tool name="...">...</tool> (Minimax XML fallback)
