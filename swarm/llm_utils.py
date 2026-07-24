@@ -159,6 +159,9 @@ def parse_tool_calls(text: str) -> list:
     # exact end-of-response suffix; genuinely partial calls remain unparseable.
     if text.rstrip().endswith("[/TOOL_CALL"):
         text = text.rstrip() + "]"
+    # Laguna/llama.cpp sometimes emits ``[tool_call>`` (missing opening ``<``).
+    # Normalise to ``<tool_call>`` so the tag scanner finds it.
+    text = re.sub(r'\[tool_call>', '<tool_call>', text)
     tool_calls = []
 
     def _try_parse(json_str):
