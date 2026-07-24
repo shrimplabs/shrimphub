@@ -272,14 +272,18 @@ def parse_tool_calls(text: str) -> list:
             else:
                 # Laguna/llama.cpp XML arg format:
                 # <tool_call>tool_name<arg_key>k</arg_key><arg_value>v</arg_value>...</tool_call>
+                # Also handles zero-arg variant: <tool_call>tool_name</arg_key></tool_call>
+                # (laguna emits </arg_key> as a stray closing tag with no matching open)
                 import re as _re_xml
-                xml_name = _re_xml.match(r'^(\w+)', block)
-                if xml_name and '<arg_key>' in block:
+                # Strip stray closing tags to isolate the tool name prefix
+                block_clean = _re_xml.sub(r'</\w+>', '', block)
+                xml_name = _re_xml.match(r'^(\w+)', block_clean.strip())
+                if xml_name:
                     tool_name = xml_name.group(1)
                     args = {}
                     for kv in _re_xml.finditer(r'<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>', block, _re_xml.DOTALL):
                         args[kv.group(1).strip()] = kv.group(2).strip()
-                    if tool_name and args:
+                    if tool_name:
                         tool_calls.append({"tool": tool_name, "args": args})
                 else:
                     # MiniMax native format: funcName(key="val", ...) lines separated by "- "
