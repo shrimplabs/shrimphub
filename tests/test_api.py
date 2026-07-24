@@ -2673,7 +2673,8 @@ class TestTaskChaining:
         }, content_type="application/json")
 
         assert r.status_code == 200
-        assert r.json["created"] == 9
+        # 9 user tasks + 4 sprint-close chain (art_pass, polish, qa, audit) = 13
+        assert r.json["created"] == 13
 
     def test_create_project_tasks_auto_repairs_invalid_graph(self, client, app, monkeypatch):
         app.config["PROJECT_CREATION_RETRY_ROUNDS_OVERRIDE"] = 2
@@ -3052,6 +3053,84 @@ class TestTaskChaining:
         assert db.task_get("dep-preserve-proj-t2")["dependencies"] == ["dep-preserve-proj-t1"]
         assert db.task_get("dep-preserve-proj-t3")["dependencies"] == ["dep-preserve-proj-t2"]
         assert db.task_get("dep-preserve-proj-t4")["dependencies"] == ["dep-preserve-proj-t1"]
+
+    def test_create_project_tasks_injects_sprint_close_chain_for_godot(self, client, app):
+        """Regression: chat-created Godot projects must receive the sprint-close chain
+        (art_pass → polish → qa → audit) just like wizard-created projects do.
+        See bug-910632334-0047.
+        """
+        from swarm import db as swarm_db
+
+        r = client.post("/api/create-project-tasks", json={
+            "project_name": "sprint-close-chat-proj",
+            "project_type": "godot",
+            "overview": "Regression test for sprint-close chain injection in chat path.",
+            "tasks": [
+                {"id": "sprint-close-chat-proj-t1", "description": "Foundation scene + signals", "dependencies": []},
+                {"id": "sprint-close-chat-proj-t2", "description": "Player controller", "dependencies": ["sprint-close-chat-proj-t1"]},
+            ],
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        all_project_tasks = [
+            t for t in swarm_db.task_get_all() if t.get("project") == "sprint-close-chat-proj"
+        ]
+        types_by_id = {t["id"]: t["type"] for t in all_project_tasks}
+        type_counts = {}
+        for t in all_project_tasks:
+            type_counts[t["type"]] = type_counts.get(t["type"], 0) + 1
+
+        # Exactly one art_pass, one polish, one qa/harness_qa, one audit must exist.
+        assert type_counts.get("art_pass") == 1, f"missing or duplicate art_pass: {type_counts}"
+        assert type_counts.get("polish") == 1, f"missing or duplicate polish: {type_counts}"
+        assert type_counts.get("qa", 0) + type_counts.get("harness_qa", 0) == 1, (
+            f"expected exactly one QA task, got: {type_counts}"
+        )
+        assert type_counts.get("audit") == 1, f"missing or duplicate audit: {type_counts}"
+
+        # Locate the four chain tasks and inspect their dependency edges.
+        chain_types = {"art_pass", "polish", "qa", "harness_qa", "audit"}
+        chain_tasks = [t for t in all_project_tasks if t["type"] in chain_types]
+        chain_by_type = {t["type"]: t for t in chain_tasks}
+        art = chain_by_type["art_pass"]
+        pol = chain_by_type["polish"]
+        qa_or_harness = chain_by_type.get("qa") or chain_by_type.get("harness_qa")
+        aud = chain_by_type["audit"]
+
+        # art_pass must depend on every leaf task (tasks nobody else depends on).
+        # In this graph only t2 is a leaf because t1 is depended on by t2.
+        user_leaf_ids = {"sprint-close-chat-proj-t2"}
+        assert set(art["dependencies"]) == user_leaf_ids, (
+            f"art_pass deps mismatch: {art['dependencies']}"
+        )
+        # polish depends only on art_pass
+        assert pol["dependencies"] == [art["id"]], pol["dependencies"]
+        # qa depends only on polish
+        assert qa_or_harness["dependencies"] == [pol["id"]], qa_or_harness["dependencies"]
+        # audit depends only on qa
+        assert aud["dependencies"] == [qa_or_harness["id"]], aud["dependencies"]
+
+    def test_create_project_tasks_skips_sprint_close_for_python(self, client):
+        """Non-godot chat-created projects must NOT receive the sprint-close chain."""
+        from swarm import db as swarm_db
+
+        r = client.post("/api/create-project-tasks", json={
+            "project_name": "sprint-close-skip-py-proj",
+            "project_type": "python",
+            "overview": "Python project should not get the Godot sprint-close chain.",
+            "tasks": [
+                {"id": "sprint-close-skip-py-proj-t1", "description": "FastAPI app skeleton", "dependencies": []},
+            ],
+        }, content_type="application/json")
+        assert r.status_code == 200
+
+        all_project_tasks = [
+            t for t in swarm_db.task_get_all() if t.get("project") == "sprint-close-skip-py-proj"
+        ]
+        types = {t["type"] for t in all_project_tasks}
+        assert "art_pass" not in types, types
+        assert "polish" not in types, types
+        assert "audit" not in types, types
 
     def test_create_project_tasks_returns_chat_retry_context_after_failed_repairs(self, client, app, monkeypatch):
         from swarm import api_chat

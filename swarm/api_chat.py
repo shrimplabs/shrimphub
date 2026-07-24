@@ -56,6 +56,7 @@ from swarm.api_wizard import (
     _scaffold_project_repo,
     _task_graph_shape_summary,
     _task_title,
+    _inject_sprint_close_chain,
 )
 def _build_state_snapshot(db, all_tasks=None, all_agents=None, projects=None):
     """Build a current swarm state string for chat system prompts."""
@@ -1900,6 +1901,12 @@ FORMAT:
                     "dependencies": list(t.get("dependencies", []) or []),
                     "metadata": {"prd_generated": True, "project_head_id": head_id},
                 })
+            # Inject mandatory sprint-close chain (art_pass → polish → qa → audit)
+            # so chat-created projects get the same closure gate wizard-created
+            # projects do. No-op for non-godot project types or empty batches.
+            pending_batch = _inject_sprint_close_chain(
+                pending_batch, project_name, project_path, project_type
+            )
             for task in anchor_project_batch_roots(pending_batch, head_id):
                 try:
                     db.task_upsert(task)

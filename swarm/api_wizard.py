@@ -5,6 +5,7 @@ Routes: POST /api/wizard/plan, POST /api/wizard/create
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import re as _re
 import shutil
@@ -38,13 +39,13 @@ def _llm_call(prompt: str, system: str, config: dict) -> str:
 
 _IMAGINE_SYSTEM = (
     "You are a wildly creative game designer and software inventor. "
-    "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+    "You output ONLY valid JSON -- no markdown, no explanation outside the JSON."
 )
 
 _IMAGINE_PROMPT_TEMPLATE = """\
 Invent a completely original concept for {type_desc}.{hint_line}
 
-You have total creative freedom. No scope limits — if you want to design an MMO, a physics sandbox,
+You have total creative freedom. No scope limits -- if you want to design an MMO, a physics sandbox,
 a generative art tool, or something that has never been built before, go for it.
 
 Return a JSON object with this exact structure:
@@ -59,18 +60,18 @@ Return a JSON object with this exact structure:
 
 Rules:
 - project_name must be lowercase, hyphens only, no spaces, 2-4 words
-- Be genuinely creative — avoid the most obvious ideas (simple snake, basic platformer, todo app)
+- Be genuinely creative -- avoid the most obvious ideas (simple snake, basic platformer, todo app)
 - description should be specific enough that an AI agent can start building immediately
 - Output ONLY the JSON object, nothing else"""
 
 _PLAN_SYSTEM = (
     "You are a senior software architect helping plan a development project. "
-    "You output ONLY valid JSON — no markdown, no explanation outside the JSON."
+    "You output ONLY valid JSON -- no markdown, no explanation outside the JSON."
 )
 
 _GAME_DESIGN_SYSTEM = (
     "You are a senior game designer writing structured design documents for autonomous AI agents. "
-    "You output ONLY valid markdown — no JSON, no explanation outside the markdown."
+    "You output ONLY valid markdown -- no JSON, no explanation outside the markdown."
 )
 
 _GAME_DESIGN_PROMPT_TEMPLATE = """\
@@ -84,7 +85,7 @@ specific, testable acceptance criteria so an agent can verify completion without
 
 Write the document in this exact format:
 
-# {project_name} — Game Design Document
+# {project_name} -- Game Design Document
 
 ## Overview
 [2-4 sentences describing the game, core loop, and what makes it fun]
@@ -92,14 +93,14 @@ Write the document in this exact format:
 ## Controls
 [List every player input and what it does. Be specific so QA and art agents know how to play.
 Example format:
-- Arrow keys / WASD — move player
-- Space — jump / confirm
-- Left click — shoot / interact
-- Escape — pause menu
+- Arrow keys / WASD -- move player
+- Space -- jump / confirm
+- Left click -- shoot / interact
+- Escape -- pause menu
 For non-game projects, replace this section with ## Usage and describe how to run and use the project.]
 
 ## Victory Condition
-[State a SINGLE, MACHINE-CHECKABLE end state — a condition a bot can verify by reading
+[State a SINGLE, MACHINE-CHECKABLE end state -- a condition a bot can verify by reading
 game state via get_game_state(), NOT prose like "the player wins". Name the exact
 get_game_state() field(s) and value(s). Examples:
 - "Victory: game_state.status == 'victory', reached by clearing wave 10 (game_state.wave >= 10 while game_state.lives > 0)."
@@ -119,14 +120,14 @@ the named fields MUST be exposed by get_game_state(). Omit for non-game projects
 [1-2 sentence description of the feature]
 
 **Acceptance Criteria:**
-- [Specific, testable criterion — what the agent can verify by running the game or tests]
+- [Specific, testable criterion -- what the agent can verify by running the game or tests]
 - [Another criterion]
 - [...]
 
 ### US-002: [Title]
 [...]
 
-[Continue for all user stories — one per major system or feature]
+[Continue for all user stories -- one per major system or feature]
 
 ---
 
@@ -206,11 +207,11 @@ Return a JSON object with this exact structure:
   ]
 }}
 
-ATOMICITY RULES — each task must be a single, self-contained unit of work:
+ATOMICITY RULES -- each task must be a single, self-contained unit of work:
 - One task = one logical concern (one script, one scene, one system, one mechanic)
-- NEVER bundle implementation + tests in one task — always split into separate tasks with a dependency
-- NEVER combine two distinct systems in one task — any "and" or "+" in a description is a split signal
-- One task should touch at most 2–3 files
+- NEVER bundle implementation + tests in one task -- always split into separate tasks with a dependency
+- NEVER combine two distinct systems in one task -- any "and" or "+" in a description is a split signal
+- One task should touch at most 2-3 files
 - Target size: what one agent can do in ~30 tool loops
 
 DEPENDENCY GRAPH RULES:
@@ -219,14 +220,14 @@ DEPENDENCY GRAPH RULES:
 - Foundation tasks (data models, core loop, base classes) come first; systems that build on them fan out in parallel.
 - Integration/wiring tasks come last and depend on the systems they connect.
 - WRONG: A → B → C → D → E (pure chain, wastes parallelism)
-- WRONG: A, B, C, D, E (all roots — no sequencing, everything launches at once)
+- WRONG: A, B, C, D, E (all roots -- no sequencing, everything launches at once)
 - RIGHT: A → [B, C, D in parallel] → E (fan out, then converge)
 - RULE: No more than half of all tasks should be root tasks (no dependencies). Most tasks should depend on something.
 
 SPLITTING HEURISTICS:
 - "Create X and write tests" → Task 1: Create X / Task 2: Write tests (depends on Task 1)
 - "Create scene, script, and wire up" → Task 1: Script / Task 2: Scene (depends on Task 1) / Task 3: Wire up (depends on Task 2)
-- "Fix X + add Y" → Task 1: Fix X / Task 2: Add Y (no dependency — independent systems)
+- "Fix X + add Y" → Task 1: Fix X / Task 2: Add Y (no dependency -- independent systems)
 - "Game needs: player, enemies, items, HUD" →
     Task 0: Core game loop (foundation)
     Task 1: Player system (depends on 0)
@@ -236,7 +237,7 @@ SPLITTING HEURISTICS:
     Task 5: Wire up all systems (depends on 1, 2, 3, 4)
 - "Implement A and B" → Task 1: Implement A / Task 2: Implement B (parallel, no dependency unless A's output feeds B)
 
-SCOPE: Break the entire project into ALL the tasks needed to fully implement it, from foundational systems to polish. Generate between {min_tasks} and {max_tasks} tasks. Do not summarize or abbreviate — enumerate every distinct piece of work.
+SCOPE: Break the entire project into ALL the tasks needed to fully implement it, from foundational systems to polish. Generate between {min_tasks} and {max_tasks} tasks. Do not summarize or abbreviate -- enumerate every distinct piece of work.
 
 TASK TYPES:
 - feature: new functionality
@@ -248,7 +249,7 @@ Rules:
 - type must be one of: feature, bug, refactor, polish
 - priority: 80=critical/foundational, 60=important, 50=normal, 40=nice-to-have/polish
 - depends_on: list of 0-based indices of tasks this task depends on (e.g. [0, 1])
-- Each description must be specific and actionable — one or two sentences the agent can act on directly
+- Each description must be specific and actionable -- one or two sentences the agent can act on directly
 - No setup tasks (assume repo already exists); focus on actual implementation work
 - Output ONLY the JSON object, nothing else"""
 
@@ -298,11 +299,11 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
         """Imagine + plan + create in one shot. Streams SSE progress events.
 
         Body (all optional):
-          project_type  — godot | python | typescript | other (default: godot)
-          hint          — creative nudge passed to the imagine step
-          count         — create N projects (default: 1, max: 50)
-          min_tasks     — passed to planner (default: 10)
-          max_tasks     — passed to planner (default: 80)
+          project_type  -- godot | python | typescript | other (default: godot)
+          hint          -- creative nudge passed to the imagine step
+          count         -- create N projects (default: 1, max: 50)
+          min_tasks     -- passed to planner (default: 10)
+          max_tasks     -- passed to planner (default: 80)
 
         SSE events: data: <json>\\n\\n
           {type: "progress", index, count, stage, message, project_name?}
@@ -327,7 +328,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                 try:
                     # Step 1: Imagine
                     yield _sse({"type": "progress", "index": i+1, "count": count,
-                                 "stage": "imagine", "message": f"({i+1}/{count}) Inventing concept…"})
+                                 "stage": "imagine", "message": f"({i+1}/{count}) Inventing concept..."})
                     imagine_resp = app.test_client().post(
                         "/api/wizard/imagine",
                         json={"project_type": project_type, "hint": hint},
@@ -344,10 +345,10 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                     description = concept["description"]
                     entry["project_name"] = project_name
                     entry["concept"] = concept
-                    print(f"[Instant] ({i+1}/{count}) Conceived: {project_name} — {concept.get('genre','')}")
+                    print(f"[Instant] ({i+1}/{count}) Conceived: {project_name} -- {concept.get('genre','')}")
                     yield _sse({"type": "progress", "index": i+1, "count": count,
                                  "stage": "plan", "project_name": project_name,
-                                 "message": f"({i+1}/{count}) Planning tasks for {project_name}…"})
+                                 "message": f"({i+1}/{count}) Planning tasks for {project_name}..."})
 
                     # Step 2: Plan
                     plan_resp = app.test_client().post(
@@ -374,7 +375,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                     print(f"[Instant] ({i+1}/{count}) Planned {len(tasks)} tasks for {project_name}")
                     yield _sse({"type": "progress", "index": i+1, "count": count,
                                  "stage": "create", "project_name": project_name,
-                                 "message": f"({i+1}/{count}) Scaffolding {project_name} ({len(tasks)} tasks)…"})
+                                 "message": f"({i+1}/{count}) Scaffolding {project_name} ({len(tasks)} tasks)..."})
 
                     # Step 3: Create
                     create_resp = app.test_client().post(
@@ -390,7 +391,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                     if "error" in result:
                         details = result.get("details", [])
                         detail_str = "; ".join(details) if details else ""
-                        msg = f"create failed: {result['error']}" + (f" — {detail_str}" if detail_str else "")
+                        msg = f"create failed: {result['error']}" + (f" -- {detail_str}" if detail_str else "")
                         entry["error"] = msg
                         yield _sse({"type": "error", "index": i+1, "count": count,
                                      "project_name": project_name, "message": msg})
@@ -486,7 +487,7 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
             closure_spec = _generate_closure_spec(project_name, tasks_in)
         else:
             task_titles = "\n".join(f"- {t.get('description','').split(chr(10))[0]}" for t in tasks_in)
-            game_design_notes = f"# {project_name} — Project Brief\n\n"
+            game_design_notes = f"# {project_name} -- Project Brief\n\n"
             if notes:
                 game_design_notes += f"{notes}\n\n"
             game_design_notes += f"## Planned Features\n{task_titles}\n"
@@ -561,76 +562,9 @@ def register_routes(app, config, config_file, _config_write_lock, orchestrator, 
                 "metadata": {"wizard_created": True, "project_head_id": head_id},
                 "created": datetime.now().isoformat(),
             })
-        # Inject mandatory sprint-close sequence: art_pass → qa → audit.
-        # Find leaf tasks (nothing depends on them) so the close chain runs after
-        # all planned work is done.
-        if project_type == "godot" and pending_batch:
-            all_ids = {t["id"] for t in pending_batch}
-            depended_on = {d for t in pending_batch for d in t["dependencies"]}
-            leaf_ids = sorted(all_ids - depended_on)  # tasks nobody depends on
-
-            now_hex = _uuid.uuid4().hex[:4]
-            art_id  = f"{project_name}-art-{now_hex}"
-            pol_id  = f"{project_name}-pol-{now_hex}"
-            qa_id   = f"{project_name}-qa-{now_hex}"
-            aud_id  = f"{project_name}-audit-{now_hex}"
-            has_harness = (project_path / "autoload" / "test_harness.gd").exists()
-            qa_type = "harness_qa" if has_harness else "qa"
-
-            pending_batch += [
-                {
-                    "id": art_id,
-                    "project": project_name,
-                    "type": "art_pass",
-                    "priority": 60,
-                    "description": "Art pass: ensure all game entities are visible on screen, sprites/textures are attached to core objects, main menu text is readable, and no placeholder ColorRect or empty Node2D remains. Fix any invisible or geometry-only elements per GAME_DESIGN.md.",
-                    "status": "pending",
-                    "attempts": 0,
-                    "max_attempts": 3,
-                    "dependencies": leaf_ids,
-                    "metadata": {"wizard_created": True},
-                    "created": datetime.now().isoformat(),
-                },
-                {
-                    "id": pol_id,
-                    "project": project_name,
-                    "type": "polish",
-                    "priority": 60,
-                    "description": "UI/UX polish: ensure screen transitions are smooth, buttons give feedback, menu flow is navigable, HUD is readable, and game feel is responsive. Fix any remaining visual gaps encountered. Per GAME_DESIGN.md.",
-                    "status": "pending",
-                    "attempts": 0,
-                    "max_attempts": 3,
-                    "dependencies": [art_id],
-                    "metadata": {"wizard_created": True},
-                    "created": datetime.now().isoformat(),
-                },
-                {
-                    "id": qa_id,
-                    "project": project_name,
-                    "type": qa_type,
-                    "priority": 75,
-                    "description": "Sprint gate QA: launch the game, verify CF-1 Boot and CF-2 Visual Presence flows from PROJECT_CLOSURE.md pass. Verify the core gameplay loop is functional. File bug tasks for any regressions found.",
-                    "status": "pending",
-                    "attempts": 0,
-                    "max_attempts": 3,
-                    "dependencies": [pol_id],
-                    "metadata": {"wizard_created": True},
-                    "created": datetime.now().isoformat(),
-                },
-                {
-                    "id": aud_id,
-                    "project": project_name,
-                    "type": "audit",
-                    "priority": 70,
-                    "description": "Design conformance audit: compare the codebase against GAME_DESIGN.md, write CONFORMANCE_REPORT.md listing all missing/partial/diverged requirements, then spawn the next sprint planner.",
-                    "status": "pending",
-                    "attempts": 0,
-                    "max_attempts": 3,
-                    "dependencies": [qa_id],
-                    "metadata": {"wizard_created": True},
-                    "created": datetime.now().isoformat(),
-                },
-            ]
+        pending_batch = _inject_sprint_close_chain(
+            pending_batch, project_name, project_path, project_type
+        )
 
         created = []
         for task in anchor_project_batch_roots(pending_batch, head_id):
@@ -668,6 +602,105 @@ def _copy_tree(src: Path, dst: Path):
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, dst, dirs_exist_ok=True)
+
+
+def _inject_sprint_close_chain(
+    pending_batch: list,
+    project_name: str,
+    project_path: Path,
+    project_type: str,
+) -> list:
+    """Append the mandatory sprint-close chain (art_pass → polish → qa → audit) to a project task batch.
+
+    Used by both the wizard route (POST /api/wizard/create) and the chat project
+    creation route (POST /api/create-project-tasks) so leaf tasks in a freshly
+    created project always trigger art_pass / polish / qa / audit before being
+    considered "done". Non-godot projects are returned unchanged.
+
+    Args:
+        pending_batch: list of task dicts to which the chain will be appended (mutated).
+        project_name: project slug (used to generate unique task IDs).
+        project_path: filesystem path of the project root (used to detect harness_qa).
+        project_type: one of "godot"/"python"/"typescript". Only "godot" triggers injection.
+
+    Returns:
+        The same list with sprint-close tasks appended (in-place append, but returned
+        for caller convenience).
+    """
+    import uuid as _uuid  # local import mirrors existing wizard pattern
+    if project_type != "godot" or not pending_batch:
+        return pending_batch
+
+    # Inject mandatory sprint-close sequence: art_pass → qa → audit.
+    # Find leaf tasks (nothing depends on them) so the close chain runs after
+    # all planned work is done.
+    all_ids = {t["id"] for t in pending_batch}
+    depended_on = {d for t in pending_batch for d in t["dependencies"]}
+    leaf_ids = sorted(all_ids - depended_on)  # tasks nobody depends on
+
+    now_hex = _uuid.uuid4().hex[:4]
+    art_id  = f"{project_name}-art-{now_hex}"
+    pol_id  = f"{project_name}-pol-{now_hex}"
+    qa_id   = f"{project_name}-qa-{now_hex}"
+    aud_id  = f"{project_name}-audit-{now_hex}"
+    has_harness = (project_path / "autoload" / "test_harness.gd").exists()
+    qa_type = "harness_qa" if has_harness else "qa"
+
+    pending_batch += [
+        {
+            "id": art_id,
+            "project": project_name,
+            "type": "art_pass",
+            "priority": 60,
+            "description": "Art pass: ensure all game entities are visible on screen, sprites/textures are attached to core objects, main menu text is readable, and no placeholder ColorRect or empty Node2D remains. Fix any invisible or geometry-only elements per GAME_DESIGN.md.",
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "dependencies": leaf_ids,
+            "metadata": {"wizard_created": True},
+            "created": datetime.now().isoformat(),
+        },
+        {
+            "id": pol_id,
+            "project": project_name,
+            "type": "polish",
+            "priority": 60,
+            "description": "UI/UX polish: ensure screen transitions are smooth, buttons give feedback, menu flow is navigable, HUD is readable, and game feel is responsive. Fix any remaining visual gaps encountered. Per GAME_DESIGN.md.",
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "dependencies": [art_id],
+            "metadata": {"wizard_created": True},
+            "created": datetime.now().isoformat(),
+        },
+        {
+            "id": qa_id,
+            "project": project_name,
+            "type": qa_type,
+            "priority": 75,
+            "description": "Sprint gate QA: launch the game, verify CF-1 Boot and CF-2 Visual Presence flows from PROJECT_CLOSURE.md pass. Verify the core gameplay loop is functional. File bug tasks for any regressions found.",
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "dependencies": [pol_id],
+            "metadata": {"wizard_created": True},
+            "created": datetime.now().isoformat(),
+        },
+        {
+            "id": aud_id,
+            "project": project_name,
+            "type": "audit",
+            "priority": 70,
+            "description": "Design conformance audit: compare the codebase against GAME_DESIGN.md, write CONFORMANCE_REPORT.md listing all missing/partial/diverged requirements, then spawn the next sprint planner.",
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "dependencies": [qa_id],
+            "metadata": {"wizard_created": True},
+            "created": datetime.now().isoformat(),
+        },
+    ]
+    return pending_batch
 
 
 def _ensure_project_godot_file(project_name: str, project_path: Path):
@@ -803,7 +836,7 @@ def _generate_game_design_doc(project_name: str, description: str, tasks: list, 
     except Exception as e:
         print(f"[Wizard] game design doc generation failed: {e}")
         # Fallback to minimal doc
-        return f"# {project_name} — Game Design Document\n\n{description}\n\n## Planned Features\n{task_list}\n"
+        return f"# {project_name} -- Game Design Document\n\n{description}\n\n## Planned Features\n{task_list}\n"
 
 
 def _generate_closure_spec(project_name: str, tasks: list) -> str:
@@ -828,15 +861,15 @@ def _python_project_chat_prompt(existing_projects: list[str]) -> str:
 
 EXISTING PROJECTS (avoid name conflicts): {', '.join(existing_projects) or 'none yet'}
 
-YOUR PROCESS — THREE PHASES:
+YOUR PROCESS -- THREE PHASES:
 
-PHASE 1 — QUESTIONS: Ask 3-5 clarifying questions with lettered options, one set at a time.
-PHASE 2 — PLAN PREVIEW: Once you have enough context, write a short plan preview with:
+PHASE 1 -- QUESTIONS: Ask 3-5 clarifying questions with lettered options, one set at a time.
+PHASE 2 -- PLAN PREVIEW: Once you have enough context, write a short plan preview with:
 - project name and concept
 - planned tasks
 - an explicit dependency map per task
 End with: "Want to change anything, or shall I generate the tasks?"
-PHASE 3 — PRD GENERATION: Only when the user explicitly says to proceed (e.g. "yes", "go ahead", "create", "looks good"), emit the full [PRD] block.
+PHASE 3 -- PRD GENERATION: Only when the user explicitly says to proceed (e.g. "yes", "go ahead", "create", "looks good"), emit the full [PRD] block.
 
 FORMAT QUESTIONS LIKE THIS (always use lettered options so users can reply "1A, 2C"):
 1. What kind of software project is this?
@@ -873,7 +906,7 @@ Quality gate: pytest passes.
 
 Want to change anything, or shall I generate the tasks?
 
-DEPENDENCY RULES (CRITICAL — apply inside the PRD):
+DEPENDENCY RULES (CRITICAL -- apply inside the PRD):
 - Use a DAG, NOT a chain. Independent systems should run in parallel.
 - Foundation stories (configuration, data model, core interfaces) come first; everything that builds on them fans out in parallel.
 - Do NOT create stories for generic repository setup, virtualenv setup, or placeholder tests. The project scaffold handles repository basics automatically.
@@ -883,7 +916,7 @@ DEPENDENCY RULES (CRITICAL — apply inside the PRD):
 - Stories with no dependency get no depends-on line.
 - The dependency map in Phase 2 and the `depends-on` lines in Phase 3 must describe the same graph.
 
-PHASE 3 — ONLY when user confirms, emit this EXACT format (dependencies go INSIDE each story block):
+PHASE 3 -- ONLY when user confirms, emit this EXACT format (dependencies go INSIDE each story block):
 
 [PRD]
 # PRD: [Project Title]
@@ -898,7 +931,7 @@ These must pass for every user story:
 
 ## User Stories
 
-### US-001: [Foundation title — no deps]
+### US-001: [Foundation title -- no deps]
 **Description:** As a user, I want [feature] so that [benefit].
 **Acceptance Criteria:**
 - [ ] [verifiable criterion]
@@ -931,7 +964,7 @@ depends-on: US-002, US-003
 
 OTHER RULES:
 - Never emit [PRD] before the user explicitly confirms in Phase 3
-- In Phase 2, write plain text only — no [PRD] tags
+- In Phase 2, write plain text only -- no [PRD] tags
 - Stories should be small (one agent session each), 5-10 total
 - [PRD] block must be the last thing in your message when emitted
 - ONLY create tasks for the new project being designed. NEVER create tasks for other existing projects."""
