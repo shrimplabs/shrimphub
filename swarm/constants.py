@@ -19,7 +19,7 @@ FALLBACK_PROVIDERS: list = []
 
 # Agent runtime constants
 # Default maximum tool-use iterations per agent task before forcing termination.
-# playthrough_bot tasks get 500 (set in swarm_runner.py) — they legitimately
+# playthrough_bot tasks get 500 (set in swarm_runner.py) -- they legitimately
 # need to fix game bugs AND write/iterate a bot in the same task.
 MAX_TOOL_LOOPS: int = 200
 API_PORT: int = 5001
@@ -40,7 +40,18 @@ MINIMAX_MODEL: str = "MiniMax-M3"
 # Bump when the pipeline contract in swarm/pipeline.py changes in a non-backwards-compatible way.
 PIPELINE_VERSION: str = "1.0"
 
-# Pipeline phase loop limits — all phase files import from here
+# Event bus default -- placed here so both swarm/events.py and
+# swarm/agent_lifecycle.py can import the single source of truth without a
+# circular import through swarm/events.  The current default is held at
+# ``False`` while the 48h production soak is still being validated (see
+# VALIDATION_STATE.md for feature-897612801-0069).  When the soak metrics
+# land in ``data/13a-phase1-baseline.md`` (p50 inter-task gap ≤3s, zero
+# double-/lost-finish incidents, handler_errors==0) this constant is flipped
+# to ``True`` and the docstring in swarm/events.py is updated.
+EVENT_BUS_ENABLED_DEFAULT: bool = False
+EVENT_BUS_ENABLED_LEGACY_DEFAULT: bool = False  # back-compat alias for tests/fixtures
+
+# Pipeline phase loop limits -- all phase files import from here
 PLAN_MAX_LOOPS: int = 10
 SCOUT_MAX_LOOPS: int = 24
 WORK_MAX_LOOPS: int = 150
@@ -48,14 +59,14 @@ DIAGNOSE_MAX_LOOPS: int = 10
 SYNTHESIZE_MAX_ATTEMPTS: int = 2
 CREATE_TASKS_MAX_LOOPS: int = 15
 
-# Escalation / retry limits — agent_recovery.py reads max_attempts from task rows,
+# Escalation / retry limits -- agent_recovery.py reads max_attempts from task rows,
 # which are seeded from these defaults at task-creation time.
 DEFAULT_MAX_ATTEMPTS: int = 3          # bug / feature / refactor / integration
 DEFAULT_MAX_ATTEMPTS_QA: int = 2       # qa / harness_qa / art_pass / plan types
 RESEARCH_FEEDER_MAX_ATTEMPTS: int = 2  # research feeders spawned by recovery
 MAX_RESEARCH_FEEDER_CYCLES: int = 3    # cap on how many feeders one task can spawn
 
-# Infrastructure freeze escalation — tasks that accumulate this many consecutive
+# Infrastructure freeze escalation -- tasks that accumulate this many consecutive
 # infrastructure failures without consuming a real attempt are force-escalated to
 # consume one attempt, eventually triggering the research-feeder path.
 INFRA_FREEZE_THRESHOLD: int = 5        # consecutive infra failures before force-escalation

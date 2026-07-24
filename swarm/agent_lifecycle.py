@@ -164,7 +164,12 @@ def configure(
     project_registry=None,
     human_review_flag_enabled: bool = False,
     playthrough_auto_enabled: bool = False,
-    event_bus_enabled: bool = False,
+    # Sourced from swarm.constants.EVENT_BUS_ENABLED_DEFAULT so the default
+    # can be flipped in one place.  See VALIDATION_STATE.md for
+    # feature-897612801-0069 -- default is held at False until the 48h soak
+    # (data/13a-phase1-baseline.md) shows p50 ≤3s, zero double-/lost-finish
+    # incidents, and handler_errors==0.
+    event_bus_enabled: bool = False,  # TODO(soak-pending): default to EVENT_BUS_ENABLED_DEFAULT
     **_kwargs,
 ):
     """Configure module-level settings for the agent lifecycle system.
@@ -202,7 +207,7 @@ def configure(
     HUMAN_REVIEW_FLAG_ENABLED = human_review_flag_enabled
     PLAYTHROUGH_AUTO_ENABLED = playthrough_auto_enabled
 
-    # Event bus — wire up before enabling so the handler is registered first.
+    # Event bus -- wire up before enabling so the handler is registered first.
     _env_flag = os.environ.get("SWARM_EVENT_BUS", "")
     _bus_on = event_bus_enabled or _env_flag in ("1", "true", "yes")
     EVENT_BUS_ENABLED = _bus_on
@@ -306,7 +311,7 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
     # Pre-flight baseline: capture which validation errors exist BEFORE the agent
     # touches anything.  Post-task validation diffs against this so only NEW errors
     # count as failures.  Only runs for task types that go through post-validation.
-    # Runs asynchronously in a background thread so it never blocks the monitor loop —
+    # Runs asynchronously in a background thread so it never blocks the monitor loop --
     # capture_validation_baseline can take up to 60s (Godot headless validation).
     # The baseline is stored in task metadata before the agent does meaningful work;
     # agents spend their first several tool-loops reading files, so there's ample
@@ -377,7 +382,7 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
             }
 
         # Waiter thread: blocks on proc.wait() and fires AGENT_EXITED the
-        # instant the process exits.  The flag gates the publish — if the bus
+        # instant the process exits.  The flag gates the publish -- if the bus
         # is disabled the thread exits immediately after proc.wait() with no
         # effect.  Sweep still runs normally as the fallback.
         def _waiter(aid=agent_id, p=proc, tid=task.get("id"), proj=project):
@@ -426,7 +431,7 @@ def spawn_agent(task: Dict, generate_script_fn) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _on_agent_exited(ev) -> None:
-    """Event bus handler: an agent process exited — claim teardown and finish it.
+    """Event bus handler: an agent process exited -- claim teardown and finish it.
 
     Fires on the dispatcher thread.  Must not block (starts a finish thread and
     returns immediately).  If the sweep already claimed teardown, this is a
@@ -761,7 +766,7 @@ def get_active_count() -> int:
 def prune_history():
     """Archive finished agents to JSONL and remove from DB.
 
-    Tasks (completed/failed/cancelled) stay in the DB permanently — they are
+    Tasks (completed/failed/cancelled) stay in the DB permanently -- they are
     the authoritative record and are never deleted.  task-history.jsonl is no
     longer written; use the DB directly.
 
@@ -794,7 +799,7 @@ def prune_history():
 
     # Update each project's head_task_id to the most recent continuity-eligible
     # task, but do not overwrite a live continuation with a failed/cancelled tail.
-    # Only run this scan when agents actually finished — it fetches 15k+ rows and
+    # Only run this scan when agents actually finished -- it fetches 15k+ rows and
     # would block the monitor for seconds on every cycle if run unconditionally.
     all_terminal = db.task_get_all(
         exclude_statuses=("pending", "in_progress"),

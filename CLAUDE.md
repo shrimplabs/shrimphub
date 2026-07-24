@@ -9,7 +9,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - SQLite-backed state (WAL mode, thread-safe)
 - Multiple LLM providers: Minimax, Claude, OpenRouter, Kimi, custom
 - Automatic task retry with failure context fed back into prompts
-- Research feeder escalation: on attempt exhaustion a research task is spawned, feeds diagnosis back into the original task (no reparenting — original task stays the dep-graph node)
+- Research feeder escalation: on attempt exhaustion a research task is spawned, feeds diagnosis back into the original task (no reparenting -- original task stays the dep-graph node)
 - Dependency self-healing: chains unblock when pruned-failed deps are detected
 - Post-task validation with auto-spawned bug tasks on failure (runs synchronously in monitor thread -- can block up to ~5 min for GUT tests)
 - Real-time log streaming via SSE, per-project health metrics
@@ -25,10 +25,11 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Dep violation checker: monitor kills any agent whose task has unmet dependencies (catches both in-memory and DB-tracked agents after restart)
 - Worktree `.godot` cache seeding: new worktrees copy the `.godot/` directory from the main project so Godot class_name resolution works correctly during validation
 - Integrity diagnostics: real-time task authority validation, orphan detection, live repair in dashboard
-- Unified Chat: first-class co-pilot (`/api/unified-chat`) — scope-aware (global or project), persistent sessions, two-tier memory injection, session compaction, emergency stop, and catastrophic action prevention
+- Unified Chat: first-class co-pilot (`/api/unified-chat`) -- scope-aware (global or project), persistent sessions, two-tier memory injection, session compaction, emergency stop, and catastrophic action prevention
 - Project Creation Wizard: chat-based new project scaffolding (`/api/wizard/plan`, `/api/wizard/create`)
 - RAG backend: optional ChromaDB vector search for agent code context
 - Task auto-chaining: tasks created within a project are chained to the project HEAD to prevent floating chains
+- Event bus: intra-process pub/sub for `AGENT_FINISHED` / `AGENT_EXITED` lifecycle events. Sourced from `swarm.constants.EVENT_BUS_ENABLED_DEFAULT` (currently held at `False` until the 48h production soak in `data/13a-phase1-baseline.md` validates p50 inter-task gap ≤3s, zero double-/lost-finish incidents, and `handler_errors==0`; see `VALIDATION_STATE.md` for feature-897612801-0069). When flipped, the bus becomes the primary finish wake-up path alongside the monitor thread's polling loop. Rollback: `POST /api/event-bus {"enabled": false}`, `event_bus_enabled: false` in `config.json`, or `SWARM_EVENT_BUS=0` env var.
 
 ## Setup
 
@@ -58,7 +59,7 @@ echo "MINIMAX_API_KEY=your_key" > .env
 
 ## CLI Tools
 
-`tools/swarm-code.py` — standalone terminal harness for the swarm API (no extra deps):
+`tools/swarm-code.py` -- standalone terminal harness for the swarm API (no extra deps):
 
 ```bash
 # Create a task and block until it finishes (streams agent log)
@@ -68,7 +69,7 @@ python3 tools/swarm-code.py raccoon-city "fix the save bug" --type=bug --wait
 # Fire and forget (creates task, prints ID, exits immediately)
 python3 tools/swarm-code.py raccoon-city "add a leaderboard"
 
-# Interactive chat REPL — global or project-scoped
+# Interactive chat REPL -- global or project-scoped
 python3 tools/swarm-code.py --chat
 python3 tools/swarm-code.py --chat raccoon-city
 
@@ -248,7 +249,7 @@ Two independent limits apply to agents:
 
 ### Escalation and self-healing (progressive refinement model)
 
-A task that fails its first attempt is not a failure — it is the first pass of a multi-pass process. The system uses **progressive refinement** rather than recovery task replacement.
+A task that fails its first attempt is not a failure -- it is the first pass of a multi-pass process. The system uses **progressive refinement** rather than recovery task replacement.
 
 #### Normal retry (attempts < max_attempts)
 Task resets to `pending` with `metadata.last_failure` set. Prompt context is tiered by attempt number:
@@ -260,14 +261,14 @@ Task resets to `pending` with `metadata.last_failure` set. Prompt context is tie
 When attempts are exhausted for implementation task types (`on_exhaust: "research"` in escalation policy):
 1. A **research feeder task** is spawned (`type: "research"`, `metadata.feeds_into_task_id=<original_id>`)
 2. The **original task** is reset to `pending` (attempts=0), with the research task added as a temporary dependency
-3. **Dependents never move** — the original task stays the authoritative dep-graph node. No reparenting.
+3. **Dependents never move** -- the original task stays the authoritative dep-graph node. No reparenting.
 4. When research completes, `_apply_research_feeder_result()` injects findings into `metadata.research_context`, removes the research dep, and unblocks the original task
 5. Original task retries with the research diagnosis prepended to its prompt
 
 Dedupe guard: only one pending/in_progress research feeder per original task ID. `attempt_history` in metadata accumulates across all resets so agents can see the full failure chain.
 
 #### Exhaustion → cancel (QA/research/plan types)
-Task types with `on_exhaust: "cancel"` in escalation policy (qa, harness_qa, hybrid_qa, scenario_qa, research, plan, project_plan, art_pass, audit) simply stay `failed` — no feeder spawned. QA agents use their own `requeue_self()` mechanism.
+Task types with `on_exhaust: "cancel"` in escalation policy (qa, harness_qa, hybrid_qa, scenario_qa, research, plan, project_plan, art_pass, audit) simply stay `failed` -- no feeder spawned. QA agents use their own `requeue_self()` mechanism.
 
 #### Escalation policy
 Defined in `swarm/agent_recovery.py:_DEFAULT_ESCALATION_POLICY` and overridable per-type in `config.json` under `escalation_policy`:
@@ -281,14 +282,14 @@ Defined in `swarm/agent_recovery.py:_DEFAULT_ESCALATION_POLICY` and overridable 
 ```
 
 #### Pre-flight baseline validation
-Before an agent starts (at worktree creation), `capture_validation_baseline()` runs validation and records which errors already exist as normalised signatures. After the agent finishes, `filter_new_errors()` diffs the post-agent output — only **new** errors introduced by the agent count as failures. Pre-existing errors are reported as inherited blockers and do not block the merge.
+Before an agent starts (at worktree creation), `capture_validation_baseline()` runs validation and records which errors already exist as normalised signatures. After the agent finishes, `filter_new_errors()` diffs the post-agent output -- only **new** errors introduced by the agent count as failures. Pre-existing errors are reported as inherited blockers and do not block the merge.
 
 This eliminates false-positive validation cascades caused by environmental issues (e.g. missing `class_name` declarations, removed Godot 4 properties) that pre-date the agent's work.
 
 #### What is NOT used anymore
 - `_spawn_review_task()` / recovery task creation for bug/feature/refactor types (replaced by research feeder)
 - Dep reparenting on exhaustion (dependents stay on original task)
-- `is_recovery_task` flag (legacy only — pre-feeder recovery tasks already in DB still run to completion via `_spawn_terminal_recovery_continuation`)
+- `is_recovery_task` flag (legacy only -- pre-feeder recovery tasks already in DB still run to completion via `_spawn_terminal_recovery_continuation`)
 
 Legacy: `_spawn_review_task()` is still present for the terminal continuation path of `is_recovery_task` rows already in the DB. It will be removed once the DB has no active legacy recovery tasks.
 
@@ -342,7 +343,7 @@ Meta-agents are background agents that maintain and improve the swarm itself. Th
 | **Scheduler** | `api_scheduler.py` | Periodically creates tasks for projects on a time-based schedule | `scheduler_enabled` |
 | **Meta-auditor** | `api_meta_auditor.py` | Cross-project audit: flags systemic quality regressions | `meta_auditor_*` flags |
 
-`meta_mode_enabled` (global flag) gates whether the orchestrator runs meta-agent checks. All meta-agents are **off by default** — enable individually in `config.json`.
+`meta_mode_enabled` (global flag) gates whether the orchestrator runs meta-agent checks. All meta-agents are **off by default** -- enable individually in `config.json`.
 
 ## Closure system
 
@@ -361,9 +362,9 @@ Meta-agents are background agents that maintain and improve the swarm itself. Th
 | `closure/project_seeds.py` | Seeds initial closure specs for new projects |
 
 **Scheduling effects:** `swarm/project_graph_policy.py` reads `closure_status` before allowing new tasks to be created for a project:
-- `frozen` — no new tasks until closure is achieved
-- `stalled` — Archaeologist triggered; block lifted when unblock task completes
-- `open` — normal operation
+- `frozen` -- no new tasks until closure is achieved
+- `stalled` -- Archaeologist triggered; block lifted when unblock task completes
+- `open` -- normal operation
 
 `phase_gate` is a task type that blocks downstream work until a verification run passes. This is the mechanism used to enforce "fix all QA bugs before proceeding to next feature phase."
 
@@ -663,7 +664,7 @@ Project type is auto-detected by `_detect_project_type()` in `validation.py` fro
 | `csharp` | `*.csproj` / `*.sln` | `mcs` on all `.cs` files |
 | `typescript` | `package.json` + `*.ts` | `tsc --noEmit` |
 
-Agents use generic prompts (no language-specific prompt files for Swift/Unity/Rust/etc.) — the task description carries enough context. The Godot-specific parts of prompts are ignored for non-Godot projects.
+Agents use generic prompts (no language-specific prompt files for Swift/Unity/Rust/etc.) -- the task description carries enough context. The Godot-specific parts of prompts are ignored for non-Godot projects.
 
 Failure → `_spawn_validation_bug_task()` creates a priority-100 bug task.
 
@@ -905,7 +906,7 @@ This ensures all managed projects always appear in the dashboard after a restart
 ## Unified Chat
 
 `POST /api/unified-chat` is the primary dashboard chat interface. It supports two scopes:
-- **Global** (no `project` field): full swarm context — all tasks, agents, projects
+- **Global** (no `project` field): full swarm context -- all tasks, agents, projects
 - **Project** (`project: "my-project"`): project-scoped tools including file read/write and git commit
 
 Sessions are persisted at `data/chat_sessions/_global/<id>.jsonl` (global) or `data/chat_sessions/<project>/<id>.jsonl` (project scope). 7-day TTL.

@@ -18,11 +18,15 @@ import time
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from swarm.constants import AGENT_TIMEOUT
+from swarm.constants import AGENT_TIMEOUT, EVENT_BUS_ENABLED_DEFAULT
 from swarm.task_chains import chain_to_project_head
 from swarm.api_webhook import fire_webhook as _fire_webhook  # noqa: F401 re-export for tests
 
 _config_write_lock = threading.Lock()
+
+# Module-level re-export so test_lifecycle.py and other callers can import
+# the bus default without going through swarm.events.  See VALIDATION_STATE.md
+# for feature-897612801-0069.
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +70,7 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
     reconstructing the full Flask app.
     """
     from swarm import orchestrator, agent_lifecycle
-    from swarm.constants import AGENT_TIMEOUT
+    from swarm.constants import AGENT_TIMEOUT, EVENT_BUS_ENABLED_DEFAULT
 
     orchestrator.WORKSPACE           = workspace
     orchestrator.DATA_DIR            = data_dir
@@ -137,7 +141,12 @@ def _wire_runtime(config: Dict[str, Any], workspace: Path, data_dir: Path, proje
         project_registry=project_registry,
         human_review_flag_enabled=config.get("human_review_flag_enabled", False),
         playthrough_auto_enabled=config.get("playthrough_auto_enabled", False),
-        event_bus_enabled=config.get("event_bus_enabled", False),
+        # Sourced from the constants module so the default can be flipped in
+        # one place.  See VALIDATION_STATE.md for feature-897612801-0069 --
+        # default is held at False until the 48h soak
+        # (data/13a-phase1-baseline.md) shows p50 ≤3s, zero
+        # double-/lost-finish incidents, and handler_errors==0.
+        event_bus_enabled=config.get("event_bus_enabled", EVENT_BUS_ENABLED_DEFAULT),
     )
 
     from swarm.agent_recovery import configure_recovery as _configure_recovery

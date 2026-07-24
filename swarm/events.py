@@ -1,9 +1,11 @@
 """Minimal event bus for intra-process agent lifecycle events.
 
-Disabled by default (``EVENT_BUS_ENABLED_DEFAULT = False``).  Enable via
+The default is sourced from ``swarm.constants.EVENT_BUS_ENABLED_DEFAULT``
+(lazily imported inside ``EventBus.__init__`` to keep this module free of
+import-time circular dependencies).  Enable via
 ``bus.set_enabled(True)`` or ``agent_lifecycle.configure(event_bus_enabled=True)``.
 
-When disabled, ``publish()`` is a no-op returning ``False`` — callers never
+When disabled, ``publish()`` is a no-op returning ``False`` -- callers never
 block and exceptions are never raised.
 
 Usage::
@@ -34,7 +36,12 @@ class Event:
 
 class EventBus:
     def __init__(self) -> None:
-        self._enabled = False
+        # Lazy import keeps swarm.events independent of swarm.constants at
+        # module load time.  The constant is the single source of truth for
+        # the bus default; updating it in swarm/constants.py flips the
+        # process-wide default on the next process startup.
+        from swarm.constants import EVENT_BUS_ENABLED_DEFAULT
+        self._enabled = EVENT_BUS_ENABLED_DEFAULT
         self._queue: queue.Queue[Event] = queue.Queue()
         self._subscribers: Dict[str, List[Callable]] = defaultdict(list)
         self._lock = threading.Lock()
