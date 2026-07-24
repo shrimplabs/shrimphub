@@ -24,6 +24,19 @@ from pathlib import Path
 from typing import Callable, Optional, Set
 
 
+def _coerce_list(value):
+    """Coerce a JSON-string arg to a list — XML parsers yield strings, not parsed types."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else [parsed]
+        except Exception:
+            return value
+    return value
+
+
 # ---------------------------------------------------------------------------
 # ToolSpec -- declarative tool descriptor
 # ---------------------------------------------------------------------------
@@ -483,14 +496,14 @@ def _populate_registry():
     _reg("rag_query",       lambda a, ws, p: rag_query(a.get("question", ""), int(a.get("top_k", 5))),                      ["question"])
 
     # --- MCP ---
-    _reg("mcp_call_tool",   lambda a, ws, p: mcp_call_tool(a.get("server", ""), a.get("tool", ""), a.get("args", {})),     ["server", "tool"])
+    _reg("mcp_call_tool",   lambda a, ws, p: mcp_call_tool(a.get("server", ""), a.get("tool", ""), _coerce_list(a.get("args", {})) if isinstance(a.get("args"), str) else a.get("args", {})),     ["server", "tool"])
     _reg("mcp_list_tools",  lambda a, ws, p: mcp_list_tools(a.get("server", "")))
 
     # --- Task tools ---
     _reg("create_subtask",  lambda a, ws, p: create_subtask(a.get("description", ""), a.get("type", "feature"), a.get("priority", 50), a.get("files_touched"), a.get("depends_on_current", True), a.get("max_depth", 2), a.get("project"), a.get("metadata")), ["description"])
     _reg("create_task",     lambda a, ws, p: create_task(a.get("description", ""), a.get("type", "feature"), a.get("priority", 50), a.get("dependencies", []), a.get("project"), a.get("parent_task_id"), a.get("metadata")), ["description"])
-    _reg("create_tasks",   lambda a, ws, p: create_tasks(a.get("tasks", []), a.get("project")), ["tasks"])
-    _reg("create_tasks_file_aware", lambda a, ws, p: create_tasks_file_aware(a.get("tasks", []), a.get("project")),         ["tasks"])
+    _reg("create_tasks",   lambda a, ws, p: create_tasks(_coerce_list(a.get("tasks", [])), a.get("project")), ["tasks"])
+    _reg("create_tasks_file_aware", lambda a, ws, p: create_tasks_file_aware(_coerce_list(a.get("tasks", [])), a.get("project")),         ["tasks"])
     _reg("list_tasks",      lambda a, ws, p: list_tasks(a.get("project")))
     _reg("list_subtasks",   lambda a, ws, p: list_subtasks(a.get("parent_task_id")))
     _reg("annotate_downstream_tasks", lambda a, ws, p: annotate_downstream_tasks(a.get("findings", ""), a.get("task_ids")), ["findings"])
