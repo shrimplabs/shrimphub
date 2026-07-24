@@ -162,6 +162,9 @@ def parse_tool_calls(text: str) -> list:
     # Laguna/llama.cpp sometimes emits ``[tool_call>`` (missing opening ``<``).
     # Normalise to ``<tool_call>`` so the tag scanner finds it.
     text = re.sub(r'\[tool_call>', '<tool_call>', text)
+    # Laguna sometimes emits ``[TOOL_CALL]{tool":`` — missing the opening ``"``
+    # after ``{``. Repair to valid JSON: ``[TOOL_CALL]{"tool":``
+    text = re.sub(r'\[TOOL_CALL\]\{tool":', '[TOOL_CALL]{"tool":', text)
     tool_calls = []
 
     def _try_parse(json_str):

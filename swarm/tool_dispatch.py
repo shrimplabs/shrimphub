@@ -480,7 +480,7 @@ def _populate_registry():
     # --- Web / network ---
     _reg("web_search",      lambda a, ws, p: web_search(a.get("query", ""), a.get("max_results", 3)),                       ["query"])
     _reg("fetch_url",       lambda a, ws, p: fetch_url(a.get("url", ""), a.get("extract_text", True)),                      ["url"])
-    _reg("rag_query",       lambda a, ws, p: rag_query(a.get("question", ""), a.get("top_k", 5)),                           ["question"])
+    _reg("rag_query",       lambda a, ws, p: rag_query(a.get("question", ""), int(a.get("top_k", 5))),                      ["question"])
 
     # --- MCP ---
     _reg("mcp_call_tool",   lambda a, ws, p: mcp_call_tool(a.get("server", ""), a.get("tool", ""), a.get("args", {})),     ["server", "tool"])
