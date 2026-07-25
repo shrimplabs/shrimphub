@@ -28,8 +28,9 @@ from swarm.constants import WORK_MAX_LOOPS as _MAX_WORK_LOOPS
 _WORK_SYSTEM = """\
 You are a software engineer implementing a specific change.
 A plan and scout phase have already been completed. Their findings are in your conversation history.
-DO NOT re-read files that were already read during planning or scouting — the relevant content is already in context.
-DO NOT explore or re-investigate the codebase. Go directly to implementation using the scout's recommended actions.
+The scout summary describes files but does not contain their full current text. Before patching, use
+read_file_range to get the exact lines you are about to modify — but do NOT re-explore the codebase or
+re-derive what scout already identified. Read only what you are about to change.
 Implement the change, commit it, and output WORK_COMPLETE.
 
 To call a tool, output EXACTLY this format (no markdown, no explanation before/after):
@@ -305,8 +306,9 @@ def _build_work_prompt_slim(state: TaskState) -> str:
         lines.append("")
 
     lines.append(
-        "The scout phase has already identified the files and root cause. "
-        "Do NOT re-read files already covered in the scout findings — implement directly, commit, then output WORK_COMPLETE."
+        "The scout summary above describes files and root cause but does not contain their full text. "
+        "Use read_file_range on specific lines you are about to patch, but do NOT re-explore the codebase "
+        "or re-derive what scout already found. Implement, commit, then output WORK_COMPLETE."
     )
     return "\n".join(lines)
 
@@ -419,8 +421,9 @@ def _build_work_prompt(state: TaskState) -> str:
         lines.append("")
 
     lines.append(
-        "The scout phase has already identified the files and root cause. "
-        "Do NOT re-read files already covered in the scout findings — implement directly, commit, then output WORK_COMPLETE."
+        "The scout summary above describes files and root cause but does not contain their full text. "
+        "Use read_file_range on specific lines you are about to patch, but do NOT re-explore the codebase "
+        "or re-derive what scout already found. Implement, commit, then output WORK_COMPLETE."
     )
     return "\n".join(lines)
 
@@ -451,6 +454,7 @@ class WorkPhase(Phase):
         commit_sha = None
         completed = False
         vision_calls_since_write = 0
+        mutation_tool_calls = 0
         phase_limits = self.config.get("phase_loop_limits") or {}
         max_work_loops = int(phase_limits.get("work") or self.config.get("work_max_loops") or _MAX_WORK_LOOPS)
         max_work_loops = max(1, max_work_loops)
@@ -473,6 +477,8 @@ class WorkPhase(Phase):
 
             tool_calls = parse_tool_calls(text)
             if not tool_calls:
+                preview = text[:300].replace("\n", " ")
+                self.log(f"No tool calls parsed at loop {loop}; model said: {preview!r}")
                 messages.append({
                     "role": "user",
                     "content": (
@@ -504,6 +510,7 @@ class WorkPhase(Phase):
                 result = execute_tool(tc)
                 if tool_name in {"write_file", "patch_file", "append_file", "git_commit"}:
                     vision_calls_since_write = 0
+                    mutation_tool_calls += 1
                 elif tool_name == "run_command":
                     cmd = tc.get("args", {}).get("command", "")
                     if any(op in cmd for op in ("cp ", "mv ", "rsvg-convert", "inkscape", "ffmpeg", "convert ")):
@@ -528,11 +535,25 @@ class WorkPhase(Phase):
             if messages is not state.messages:
                 state.messages = messages
 
+        no_op = completed and mutation_tool_calls == 0 and commit_sha is None
+        if no_op:
+            self.log(
+                f"[NoOp] Work completed at loop {loop} with zero mutating tool calls and no commit — "
+                "may be genuine (prior agent) or hallucinated completion; flagged for review"
+            )
+        elif completed and mutation_tool_calls > 0 and commit_sha is None:
+            self.log(
+                f"[UncommittedWrites] Work completed with {mutation_tool_calls} write(s) but no git_commit — "
+                "changes may be lost if worktree is discarded"
+            )
+
         state.work_report = {
             "completed": completed,
             "loops_used": loop,
             "commit_sha": commit_sha,
             "patches_applied": completed,
+            "mutation_tool_calls": mutation_tool_calls,
+            "no_op": no_op,
         }
         state.record_phase_loops("work", loop)
 
