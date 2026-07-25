@@ -19,13 +19,17 @@ import yaml
 from swarm.pipeline import Phase, TaskState, register_phase
 from swarm.tool_dispatch import execute_tool, validate_tool_call
 from swarm.llm_utils import call_llm, parse_tool_calls
+from swarm.agent_loop_helpers import compact_conversation
 
 
 from swarm.constants import WORK_MAX_LOOPS as _MAX_WORK_LOOPS
 
 _WORK_SYSTEM = """\
 You are a software engineer implementing a specific change.
-You have been given a plan and scout findings. Implement the change, commit it, and output WORK_COMPLETE.
+A plan and scout phase have already been completed. Their findings are in your conversation history.
+DO NOT re-read files that were already read during planning or scouting — the relevant content is already in context.
+DO NOT explore or re-investigate the codebase. Go directly to implementation using the scout's recommended actions.
+Implement the change, commit it, and output WORK_COMPLETE.
 
 To call a tool, output EXACTLY this format (no markdown, no explanation before/after):
 [TOOL_CALL]{"tool": "read_file", "args": {"path": "/absolute/path/to/file"}}[/TOOL_CALL]
@@ -153,6 +157,74 @@ def _build_work_profile_section(state: TaskState) -> str:
     return ""
 
 
+_SCOUT_HANDOFF_PROMPT = (
+    "You are summarising a read-only recon phase (plan + scout) performed before implementation.\n"
+    "Produce a concise but complete summary covering:\n"
+    "- The task goal\n"
+    "- Files read and their key contents relevant to the task\n"
+    "- The root cause or problem location identified\n"
+    "- Specific functions, classes, variables, and line numbers found\n"
+    "- Any errors or patterns observed\n"
+    "- A clear recommended implementation approach\n"
+    "Be specific and actionable. This summary is the implementation agent's only memory of the scout's findings."
+)
+
+# Mid-loop compaction fires when estimated tokens in the work conversation exceed this.
+_WORK_COMPACT_THRESHOLD = 60_000  # ~120k chars / 2
+
+
+def _compact_scout_handoff(state: TaskState, provider: str, log_fn) -> list:
+    """Summarise accumulated plan+scout messages into a single compact prefix.
+
+    Without this, the work phase inherits the full raw transcript of every
+    plan and scout loop (10+24 loops × 4k-char tool results) and re-sends
+    it on every work call — burying plan context and burning quota.
+
+    Returns a fresh 3-message list: [original_user_prompt, summary_block, ack].
+    Falls back to returning state.messages unchanged if the LLM call fails.
+    """
+    if not state.messages:
+        return state.messages
+
+    n = len(state.messages)
+    char_count = sum(
+        len(m["content"]) if isinstance(m["content"], str) else len(str(m["content"]))
+        for m in state.messages
+    )
+    # Only compact if there's meaningful history to collapse (>2 messages, >4k chars).
+    if n <= 2 or char_count < 4_000:
+        log_fn(f"Scout handoff: {n} messages, {char_count} chars — small enough to skip compaction")
+        return state.messages
+
+    history_text = "\n\n".join(
+        f"[{m['role'].upper()}]: {m['content'] if isinstance(m['content'], str) else str(m['content'])}"
+        for m in state.messages[1:]  # skip initial user prompt
+    )
+    try:
+        summary, _, _ = call_llm(
+            _SCOUT_HANDOFF_PROMPT,
+            [{"role": "user", "content": history_text}],
+            provider=provider,
+        )
+        compacted = [
+            state.messages[0],  # original task prompt
+            {"role": "user", "content": (
+                f"[SCOUT RECON SUMMARY — {n} messages of read-only exploration]\n\n"
+                f"{summary}\n\n"
+                "You are now in the implementation phase. Proceed with the changes."
+            )},
+            {"role": "assistant", "content": "Understood. I have reviewed the plan and scout findings and will now implement the solution."},
+        ]
+        log_fn(
+            f"Scout handoff: compacted {n} messages ({char_count} chars) → 3 messages "
+            f"({len(summary)} char summary)"
+        )
+        return compacted
+    except Exception as exc:
+        log_fn(f"Scout handoff compaction failed ({exc}) — proceeding with full history")
+        return state.messages
+
+
 def _build_work_prompt_slim(state: TaskState) -> str:
     """Slim work directive used when continuous context is active.
 
@@ -235,7 +307,10 @@ def _build_work_prompt_slim(state: TaskState) -> str:
         )
         lines.append("")
 
-    lines.append("Implement the change, commit, then output WORK_COMPLETE.")
+    lines.append(
+        "The scout phase has already identified the files and root cause. "
+        "Do NOT re-read files already covered in the scout findings — implement directly, commit, then output WORK_COMPLETE."
+    )
     return "\n".join(lines)
 
 
@@ -346,7 +421,10 @@ def _build_work_prompt(state: TaskState) -> str:
         )
         lines.append("")
 
-    lines.append("Implement the change, commit, then output WORK_COMPLETE.")
+    lines.append(
+        "The scout phase has already identified the files and root cause. "
+        "Do NOT re-read files already covered in the scout findings — implement directly, commit, then output WORK_COMPLETE."
+    )
     return "\n".join(lines)
 
 
@@ -362,8 +440,12 @@ class WorkPhase(Phase):
         self.log(f"Using provider: {provider}")
 
         if state.messages:
-            # Continuous context: model already has full file contents from plan/scout.
-            # Inject only a slim directive with genuinely new info.
+            # Compact the accumulated plan+scout conversation into a clean scout
+            # handoff summary before handing off to the work phase. Without this,
+            # work sends all raw plan/scout tool dumps (10+24 loops of 4k-char results)
+            # on every call — burying the plan in noise and burning quota on stale context.
+            state.messages = _compact_scout_handoff(state, provider, self.log)
+            # Inject slim directive with genuinely new info (scout actions, repair context).
             state.messages.append({"role": "user", "content": _build_work_prompt_slim(state)})
             messages = state.messages
         else:
@@ -437,6 +519,15 @@ class WorkPhase(Phase):
                 tool_results.append(f"[{tool_name}]\n{result_str[:4000]}")
 
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+
+            # Mid-loop compaction: keep the work conversation from growing unboundedly.
+            # Threshold: 60k estimated tokens (~120k chars) — same ratio as the legacy agent.
+            messages = compact_conversation(
+                messages, _WORK_SYSTEM, compact_token_threshold=60_000,
+                log_fn=self.log, compaction_provider=provider,
+            )
+            if messages is not state.messages:
+                state.messages = messages
 
         state.work_report = {
             "completed": completed,
