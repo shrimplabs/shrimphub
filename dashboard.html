@@ -36,8 +36,8 @@
             <div class="stat-pill stat-pill-failed" title="Active recovery tasks -- broken chains being repaired"><span class="stat-pill-value" id="recoveringCount">-</span><span class="stat-pill-label">recovering</span></div>
             <div class="stat-pill"><span class="stat-pill-value" id="agentsPerHour">-</span><span class="stat-pill-label">agents/hr</span></div>
             <div class="stat-pill stat-pill-tokens" title="Total tokens in use across all active agents right now"><span class="stat-pill-value" id="totalTokens">-</span><span class="stat-pill-label">tokens live</span></div>
-            <div class="stat-pill stat-pill-warn" id="promptWarnPill" title="Prompt template warnings — missing variables detected (click for details)" style="display:none" onclick="showPromptWarnings()"><span class="stat-pill-value" id="promptWarnCount">0</span><span class="stat-pill-label">⚠ prompt vars</span></div>
-            <div class="stat-pill stat-pill-warn" id="staleCodeChip" style="display:none"><span class="stat-pill-label">⚠ stale code — restart server</span></div>
+            <div class="stat-pill stat-pill-warn" id="promptWarnPill" title="Prompt template warnings -- missing variables detected (click for details)" style="display:none" onclick="showPromptWarnings()"><span class="stat-pill-value" id="promptWarnCount">0</span><span class="stat-pill-label">⚠ prompt vars</span></div>
+            <div class="stat-pill stat-pill-warn" id="staleCodeChip" style="display:none"><span class="stat-pill-label">⚠ stale code -- restart server</span></div>
         </div>
         <div id="services-bar">
             <div class="svc-chip" id="svc-swarm" title="Swarm controller API">⬤ Swarm</div>
@@ -91,7 +91,17 @@
             </div>
             <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
                 <div>
-                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Where Agents Die</div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Cost Breakdown (project x task type)</div>
+                    <div id="analytics-cost"></div>
+                </div>
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Death Cause Buckets</div>
+                    <div id="analytics-deaths-buckets"></div>
+                </div>
+            </div>
+            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div>
+                    <div class="metrics-title" style="font-size:13px;margin-bottom:6px">Where Agents Die (raw)</div>
                     <div id="analytics-deaths"></div>
                 </div>
                 <div>
@@ -142,7 +152,7 @@
                 <option value="5">5</option>
             </select>
             <button type="button" class="deps-graph-btn" id="playbackToggleBtn" onclick="toggleDepPlayback()" style="display:none;margin-left:8px">⏵ Playback</button>
-            <span id="depsGraphHint">Scroll: zoom · Drag: pan · Arrow keys: pan · +/−: zoom · 0: fit · F: focus active · Dbl-click: fit · Hover: preview</span>
+            <span id="depsGraphHint">Scroll: zoom * Drag: pan * Arrow keys: pan * +/−: zoom * 0: fit * F: focus active * Dbl-click: fit * Hover: preview</span>
         </div>
         <div id="depsPlaybackBar" style="display:none">
             <div class="playback-controls">
@@ -582,7 +592,7 @@
     <div class="modal" id="snapshotModal" onclick="if(event.target===this)closeSnapshotModal()">
         <div class="modal-content" style="max-width:560px">
             <div class="modal-header">
-                <h3>📸 Snapshots — <span id="snapshotModalProject"></span></h3>
+                <h3>📸 Snapshots -- <span id="snapshotModalProject"></span></h3>
                 <button class="modal-close" onclick="closeSnapshotModal()">×</button>
             </div>
             <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
@@ -603,14 +613,14 @@
                     <div style="font-size:12px;color:#8b949e;margin-bottom:8px;font-weight:600">CLONE SNAPSHOT AS NEW PROJECT</div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
                         <select id="cloneSnapshotTag" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
-                            <option value="">— pick snapshot —</option>
+                            <option value="">-- pick snapshot --</option>
                         </select>
                         <input id="cloneNewName" placeholder="new-project-name"
                             style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
                     </div>
                     <div style="display:flex;gap:8px;align-items:center">
                         <select id="clonePipeline" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e6edf3;padding:6px 8px;font-size:13px">
-                            <option value="">— no pipeline override —</option>
+                            <option value="">-- no pipeline override --</option>
                             <option value="control">Control: plan → scout → work → validate</option>
                             <option value="variant-a">Variant A: plan → work → validate</option>
                             <option value="variant-b">Variant B: plan → scout → synthesize → work → validate</option>

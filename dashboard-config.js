@@ -546,7 +546,7 @@ async function removeProject(event, name) {
     event.stopPropagation();
     if (!confirm(`Remove project "${name}" from the swarm?\n\nThis will delete all its tasks from the database. The git repo on disk is NOT deleted.\n\nThis cannot be undone.`)) return;
     const btn = event.target;
-    btn.disabled = true; btn.textContent = '…';
+    btn.disabled = true; btn.textContent = '...';
     try {
         const res = await fetch(`${API}/api/projects/${encodeURIComponent(name)}`, {method: 'DELETE'});
         const data = await res.json();
@@ -582,13 +582,13 @@ async function _refreshSnapshotList() {
     const cloneSel = document.getElementById('cloneSnapshotTag');
     // Only show loading state if fetch takes more than 150ms
     const loadingTimer = setTimeout(() => {
-        listEl.innerHTML = '<span style="color:#8b949e;font-size:12px">Loading…</span>';
+        listEl.innerHTML = '<span style="color:#8b949e;font-size:12px">Loading...</span>';
     }, 150);
     try {
         const data = await fetch(`${API}/api/projects/${encodeURIComponent(_snapshotProject)}/snapshots`).then(r => r.json());
         clearTimeout(loadingTimer);
         const snaps = data.snapshots || [];
-        cloneSel.innerHTML = '<option value="">— pick snapshot —</option>' +
+        cloneSel.innerHTML = '<option value="">-- pick snapshot --</option>' +
             snaps.map(s => `<option value="${escapeHtml(s.tag)}">${escapeHtml(s.tag)} (${new Date(s.created_at).toLocaleString()})</option>`).join('');
         if (!snaps.length) {
             listEl.innerHTML = '<span style="color:#8b949e;font-size:12px">No snapshots yet.</span>';
@@ -638,7 +638,7 @@ async function restoreSnapshot(tag) {
         });
         const data = await res.json();
         if (data.error) { showToast(data.error, '#f85149'); return; }
-        showToast(`Restored '${tag}' — ${data.tasks_restored} tasks reset to pending`, '#3fb950');
+        showToast(`Restored '${tag}' -- ${data.tasks_restored} tasks reset to pending`, '#3fb950');
         closeSnapshotModal();
         loadData();
     } catch(e) { showToast('Restore failed', '#f85149'); }
@@ -996,19 +996,73 @@ async function loadAnalytics() {
     try {
         const sc = await fetch('/api/analytics/ship-candidates?managed=true').then(r => r.json());
         const rows = (sc.candidates || []).slice(0, 20);
-        const botIcon = s => s === 'done' ? '✓' : s === 'pending' ? '…' : '–';
+        const botIcon = s => s === 'done' ? '✓' : s === 'pending' ? '...' : '-';
         document.getElementById('analytics-ship').innerHTML = rows.length
             ? `<table class="analytics-table"><tr><th>Project</th><th>Bot</th><th>Pending</th><th>Val bugs</th></tr>${
                 rows.map(r => {
                     const botCls = r.playthrough_bot === 'done' ? 'success' : r.playthrough_bot === 'pending' ? 'info' : '';
                     return `<tr><td>${r.project}</td><td class="${botCls}">${botIcon(r.playthrough_bot)}</td><td>${r.pending_tasks}</td><td class="${r.validation_bugs_last50 > 0 ? 'danger' : ''}">${r.validation_bugs_last50}</td></tr>`;
                 }).join('')
-              }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Managed Godot projects only · Bot ✓=complete …=pending –=none</div>`
+              }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Managed Godot projects only * Bot ✓=complete ...=pending -=none</div>`
             : '<div class="analytics-empty">No managed Godot projects found</div>';
     } catch (e) {}
 
     try {
+        const c = await fetch('/api/analytics/cost').then(r => r.json());
+        const rows = c.by_project_task_type || [];
+        if (!rows.length) {
+            document.getElementById('analytics-cost').innerHTML = '<div class="analytics-empty">No cost data yet</div>';
+        } else {
+            const total = c.total_cost_usd || 0;
+            const tbl = rows.slice(0, 25).map(r => {
+                const pct = total ? ((r.cost_usd / total) * 100).toFixed(1) : '0.0';
+                const cls = r.cost_usd >= 1 ? 'danger' : r.cost_usd >= 0.1 ? '' : 'success';
+                return `<tr><td>${r.project}</td><td>${r.task_type}</td><td class="${cls}">$${r.cost_usd.toFixed(2)}</td><td>${r.agents}</td><td>${pct}%</td></tr>`;
+            }).join('');
+            document.getElementById('analytics-cost').innerHTML =
+                `<div style="margin-bottom:6px;font-size:12px;color:var(--text-faint,#8b949e)">Total: <span style="color:var(--text)">$${total.toFixed(2)}</span> across ${c.agents_counted || 0} agents &middot; $${(c.cost_per_completed_task || 0).toFixed(2)} per completed task</div>` +
+                `<table class="analytics-table"><tr><th>Project</th><th>Task type</th><th>Cost</th><th>Agents</th><th>Share</th></tr>${tbl}</table>` +
+                `<div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Top 25 by cost</div>`;
+        }
+    } catch (e) {}
+
+    try {
         const d = await fetch('/api/analytics/deaths').then(r => r.json());
+        const buckets = d.cause_buckets || {};
+        const bucketOrder = ['loop_limit', 'no_task_complete', 'validation_fail', 'other'];
+        const bucketLabels = {
+            loop_limit: 'Loop limit (>=195)',
+            no_task_complete: 'No TASK_COMPLETE',
+            validation_fail: 'Validation reset',
+            other: 'Other',
+        };
+        const bucketColors = {
+            loop_limit: '#f85149',
+            no_task_complete: '#d29922',
+            validation_fail: '#58a6ff',
+            other: '#8b949e',
+        };
+        const bucketTotal = bucketOrder.reduce((a, b) => a + (buckets[b] || 0), 0);
+        if (!bucketTotal) {
+            document.getElementById('analytics-deaths-buckets').innerHTML = '<div class="analytics-empty">No deaths recorded</div>';
+        } else {
+            const bars = bucketOrder.map(b => {
+                const n = buckets[b] || 0;
+                const pct = bucketTotal ? ((n / bucketTotal) * 100).toFixed(1) : '0.0';
+                const width = bucketTotal ? Math.max(2, (n / bucketTotal) * 100) : 0;
+                return `<div style="margin:4px 0">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint,#8b949e);margin-bottom:2px">
+                        <span>${bucketLabels[b]}</span><span>${n} (${pct}%)</span>
+                    </div>
+                    <div style="background:var(--bg-elev,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:4px;height:10px;overflow:hidden">
+                        <div style="width:${width}%;height:100%;background:${bucketColors[b]}"></div>
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('analytics-deaths-buckets').innerHTML =
+                `<div style="margin-bottom:6px;font-size:12px;color:var(--text-faint,#8b949e)">${bucketTotal} deaths across ${bucketOrder.filter(b => (buckets[b] || 0) > 0).length} buckets</div>` + bars;
+        }
+
         if (!d.count) {
             document.getElementById('analytics-deaths').innerHTML = '<div class="analytics-empty">No agent signals yet (needs log_extract_signals + finished agents)</div>';
         } else {
@@ -1033,7 +1087,7 @@ async function loadAnalytics() {
                     mechs.map(([name, s]) => {
                         const rate = s.completion_rate ?? null;
                         const cls = rate !== null ? (rate >= 0.6 ? 'success' : rate >= 0.4 ? '' : 'danger') : '';
-                        return `<tr><td>${name}</td><td>${s.fired_runs}</td><td class="${cls}">${rate !== null ? (rate * 100).toFixed(0) + '%' : '—'}</td></tr>`;
+                        return `<tr><td>${name}</td><td>${s.fired_runs}</td><td class="${cls}">${rate !== null ? (rate * 100).toFixed(0) + '%' : '--'}</td></tr>`;
                     }).join('')
                 }</table><div style="font-size:11px;color:var(--text-faint,#8b949e);margin-top:4px">Baseline (no mechanism): ${((m.completion_rate_without_any_mechanism ?? 0) * 100).toFixed(0)}%</div>`;
         }
@@ -1055,7 +1109,7 @@ async function loadAnalytics() {
 
     try {
         const roi = await fetch('/api/analytics/research-roi').then(r => r.json());
-        const rate = roi.unblock_rate !== null ? (roi.unblock_rate * 100).toFixed(0) + '%' : '—';
+        const rate = roi.unblock_rate !== null ? (roi.unblock_rate * 100).toFixed(0) + '%' : '--';
         const rateCls = roi.unblock_rate >= 0.7 ? 'success' : roi.unblock_rate >= 0.5 ? '' : 'danger';
         document.getElementById('analytics-roi').innerHTML = roi.total_feeders
             ? `<div style="margin-bottom:8px">

@@ -34,6 +34,11 @@ def register_routes(app, db, data_dir, workspace):
         return jsonify({"by_project": analytics.value_repair_by_project(db, projects=managed_projects),
                         "overall": analytics.value_repair(db)})
 
+    @app.route("/api/analytics/cost", methods=["GET"])
+    def analytics_cost():
+        project = request.args.get("project") or None
+        return jsonify(analytics.cost(db, data_dir, project=project))
+
     @app.route("/api/analytics/deaths", methods=["GET"])
     def analytics_deaths():
         project = request.args.get("project") or None

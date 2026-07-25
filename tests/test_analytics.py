@@ -51,7 +51,7 @@ def _agent(aid, project, cost=0.0, tin=0, tout=0, loops=0):
 
 
 # ---------------------------------------------------------------------------
-# value / repair — reproduce the run-11 hand analysis shape
+# value / repair -- reproduce the run-11 hand analysis shape
 # ---------------------------------------------------------------------------
 
 def test_value_repair_ratio_basic():
@@ -216,3 +216,195 @@ def test_ship_candidates_godot_only_and_ranked(tmp_path):
     assert set(names) == {"game-a", "game-b"}
     # game-a (0 val bugs) ranks ahead of game-b (3)
     assert names[0] == "game-a"
+
+
+# ---------------------------------------------------------------------------
+# cost breakdown
+# ---------------------------------------------------------------------------
+
+def _agent_with_cost(aid, project, task_id, cost=0.0, tin=0, tout=0,
+                     model="", provider=""):
+    """Seed an agent with task_id, model, provider, and cost (for cost() tests)."""
+    db.agent_upsert({
+        "id": aid, "project": project, "task_type": "feature",
+        "task_id": task_id, "status": "completed",
+        "input_tokens": tin, "output_tokens": tout,
+        "metadata": {},
+    })
+    db.agent_update_status(aid, "completed",
+                           estimated_cost_usd=cost,
+                           model=model, provider=provider)
+
+
+def test_cost_zero_when_no_agents(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    result = analytics.cost(db, data_dir)
+    assert result["total_cost_usd"] == 0.0
+    assert result["agents_counted"] == 0
+    assert result["by_project"] == []
+    assert result["by_project_task_type"] == []
+    assert result["by_model"] == []
+    assert result["by_provider"] == []
+    assert result["cost_per_completed_task"] == 0.0
+
+
+def test_cost_groups_by_project_and_task_type(tmp_path):
+    _task("t1", "alpha", "feature", status="completed")
+    _task("t2", "alpha", "bug", status="completed")
+    _task("t3", "beta", "feature", status="completed")
+
+    _agent_with_cost("a1", "alpha", "t1", cost=1.50, tin=1000, tout=500,
+                     model="claude-opus-4.7", provider="anthropic")
+    _agent_with_cost("a2", "alpha", "t2", cost=0.50, tin=200, tout=100,
+                     model="claude-opus-4.7", provider="anthropic")
+    _agent_with_cost("a3", "beta", "t3", cost=2.00, tin=3000, tout=1500,
+                     model="MiniMax-m3", provider="MiniMax")
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    result = analytics.cost(db, data_dir)
+
+    assert result["total_cost_usd"] == 4.0
+    assert result["agents_counted"] == 3
+    # alpha has 2 completed tasks, $2.00 total -> $1.00/task
+    assert result["cost_per_completed_task"] == round(4.0 / 3, 4)
+
+    # by_project sorted by cost desc
+    projs = {p["project"]: p for p in result["by_project"]}
+    assert projs["beta"]["cost_usd"] == 2.0
+    assert projs["alpha"]["cost_usd"] == 2.0
+    assert projs["alpha"]["agents"] == 2
+    assert projs["alpha"]["tokens_in"] == 1200
+    assert projs["alpha"]["tokens_out"] == 600
+
+    # by_project_task_type has 3 rows (alpha/feature, alpha/bug, beta/feature)
+    keys = {(r["project"], r["task_type"]) for r in result["by_project_task_type"]}
+    assert keys == {("alpha", "feature"), ("alpha", "bug"), ("beta", "feature")}
+    bug_row = next(r for r in result["by_project_task_type"]
+                   if r["project"] == "alpha" and r["task_type"] == "bug")
+    assert bug_row["cost_usd"] == 0.5
+
+    # by_model / by_provider aggregated
+    models = {m["model"]: m for m in result["by_model"]}
+    assert models["claude-opus-4.7"]["cost_usd"] == 2.0
+    assert models["claude-opus-4.7"]["agents"] == 2
+    assert models["MiniMax-m3"]["cost_usd"] == 2.0
+    providers = {p["provider"]: p for p in result["by_provider"]}
+    assert providers["anthropic"]["cost_usd"] == 2.0
+    assert providers["MiniMax"]["cost_usd"] == 2.0
+
+
+def test_cost_project_filter(tmp_path):
+    _task("t1", "alpha", "feature", status="completed")
+    _task("t2", "beta", "feature", status="completed")
+    _agent_with_cost("a1", "alpha", "t1", cost=1.0, model="m")
+    _agent_with_cost("a2", "beta", "t2", cost=5.0, model="m")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    result = analytics.cost(db, data_dir, project="alpha")
+    assert result["project"] == "alpha"
+    assert result["total_cost_usd"] == 1.0
+    assert result["agents_counted"] == 1
+    assert all(p["project"] == "alpha" for p in result["by_project"])
+
+
+def test_cost_includes_archived_agents(tmp_path):
+    _task("t1", "alpha", "feature", status="completed")
+    _agent_with_cost("a1", "alpha", "t1", cost=1.0, model="m")
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    # archived row for the same project (no longer in live agents table)
+    (data_dir / "agent-history.jsonl").write_text(
+        json.dumps({
+            "id": "archived-1", "project": "alpha", "task_id": "t1",
+            "estimated_cost_usd": 2.5, "input_tokens": 100, "output_tokens": 50,
+            "model": "m", "provider": "p", "loop_count": 10,
+        }) + "\n"
+    )
+    result = analytics.cost(db, data_dir)
+    # live + archived
+    assert result["total_cost_usd"] == 3.5
+    assert result["agents_counted"] == 2
+
+
+def test_cost_skips_zero_agents(tmp_path):
+    _task("t1", "alpha", "feature", status="completed")
+    # agent with no cost and no tokens => skip
+    db.agent_upsert({
+        "id": "noop", "project": "alpha", "task_type": "feature",
+        "task_id": "t1", "status": "completed",
+        "input_tokens": 0, "output_tokens": 0, "metadata": {},
+    })
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    result = analytics.cost(db, data_dir)
+    assert result["total_cost_usd"] == 0.0
+    assert result["agents_counted"] == 0
+
+
+# ---------------------------------------------------------------------------
+# death-cause buckets
+# ---------------------------------------------------------------------------
+
+def test_deaths_buckets_empty_when_no_signals():
+    d = analytics.deaths(db)
+    assert d["cause_buckets"] == {
+        "loop_limit": 0, "no_task_complete": 0, "validation_fail": 0, "other": 0,
+    }
+
+
+def test_deaths_buckets_classify_all_four():
+    # loop_limit: loop_count >= 195
+    _signal("a1", "p", "failed", loops=200, errors=["oops"])
+    # no_task_complete: failed with low loops and no phase_failed
+    _signal("a2", "p", "failed", loops=30)
+    # validation_fail: needs phase_failed set -> use direct upsert below
+    db.agent_signals_upsert({
+        "agent_id": "a3", "task_id": "a3-t", "project": "p",
+        "task_type": "qa", "extracted_at": "2026-07-01T00:00:00",
+        "terminal_status": "failed", "loop_count": 100, "total_loops": 100,
+        "tool_sequence": "[]", "unique_tools": "[]", "tool_call_count": 0,
+        "cache_read_total": 0, "cache_write_total": 0,
+        "error_count": 2, "error_snippets": "[\"x\"]",
+        "warning_count": 0, "warning_types": "[]",
+        "is_pipeline": 1, "phases_completed": "[\"llm\"]",
+        "phase_failed": "validate",
+        "compaction_count": 0, "log_size_bytes": 100, "log_path": "",
+        "mechanism_fires": "{}",
+    })
+    # other: parse_error
+    db.agent_signals_upsert({
+        "agent_id": "a4", "task_id": "a4-t", "project": "p",
+        "task_type": "feature", "extracted_at": "2026-07-01T00:00:00",
+        "terminal_status": "parse_error:Something", "loop_count": 5, "total_loops": 5,
+        "tool_sequence": "[]", "unique_tools": "[]", "tool_call_count": 0,
+        "cache_read_total": 0, "cache_write_total": 0,
+        "error_count": 0, "error_snippets": "[]",
+        "warning_count": 0, "warning_types": "[]",
+        "is_pipeline": 0, "phases_completed": "[]", "phase_failed": None,
+        "compaction_count": 0, "log_size_bytes": 100, "log_path": "",
+        "mechanism_fires": "{}",
+    })
+    # successful completion - doesn't count as a death
+    _signal("a5", "p", "complete", loops=40)
+
+    d = analytics.deaths(db, project="p")
+    assert d["cause_buckets"]["loop_limit"] == 1
+    assert d["cause_buckets"]["no_task_complete"] == 1
+    assert d["cause_buckets"]["validation_fail"] == 1
+    assert d["cause_buckets"]["other"] == 1
+    # count includes the successful row but cause_buckets excludes it
+    assert d["count"] == 5
+
+
+def test_deaths_buckets_all_in_one_bucket():
+    # 5 loop_limit deaths
+    for i in range(5):
+        _signal(f"a{i}", "p", "loop_limit", loops=200)
+    d = analytics.deaths(db, project="p")
+    assert d["cause_buckets"]["loop_limit"] == 5
+    assert d["cause_buckets"]["no_task_complete"] == 0
+    assert d["cause_buckets"]["validation_fail"] == 0
+    assert d["cause_buckets"]["other"] == 0

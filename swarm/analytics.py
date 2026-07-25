@@ -48,7 +48,7 @@ def _iter_agent_history(data_dir: Path):
 # ---------------------------------------------------------------------------
 
 def overview(db, data_dir: Path, project: Optional[str] = None) -> dict:
-    """Completed/failed counts, cost, tokens, avg loops — global or per-project."""
+    """Completed/failed counts, cost, tokens, avg loops -- global or per-project."""
     tasks = db.task_get_by_project(project) if project else db.task_get_all()
 
     completed = [t for t in tasks if t.get("status") == "completed"]
@@ -136,29 +136,199 @@ def value_repair_by_project(db, projects: Optional[list] = None) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# 2b. Cost breakdown (project / task_type / model / provider)
+# ---------------------------------------------------------------------------
+
+def cost(db, data_dir: Path, project: Optional[str] = None) -> dict:
+    """Aggregate estimated_cost_usd over live + archived agents, grouped by
+    project / task_type / model / provider.
+
+    Joins ``agents`` with ``tasks`` via ``task_id`` to recover the task_type
+    (not stored on the agent row). The task_type lookup is best-effort: if a
+    task row was pruned, the agent still contributes to totals/by_project,
+    but ``task_type`` falls back to ``"unknown"``.
+
+    Returns a flat dict the dashboard can render directly without further
+    aggregation. Zero-value rows are dropped to keep the payload small.
+    """
+    # task_type lookup keyed by task_id (rows pruned from tasks are skipped)
+    type_by_id: dict = {}
+    proj_by_id: dict = {}
+    completed_proj_by_id: dict = {}
+    for t in db.task_get_all():
+        tid = t.get("id") or ""
+        if not tid:
+            continue
+        type_by_id[tid] = t.get("type") or "unknown"
+        proj_by_id[tid] = t.get("project") or ""
+        if t.get("status") == "completed":
+            completed_proj_by_id[t.get("project") or ""] = (
+                completed_proj_by_id.get(t.get("project") or "", 0) + 1
+            )
+
+    by_project: dict = defaultdict(lambda: {"cost": 0.0, "agents": 0, "tokens_in": 0, "tokens_out": 0})
+    by_project_type: dict = defaultdict(lambda: {"cost": 0.0, "agents": 0})
+    by_model: dict = defaultdict(lambda: {"cost": 0.0, "agents": 0})
+    by_provider: dict = defaultdict(lambda: {"cost": 0.0, "agents": 0})
+    total_cost = 0.0
+    total_agents = 0
+
+    def _account(row: dict, source: str):
+        nonlocal total_cost, total_agents
+        if project and row.get("project") and row.get("project") != project:
+            return
+        # archived rows may not have project; skip them under project filter
+        if project and not row.get("project"):
+            return
+        cost_val = row.get("estimated_cost_usd") or 0.0
+        if not cost_val and not row.get("input_tokens") and not row.get("output_tokens"):
+            # skip pure-noop rows so they don't inflate agent counts
+            return
+        proj = row.get("project") or "(no-project)"
+        ttype = type_by_id.get(row.get("task_id") or "", "unknown")
+        model = row.get("model") or "(unknown)"
+        provider = row.get("provider") or "(unknown)"
+
+        by_project[proj]["cost"] += cost_val
+        by_project[proj]["agents"] += 1
+        by_project[proj]["tokens_in"] += row.get("input_tokens") or 0
+        by_project[proj]["tokens_out"] += row.get("output_tokens") or 0
+
+        by_project_type[(proj, ttype)]["cost"] += cost_val
+        by_project_type[(proj, ttype)]["agents"] += 1
+
+        by_model[model]["cost"] += cost_val
+        by_model[model]["agents"] += 1
+
+        by_provider[provider]["cost"] += cost_val
+        by_provider[provider]["agents"] += 1
+
+        total_cost += cost_val
+        total_agents += 1
+
+    for row in db.agent_get_all():
+        _account(row, "live")
+    for row in _iter_agent_history(data_dir):
+        _account(row, "archive")
+
+    # Completed-task count, used to compute cost_per_completed_task
+    if project:
+        completed_total = completed_proj_by_id.get(project, 0)
+    else:
+        completed_total = sum(completed_proj_by_id.values())
+
+    def _round(d):
+        return {k: {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in d.items()}
+
+    return {
+        "project": project or "(all)",
+        "total_cost_usd": round(total_cost, 4),
+        "agents_counted": total_agents,
+        "cost_per_completed_task": round(total_cost / completed_total, 4) if completed_total else 0.0,
+        "by_project": [
+            {"project": p, "cost_usd": round(v["cost"], 4), "agents": v["agents"],
+             "tokens_in": v["tokens_in"], "tokens_out": v["tokens_out"]}
+            for p, v in sorted(by_project.items(), key=lambda kv: -kv[1]["cost"])
+            if v["cost"] > 0 or v["agents"] > 0
+        ],
+        "by_project_task_type": [
+            {"project": p, "task_type": t, "cost_usd": round(v["cost"], 4), "agents": v["agents"]}
+            for (p, t), v in sorted(by_project_type.items(), key=lambda kv: (-kv[1]["cost"], kv[0][0]))
+            if v["cost"] > 0 or v["agents"] > 0
+        ],
+        "by_model": [
+            {"model": m, "cost_usd": round(v["cost"], 4), "agents": v["agents"]}
+            for m, v in sorted(by_model.items(), key=lambda kv: -kv[1]["cost"])
+            if v["cost"] > 0 or v["agents"] > 0
+        ],
+        "by_provider": [
+            {"provider": p, "cost_usd": round(v["cost"], 4), "agents": v["agents"]}
+            for p, v in sorted(by_provider.items(), key=lambda kv: -kv[1]["cost"])
+            if v["cost"] > 0 or v["agents"] > 0
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # 3. Where agents die (from agent_signals)
 # ---------------------------------------------------------------------------
+
+def _classify_death(row: dict) -> str:
+    """Map a single agent_signals row to one of the four dashboard buckets.
+
+    - ``loop_limit``: hit the configured loop ceiling (loop_count >= 195).
+    - ``no_task_complete``: agent exited cleanly but the run did not register
+      a TASK_COMPLETE marker (``terminal_status`` of ``complete`` is reserved
+      for runs that *did* print TASK_COMPLETE; everything else that didn't).
+      Heuristic: ``terminal_status in {"failed", "unknown", "parse_error:*"}
+      AND loop_count < 195``.
+    - ``validation_fail``: post-task validation failed -- ``phase_failed`` is
+      set (pipeline agents) or ``error_count > 0`` with the task_type being
+      a validation/QA family. Non-pipeline agents with errors still fall into
+      "other" because we can't distinguish a mid-run tool error from a
+      validation failure at the row level.
+    - ``other``: anything that doesn't match the above (parse_errors, etc.).
+    """
+    lc = row.get("loop_count") or 0
+    ts = row.get("terminal_status") or ""
+    if lc >= 195 or ts == "loop_limit":
+        return "loop_limit"
+    if ts == "complete":
+        return "loop_limit" if lc >= 195 else "other"  # successful -> not a death
+    # ts in {failed, unknown, parse_error:*}
+    if row.get("phase_failed") or (row.get("error_count") and (row.get("task_type") or "") in {"qa", "harness_qa", "hybrid_qa"}):
+        return "validation_fail"
+    if row.get("error_count") and lc >= 80:
+        # high-loop + errors but no phase_failed -> likely validation reset
+        return "validation_fail"
+    if ts == "failed":
+        # failed without clear validation signal -> treat as no_task_complete
+        return "no_task_complete"
+    return "other"
+
 
 def deaths(db, project: Optional[str] = None) -> dict:
     rows = db.agent_signals_query(project=project, limit=10000)
     if not rows:
-        return {"count": 0, "terminal_status": {}, "avg_loop_by_type": {}, "top_errors": []}
+        return {
+            "count": 0,
+            "terminal_status": {},
+            "cause_buckets": {
+                "loop_limit": 0,
+                "no_task_complete": 0,
+                "validation_fail": 0,
+                "other": 0,
+            },
+            "avg_loop_by_type": {},
+            "top_errors": [],
+        }
 
     status = Counter()
     loops_by_type: dict[str, list[int]] = defaultdict(list)
     errors = Counter()
+    cause_buckets = Counter({
+        "loop_limit": 0,
+        "no_task_complete": 0,
+        "validation_fail": 0,
+        "other": 0,
+    })
 
     for r in rows:
-        status[r.get("terminal_status") or "unknown"] += 1
+        ts = r.get("terminal_status") or "unknown"
+        status[ts] += 1
         lc = r.get("loop_count") or 0
         if lc:
             loops_by_type[r.get("task_type") or "unknown"].append(lc)
         for snip in json.loads(r.get("error_snippets") or "[]"):
             errors[snip[:100]] += 1
+        # Only count as a "death" if terminal_status wasn't a successful complete
+        if ts != "complete":
+            cause_buckets[_classify_death(r)] += 1
 
     return {
         "count": len(rows),
         "terminal_status": dict(status),
+        "cause_buckets": dict(cause_buckets),
         "avg_loop_by_type": {
             t: round(sum(v) / len(v), 1) for t, v in loops_by_type.items() if v
         },
