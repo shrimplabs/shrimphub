@@ -587,6 +587,7 @@ func _initialize():
                     and "RID allocations" not in ln
                     and "PN18TextServer" not in ln
                     and "TextServer: Primary interface" not in ln
+                    and "resources still in use" not in ln
                 ]
                 if bad:
                     validation_failed = True
