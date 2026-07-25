@@ -20,6 +20,7 @@ from swarm.pipeline import Phase, TaskState, register_phase
 from swarm.tool_dispatch import execute_tool, validate_tool_call
 from swarm.llm_utils import call_llm, parse_tool_calls
 from swarm.agent_loop_helpers import compact_conversation
+from swarm.runtime_config import _get_compaction_threshold
 
 
 from swarm.constants import WORK_MAX_LOOPS as _MAX_WORK_LOOPS
@@ -168,10 +169,6 @@ _SCOUT_HANDOFF_PROMPT = (
     "- A clear recommended implementation approach\n"
     "Be specific and actionable. This summary is the implementation agent's only memory of the scout's findings."
 )
-
-# Mid-loop compaction fires when estimated tokens in the work conversation exceed this.
-_WORK_COMPACT_THRESHOLD = 60_000  # ~120k chars / 2
-
 
 def _compact_scout_handoff(state: TaskState, provider: str, log_fn) -> list:
     """Summarise accumulated plan+scout messages into a single compact prefix.
@@ -521,10 +518,12 @@ class WorkPhase(Phase):
             messages.append({"role": "user", "content": "\n\n".join(tool_results)})
 
             # Mid-loop compaction: keep the work conversation from growing unboundedly.
-            # Threshold: 60k estimated tokens (~120k chars) — same ratio as the legacy agent.
+            # Use the same provider-aware threshold as the legacy agent loop.
             messages = compact_conversation(
-                messages, _WORK_SYSTEM, compact_token_threshold=60_000,
-                log_fn=self.log, compaction_provider=provider,
+                messages, _WORK_SYSTEM,
+                compact_token_threshold=_get_compaction_threshold(),
+                log_fn=self.log,
+                compaction_provider=getattr(rt, "COMPACTION_PROVIDER", None) or None,
             )
             if messages is not state.messages:
                 state.messages = messages
