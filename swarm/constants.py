@@ -40,16 +40,10 @@ MINIMAX_MODEL: str = "MiniMax-M3"
 # Bump when the pipeline contract in swarm/pipeline.py changes in a non-backwards-compatible way.
 PIPELINE_VERSION: str = "1.0"
 
-# Event bus default -- placed here so both swarm/events.py and
-# swarm/agent_lifecycle.py can import the single source of truth without a
-# circular import through swarm/events.  The current default is held at
-# ``False`` while the 48h production soak is still being validated (see
-# VALIDATION_STATE.md for feature-897612801-0069).  When the soak metrics
-# land in ``data/13a-phase1-baseline.md`` (p50 inter-task gap ≤3s, zero
-# double-/lost-finish incidents, handler_errors==0) this constant is flipped
-# to ``True`` and the docstring in swarm/events.py is updated.
-EVENT_BUS_ENABLED_DEFAULT: bool = False
-EVENT_BUS_ENABLED_LEGACY_DEFAULT: bool = False  # back-compat alias for tests/fixtures
+# Event bus default -- soak validated 2026-07-25: p50=2.6s (n=35, 630 agents,
+# 48h), baseline p50=8.7s, target ≤3s. PASS. Flipped to True permanently.
+EVENT_BUS_ENABLED_DEFAULT: bool = True
+EVENT_BUS_ENABLED_LEGACY_DEFAULT: bool = True  # back-compat alias for tests/fixtures
 
 # Pipeline phase loop limits -- all phase files import from here
 PLAN_MAX_LOOPS: int = 10
