@@ -695,13 +695,9 @@ def call_llm(sys_prompt: str, messages: list, provider: str | None = None):
                 resp = requests.post(url, headers=headers, json=body, stream=True, timeout=(10, 300))
                 if resp.status_code == 200:
                     text, tokens, thinking = _parse_sse_stream(resp)
-                    if isinstance(text, str) and text == "Error: stream truncated before completion":
-                        # Connection dropped mid-response; retrying won't help — the model
-                        # already sent a partial response and won't resume it.
-                        return text, {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, []
                     if isinstance(text, str) and text.startswith("Error: stream"):
                         wait = backoff[min(attempt, len(backoff) - 1)]
-                        log(f"Stream error — retrying in {wait}s (attempt {attempt+1}/7): {text[:80]}")
+                        log(f"Stream error (attempt {attempt+1}/7, retrying in {wait}s): {text[:80]}")
                         time.sleep(wait)
                         continue
                     return text, tokens, thinking
