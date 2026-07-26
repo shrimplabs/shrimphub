@@ -276,7 +276,8 @@ class ScoutPhase(Phase):
                             "signals, and variables involved. Read the key sections before reporting."
                         ),
                     })
-                    report = None
+                    _consecutive_stalls = 0  # reset stall counter — scout did produce output, just too early
+                    continue
                 else:
                     self.log(f"Scout complete at loop {loop}")
                     break
