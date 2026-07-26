@@ -260,4 +260,8 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "repo_commit": repo_commit,
             "code_stale": bool(running_commit and repo_commit and running_commit != repo_commit),
             "shrimp_router": _check_shrimp_router(),
+            "circuit_breaker": {
+                "open": orchestrator._circuit_breaker["open"],
+                "reason": orchestrator._circuit_breaker["reason"],
+            },
         })

@@ -328,6 +328,78 @@ def auto_scale_step(recent_429_count: int) -> None:
 # Fill slots (core auto-mode loop)
 # ---------------------------------------------------------------------------
 
+_circuit_breaker: dict = {
+    "open": False,          # True = spawning paused
+    "opened_at": 0.0,       # time.time() when tripped
+    "reason": "",
+    "cooldown": 60,         # seconds before auto-reset attempt
+}
+_INFRA_FAILURE_RATE_THRESHOLD = 0.5   # >50% of recent tasks are infra failures → trip
+_INFRA_FAILURE_WINDOW = 10            # number of recent tasks to sample
+
+
+def _check_circuit_breaker() -> tuple[bool, str]:
+    """Return (should_pause, reason). Checks router health + recent infra failure rate.
+
+    Opens the breaker when:
+      - The shrimp router is unreachable (all backends would fail immediately), OR
+      - >50% of the last 10 completed/failed tasks were infrastructure failures.
+
+    Auto-resets after cooldown_seconds if conditions clear.
+    """
+    cb = _circuit_breaker
+    now = time.time()
+
+    # Auto-reset after cooldown
+    if cb["open"] and (now - cb["opened_at"]) > cb["cooldown"]:
+        cb["open"] = False
+        cb["reason"] = ""
+        print("[CircuitBreaker] Cooldown elapsed — resetting, will re-evaluate")
+
+    # Check shrimp router health (30s cached via api_agents)
+    try:
+        from swarm.api_agents import _check_shrimp_router  # type: ignore
+        router = _check_shrimp_router()
+        if router.get("ok") is False:
+            reason = "shrimp-router unreachable"
+            if not cb["open"]:
+                cb["open"] = True
+                cb["opened_at"] = now
+                cb["reason"] = reason
+                print(f"[CircuitBreaker] OPEN — {reason}")
+            return True, reason
+    except Exception:
+        pass  # router check not available — skip
+
+    # Check recent infra failure rate
+    try:
+        recent = db.task_get_recent_by_statuses(("completed", "failed"), limit=_INFRA_FAILURE_WINDOW)
+        if len(recent) >= 3:
+            infra_count = sum(
+                1 for t in recent
+                if (t.get("metadata") or {}).get("infrastructure_failure_count", 0) > 0
+                or (t.get("metadata") or {}).get("last_failure", "").startswith("Infrastructure")
+            )
+            rate = infra_count / len(recent)
+            if rate > _INFRA_FAILURE_RATE_THRESHOLD:
+                reason = f"infra failure rate {rate:.0%} ({infra_count}/{len(recent)} recent tasks)"
+                if not cb["open"]:
+                    cb["open"] = True
+                    cb["opened_at"] = now
+                    cb["reason"] = reason
+                    print(f"[CircuitBreaker] OPEN — {reason}")
+                return True, reason
+    except Exception:
+        pass
+
+    # Conditions clear — ensure breaker is closed
+    if cb["open"]:
+        cb["open"] = False
+        cb["reason"] = ""
+        print("[CircuitBreaker] CLOSED — infra looks healthy")
+    return False, ""
+
+
 def _check_llm_connectivity() -> bool:
     """TCP-level reachability check for the active LLM provider. No quota consumed."""
     try:
@@ -396,6 +468,11 @@ def fill_slots(generate_script_fn, max_spawn: Optional[int] = None) -> Tuple[Lis
     """
     if not _check_llm_connectivity():
         print("[Swarm] LLM endpoint unreachable -- skipping fill_slots (will retry next cycle)")
+        return [], []
+
+    tripped, cb_reason = _check_circuit_breaker()
+    if tripped:
+        print(f"[Swarm] Circuit breaker OPEN ({cb_reason}) — skipping fill_slots")
         return [], []
 
     with _fill_slots_lock:
