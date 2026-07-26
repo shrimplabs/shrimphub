@@ -469,22 +469,28 @@ class WorkPhase(Phase):
                 state.errors.append(f"work: LLM error at loop {loop}: {text[:120]}")
                 raise RuntimeError(f"LLM call failed: {text[:120]}")
 
+            if "WORK_COMPLETE" in text and mutation_tool_calls > 0 and commit_sha is None:
+                # Strip the premature marker so it doesn't anchor the model's next response
+                scrubbed = text.replace("WORK_COMPLETE", "[BLOCKED: must commit first]")
+                messages.append({"role": "assistant", "content": scrubbed})
+                self.log(
+                    f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit — requiring git_commit"
+                )
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "You wrote files but did not commit them. "
+                        "Call [TOOL_CALL]{\"tool\": \"git_commit\", \"args\": {\"message\": \"feat: implement changes\", \"files\": []}}[/TOOL_CALL] "
+                        "(replace the commit message with a meaningful description of your changes). "
+                        "After git_commit succeeds, output WORK_COMPLETE."
+                    ),
+                })
+                _consecutive_stalls = 0
+                continue
+
             messages.append({"role": "assistant", "content": text})
 
             if "WORK_COMPLETE" in text:
-                if mutation_tool_calls > 0 and commit_sha is None:
-                    self.log(
-                        f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit — requiring git_commit"
-                    )
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You have written files but have not committed. "
-                            "Call git_commit now to save your changes, then output WORK_COMPLETE."
-                        ),
-                    })
-                    _consecutive_stalls = 0
-                    continue
                 self.log(f"Work complete at loop {loop}")
                 completed = True
                 break
