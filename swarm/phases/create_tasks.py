@@ -133,6 +133,7 @@ class CreateTasksPhase(Phase):
         messages = [{"role": "user", "content": _build_create_prompt(state)}]
         completed = False
         all_created_ids: list[str] = []
+        _prev_id_count = 0
 
         for loop in range(1, _MAX_CREATE_LOOPS + 1):
             self.log(f"Create-tasks loop {loop}/{_MAX_CREATE_LOOPS}")
@@ -141,6 +142,13 @@ class CreateTasksPhase(Phase):
 
             if "TASKS_CREATED" in text:
                 self.log(f"Tasks created at loop {loop}")
+                completed = True
+                break
+
+            # Auto-stop if we've already created at least as many tasks as proposed
+            proposed_count = len((state.synthesis or {}).get("proposed_tasks") or [])
+            if proposed_count > 0 and len(all_created_ids) >= proposed_count:
+                self.log(f"Auto-stop: created {len(all_created_ids)} tasks (proposed {proposed_count}) — model did not emit TASKS_CREATED")
                 completed = True
                 break
 
@@ -181,7 +189,16 @@ class CreateTasksPhase(Phase):
                 result_str = json.dumps(result) if isinstance(result, dict) else str(result)
                 tool_results.append(f"[{tool_name}]\n{result_str[:3000]}")
 
-            messages.append({"role": "user", "content": "\n\n".join(tool_results)})
+            # If tasks were created this loop, append a nudge so the model knows to stop
+            newly_created = len(all_created_ids) - _prev_id_count
+            combined = "\n\n".join(tool_results)
+            if newly_created > 0:
+                combined += (
+                    f"\n\n{newly_created} task(s) created successfully. "
+                    "If all tasks have been created, output TASKS_CREATED now."
+                )
+            messages.append({"role": "user", "content": combined})
+            _prev_id_count = len(all_created_ids)
 
         if not completed:
             self.log("Create-tasks hit loop limit without TASKS_CREATED")
