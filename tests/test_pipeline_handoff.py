@@ -221,3 +221,81 @@ class TestValidatePopulatesHandoff:
 
         assert result.failed is False
         assert result.handoff["known_failures"] == []
+
+
+class TestDiagnoseHandoff:
+    """Regression: DiagnosePhase must surface root_cause and recommended_fix into
+    state.handoff so the work phase (which reads handoff.hypotheses and
+    handoff.next_actions) receives the diagnose findings."""
+
+    def test_diagnose_root_cause_injected_into_handoff_hypotheses(self, tmp_path):
+        from swarm.phases.diagnose import DiagnosePhase
+
+        state = TaskState(
+            task_id="diag-hw",
+            task_type="bug",
+            project="proj",
+            description="Fix crash on game over",
+            project_path=str(tmp_path),
+            plan=_base_plan(),
+            scout_report=_base_scout_report(),
+        )
+
+        diagnose_json = json.dumps({
+            "root_cause": "ScoreLabel node freed before game_over() fires",
+            "files_inspected": ["hud.gd", "main.gd"],
+            "exact_failure": "null reference on hud.score_label at line 87",
+            "recommended_fix": "Guard with is_instance_valid(score_label) before updating",
+            "confidence": 0.9,
+        })
+        diagnose_response = "DIAGNOSE_COMPLETE\n" + diagnose_json
+
+        with patch("swarm.phases.diagnose.call_llm", return_value=(diagnose_response, {}, [])):
+            phase = DiagnosePhase(config={"data_dir": str(tmp_path)})
+            result = phase.run(state)
+
+        hypotheses = result.handoff.get("hypotheses", [])
+        # root_cause → handoff.hypotheses
+        assert any("ScoreLabel node freed" in h for h in hypotheses), (
+            f"root_cause not in handoff.hypotheses: {hypotheses}"
+        )
+        # recommended_fix → scout_report.recommended_actions (rendered as SCOUT RECOMMENDED ACTIONS in work)
+        scout_actions = result.scout_report.get("recommended_actions", [])
+        assert any("is_instance_valid" in a for a in scout_actions), (
+            f"recommended_fix not prepended to scout_report.recommended_actions: {scout_actions}"
+        )
+
+    def test_diagnose_findings_visible_in_work_prompt(self, tmp_path):
+        """End-to-end: work prompt built after diagnose must contain the root_cause."""
+        from swarm.phases.diagnose import DiagnosePhase
+
+        state = TaskState(
+            task_id="diag-work",
+            task_type="bug",
+            project="proj",
+            description="Fix crash on game over",
+            project_path=str(tmp_path),
+            plan=_base_plan(),
+            scout_report=_base_scout_report(),
+        )
+
+        diagnose_json = json.dumps({
+            "root_cause": "ScoreLabel freed before signal fires",
+            "files_inspected": ["hud.gd"],
+            "exact_failure": "null ref at hud.gd:87",
+            "recommended_fix": "Use is_instance_valid before update",
+            "confidence": 0.88,
+        })
+        with patch("swarm.phases.diagnose.call_llm",
+                   return_value=("DIAGNOSE_COMPLETE\n" + diagnose_json, {}, [])):
+            phase = DiagnosePhase(config={"data_dir": str(tmp_path)})
+            state = phase.run(state)
+
+        prompt = _build_work_prompt(state)
+
+        assert "ScoreLabel freed before signal fires" in prompt, (
+            "diagnose root_cause must appear in work prompt via handoff.hypotheses"
+        )
+        assert "is_instance_valid" in prompt, (
+            "diagnose recommended_fix must appear in work prompt via handoff.next_actions"
+        )

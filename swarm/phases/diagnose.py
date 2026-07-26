@@ -288,15 +288,24 @@ class DiagnosePhase(Phase):
             "_diagnose_report": report,
         }
 
-        # Also surface root_cause + recommended_fix into handoff so work phase sees them.
-        # Work renders handoff.hypotheses and handoff.next_actions — diagnose findings fit there.
+        # Surface root_cause and recommended_fix into handoff so downstream phases see them.
+        # Work renders handoff.hypotheses (→ HYPOTHESES section) and reads scout_report for
+        # recommended_actions (→ SCOUT RECOMMENDED ACTIONS section). Inject into both:
         handoff = dict(state.handoff or {})
         root_cause = report.get("root_cause", "")
         recommended_fix = report.get("recommended_fix", "")
         if root_cause and root_cause not in handoff.get("hypotheses", []):
             handoff.setdefault("hypotheses", []).insert(0, f"[diagnose] {root_cause}")
-        if recommended_fix and recommended_fix not in handoff.get("next_actions", []):
-            handoff.setdefault("next_actions", []).insert(0, f"[diagnose] {recommended_fix}")
         state.handoff = handoff
+
+        # Also prepend recommended_fix to scout_report.recommended_actions so work's
+        # "SCOUT RECOMMENDED ACTIONS" section carries the diagnose fix directive.
+        if recommended_fix:
+            scout_report = dict(state.scout_report or {})
+            existing = scout_report.get("recommended_actions", [])
+            diagnose_action = f"[diagnose fix] {recommended_fix}"
+            if diagnose_action not in existing:
+                scout_report["recommended_actions"] = [diagnose_action] + list(existing)
+            state.scout_report = scout_report
 
         return state
