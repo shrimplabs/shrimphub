@@ -455,6 +455,7 @@ class WorkPhase(Phase):
         completed = False
         vision_calls_since_write = 0
         mutation_tool_calls = 0
+        _consecutive_stalls = 0
         phase_limits = self.config.get("phase_loop_limits") or {}
         max_work_loops = int(phase_limits.get("work") or self.config.get("work_max_loops") or _MAX_WORK_LOOPS)
         max_work_loops = max(1, max_work_loops)
@@ -482,6 +483,7 @@ class WorkPhase(Phase):
                             "Call git_commit now to save your changes, then output WORK_COMPLETE."
                         ),
                     })
+                    _consecutive_stalls = 0
                     continue
                 self.log(f"Work complete at loop {loop}")
                 completed = True
@@ -489,16 +491,30 @@ class WorkPhase(Phase):
 
             tool_calls = parse_tool_calls(text)
             if not tool_calls:
-                preview = text[:300].replace("\n", " ")
-                self.log(f"No tool calls parsed at loop {loop}; model said: {preview!r}")
-                messages.append({
-                    "role": "user",
-                    "content": (
+                _consecutive_stalls += 1
+                preview = text[:200].replace("\n", " ")
+                self.log(f"No tool calls at loop {loop} (stall #{_consecutive_stalls}): {preview!r}")
+                if _consecutive_stalls >= 4:
+                    nudge = (
+                        f"[STALL DETECTED — {_consecutive_stalls} loops without action] "
+                        "Stop explaining. Pick one concrete next step and execute it NOW with a tool call. "
+                        f"{'Commit your changes and output WORK_COMPLETE.' if mutation_tool_calls > 0 else 'Read a file, write a file, or run a command.'}"
+                    )
+                elif _consecutive_stalls >= 2:
+                    nudge = (
+                        "You have not called any tools. Use "
+                        "[TOOL_CALL]{\"tool\": \"...\", \"args\": {...}}[/TOOL_CALL] "
+                        "to take the next action. Commit and output WORK_COMPLETE when done."
+                    )
+                else:
+                    nudge = (
                         "Continue. Use [TOOL_CALL]{\"tool\": \"...\", \"args\": {...}}[/TOOL_CALL] "
                         "for every tool call. Commit your changes and output WORK_COMPLETE when done."
-                    ),
-                })
+                    )
+                messages.append({"role": "user", "content": nudge})
                 continue
+
+            _consecutive_stalls = 0
 
             tool_results = []
             tool_names = [tc.get("tool", "") for tc in tool_calls]
@@ -527,10 +543,11 @@ class WorkPhase(Phase):
                     cmd = tc.get("args", {}).get("command", "")
                     if any(op in cmd for op in ("cp ", "mv ", "rsvg-convert", "inkscape", "ffmpeg", "convert ")):
                         vision_calls_since_write = 0
-                # Track commit sha if git_commit ran
+                # Track successful commit
                 if tool_name == "git_commit" and isinstance(result, dict):
-                    commit_sha = result.get("sha") or result.get("commit_sha")
-                    self.log(f"Committed: {commit_sha}")
+                    if result.get("ok"):
+                        commit_sha = result.get("sha") or result.get("commit_sha") or "ok"
+                    self.log(f"Committed: {commit_sha} (ok={result.get('ok')}, err={result.get('error')})")
                 result_str = json.dumps(result) if isinstance(result, dict) else str(result)
                 tool_results.append(f"[{tool_name}]\n{result_str[:4000]}")
 
