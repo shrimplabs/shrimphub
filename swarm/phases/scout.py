@@ -254,14 +254,17 @@ class ScoutPhase(Phase):
             messages.append({"role": "assistant", "content": text})
 
             # Check for completion — enforce minimum investigation depth.
-            # When the plan gave a reading list, min loops = max(2, len(files)).
-            # Without a reading list, enforce a floor of 5 to prevent superficial reports.
+            # When plan provided a reading list, a floor of 3 loops is sufficient:
+            # the list already guided the scout to read real files, so a light floor
+            # prevents 1-loop completions without over-blocking (a large reading list
+            # should NOT produce a proportionally large floor — it's speculative).
+            # Without a reading list, use 5 loops to prevent superficial reports.
             report = _extract_scout_report(text)
             if report is not None:
                 plan = state.plan or {}
                 reading_list = plan.get("files_to_inspect_first", []) + plan.get("likely_files_to_change", [])
                 if reading_list:
-                    min_loops = max(2, len(reading_list))
+                    min_loops = 3
                 else:
                     min_loops = 5
                 if loop < min_loops and not plan.get("fast_path"):
@@ -269,9 +272,8 @@ class ScoutPhase(Phase):
                     messages.append({
                         "role": "user",
                         "content": (
-                            "You reported too early. You have not yet read all the files likely to change "
-                            "or answered all the unknowns. Continue investigating — read the remaining files "
-                            "and use search_code to find the specific functions involved."
+                            "You reported too early. Use search_code to locate the specific functions, "
+                            "signals, and variables involved. Read the key sections before reporting."
                         ),
                     })
                     report = None
