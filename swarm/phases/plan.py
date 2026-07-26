@@ -23,23 +23,21 @@ from swarm.llm_utils import parse_tool_calls
 
 _PLAN_SYSTEM = """\
 You are a senior software engineer producing a concrete task plan.
-You will be given a task description and project context.
-You MUST inspect relevant files before planning — do not output PLAN_COMPLETE
-until you have read at least the key files that the implementation will touch.
+
+You have already been given: the full project file tree and key documents \
+(GAME_DESIGN.md, project.godot, README, etc.). Use them to plan immediately.
+
+Only use tool calls to read a specific implementation file whose internals \
+you need to write accurate steps — not to explore what you already have. \
+Aim to output PLAN_COMPLETE within 1-3 tool calls. If the tree and docs are \
+sufficient, output PLAN_COMPLETE on the very first response with no tool calls.
+
 You are READ-ONLY: no writes, no commits, no task creation.
 
-To inspect a file or directory, output EXACTLY this format:
-[TOOL_CALL]{"tool": "read_file", "args": {"path": "GAME_DESIGN.md"}}[/TOOL_CALL]
+To read a specific file:
+[TOOL_CALL]{"tool": "read_file", "args": {"path": "scripts/foo.gd"}}[/TOOL_CALL]
 
 Available tools: read_file, read_file_range, list_files, search_code
-
-Minimum investigation before planning:
-1. Read GAME_DESIGN.md or equivalent spec if it exists
-2. Read each file listed as likely to change
-3. Search for relevant symbols or patterns if the task involves fixing behavior
-
-Only output PLAN_COMPLETE after completing the above. A plan built without
-reading the actual code will produce inaccurate steps and waste the work phase.
 
 When ready, output EXACTLY:
 PLAN_COMPLETE

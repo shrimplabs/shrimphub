@@ -73,6 +73,14 @@ _shared.WORKSPACE = str(project_path.parent)
 _shared.PROJECT   = project_path.name
 _shared.PROJECT_PATH_OVERRIDE = str(project_path)  # force search_code to use exact path
 
+# Point DATA_DIR at an isolated scratch location so the probe never touches the live
+# swarm.db — otherwise _has_active_sibling_tasks() sees real in-progress tasks and
+# the broadcast_write gate blocks every file write.
+import tempfile, atexit, shutil as _shutil
+_probe_data_dir = tempfile.mkdtemp(prefix="pipeline-probe-")
+atexit.register(_shutil.rmtree, _probe_data_dir, ignore_errors=True)
+_rt.DATA_DIR = _probe_data_dir
+
 # ── parse pipeline ────────────────────────────────────────────────────────────
 _SEP = {"→", "->", ">", ","}
 phases = [p.strip() for p in args.pipeline.replace("->", "→").replace(",", "→").split("→")]
