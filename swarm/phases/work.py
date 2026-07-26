@@ -456,6 +456,7 @@ class WorkPhase(Phase):
         vision_calls_since_write = 0
         mutation_tool_calls = 0
         _consecutive_stalls = 0
+        _premature_complete_count = 0
         phase_limits = self.config.get("phase_loop_limits") or {}
         max_work_loops = int(phase_limits.get("work") or self.config.get("work_max_loops") or _MAX_WORK_LOOPS)
         max_work_loops = max(1, max_work_loops)
@@ -470,12 +471,29 @@ class WorkPhase(Phase):
                 raise RuntimeError(f"LLM call failed: {text[:120]}")
 
             if "WORK_COMPLETE" in text and mutation_tool_calls > 0 and commit_sha is None:
+                _premature_complete_count += 1
+                self.log(
+                    f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit "
+                    f"(attempt #{_premature_complete_count}) — requiring git_commit"
+                )
+                if _premature_complete_count >= 3:
+                    # Model is ignoring nudges — commit programmatically on its behalf
+                    self.log("Auto-committing after repeated premature completions")
+                    from swarm.tools.shell import git_commit as _git_commit_fn
+                    auto_result = _git_commit_fn("feat: implement task changes")
+                    if auto_result.get("ok"):
+                        commit_sha = auto_result.get("sha") or "auto"
+                        self.log(f"Auto-commit succeeded: {commit_sha}")
+                        messages.append({"role": "assistant", "content": text})
+                        completed = True
+                        break
+                    else:
+                        self.log(f"Auto-commit failed: {auto_result.get('error')} — aborting")
+                        state.errors.append(f"work: auto-commit failed: {auto_result.get('error')}")
+                        break
                 # Strip the premature marker so it doesn't anchor the model's next response
                 scrubbed = text.replace("WORK_COMPLETE", "[BLOCKED: must commit first]")
                 messages.append({"role": "assistant", "content": scrubbed})
-                self.log(
-                    f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit — requiring git_commit"
-                )
                 messages.append({
                     "role": "user",
                     "content": (
