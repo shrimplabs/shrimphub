@@ -98,102 +98,31 @@ if args.dry_run:
 
 # ── analytics instrumentation ─────────────────────────────────────────────────
 import re as _re
-import swarm.llm_utils as _llm_mod
+sys.path.insert(0, str(ROOT / "tools"))
+from probe_analytics import make_analytics, install as _install_analytics, print_table, build_summary
 
-_orig_call_llm = _llm_mod.call_llm
-_analytics: dict = {
-    "phases": {},       # phase_name → {calls, input_tokens, output_tokens, cache_read, tools: {name: count}}
-    "_current_phase": None,
-}
+_analytics = make_analytics()
+_install_analytics(_analytics)
 
-def _track_phase(name: str):
-    _analytics["_current_phase"] = name
-    if name not in _analytics["phases"]:
-        _analytics["phases"][name] = {
-            "calls": 0, "input_tokens": 0, "output_tokens": 0,
-            "cache_read": 0, "cache_write": 0, "tools": {}, "elapsed_s": 0.0,
-            "_t0": time.time(),
-        }
+# verbose mode: print model reasoning between tool calls
+if args.verbose:
+    import swarm.llm_utils as _llm_mod_v
+    _orig_v = _llm_mod_v.call_llm
 
-def _instrumented_call_llm(system, messages, **kwargs):
-    text, tokens, thinking = _orig_call_llm(system, messages, **kwargs)
-    phase = _analytics["_current_phase"]
-    if phase and phase in _analytics["phases"]:
-        p = _analytics["phases"][phase]
-        p["calls"] += 1
-        if isinstance(tokens, dict):
-            p["input_tokens"]  += tokens.get("input", tokens.get("input_tokens", 0))
-            p["output_tokens"] += tokens.get("output", tokens.get("output_tokens", 0))
-            p["cache_read"]    += tokens.get("cache_read", tokens.get("cache_read_input_tokens", 0))
-            p["cache_write"]   += tokens.get("cache_write", tokens.get("cache_creation_input_tokens", 0))
-        # count tool calls — matches [TOOL_CALL]{"name":"foo"...}[/TOOL_CALL]
-        for tool_name in _re.findall(r'\[TOOL_CALL\]\s*\{[^}]*"name"\s*:\s*"([^"]+)"', text):
-            p["tools"][tool_name] = p["tools"].get(tool_name, 0) + 1
-    if args.verbose:
+    def _verbose_wrap(system, messages, **kwargs):
+        text, tokens, thinking = _orig_v(system, messages, **kwargs)
         prose = _re.sub(r"\[TOOL_CALL\].*?\[/TOOL_CALL\]", "", text, flags=_re.DOTALL).strip()
         if prose:
             print(f"\n\033[2m--- model reasoning ---\033[0m")
             print(f"\033[2m{prose[:800]}\033[0m")
             if len(prose) > 800:
                 print(f"\033[2m  ... ({len(prose)-800} chars truncated)\033[0m")
-    return text, tokens, thinking
+        return text, tokens, thinking
 
-_llm_mod.call_llm = _instrumented_call_llm
-
-# Intercept pipeline phase entry to track which phase is active
-from swarm import pipeline as _pipeline_mod
-_orig_run_pipeline = _pipeline_mod.run_pipeline
-
-def _instrumented_run_pipeline(phases, state, provider_cfg, log_fn=None):
-    _orig_log = log_fn or (lambda x: None)
-    def _phase_tracking_log(msg):
-        # "  PHASE: PLAN  (1/4)" → start tracking that phase
-        m_start = _re.search(r"PHASE:\s*([A-Z_]+)", msg)
-        if m_start:
-            phase = m_start.group(1).lower()
-            _track_phase(phase)
-        # "  ✓ PLAN complete (12.3s)" → record elapsed
-        m_done = _re.search(r"✓\s+([A-Z_]+)\s+complete\s+\(([0-9.]+)s\)", msg)
-        if m_done:
-            phase = m_done.group(1).lower()
-            elapsed_s = float(m_done.group(2))
-            if phase in _analytics["phases"]:
-                _analytics["phases"][phase]["elapsed_s"] = elapsed_s
-        # "[Pipeline:plan] Tools: read_file, search_code" → count tool calls
-        m_tools = _re.search(r"\[Pipeline:[^\]]+\]\s+Tools:\s+(.+)", msg)
-        if m_tools and _analytics["_current_phase"]:
-            p = _analytics["phases"].get(_analytics["_current_phase"])
-            if p:
-                for tool_name in _re.split(r"[,\s]+", m_tools.group(1).strip()):
-                    tool_name = tool_name.strip()
-                    if tool_name:
-                        p["tools"][tool_name] = p["tools"].get(tool_name, 0) + 1
-        _orig_log(msg)
-    return _orig_run_pipeline(phases, state, provider_cfg, log_fn=_phase_tracking_log)
-
-_pipeline_mod.run_pipeline = _instrumented_run_pipeline
-
-# Patch Phase.log so per-phase tool counts are captured from stdout lines
-from swarm.pipeline import Phase as _Phase
-_orig_phase_log = _Phase.log
-
-def _analytics_phase_log(self, msg: str) -> None:
-    _orig_phase_log(self, msg)
-    phase = self.name
-    if phase not in _analytics["phases"]:
-        _track_phase(phase)
-    p = _analytics["phases"].get(phase)
-    if p:
-        m_tools = _re.search(r"^Tools:\s+(.+)", msg)
-        if m_tools:
-            for tool_name in _re.split(r"[,\s]+", m_tools.group(1).strip()):
-                tool_name = tool_name.strip()
-                if tool_name:
-                    p["tools"][tool_name] = p["tools"].get(tool_name, 0) + 1
-
-_Phase.log = _analytics_phase_log
+    _llm_mod_v.call_llm = _verbose_wrap
 
 # ── run ───────────────────────────────────────────────────────────────────────
+from swarm import pipeline as _pipeline_mod
 from swarm.pipeline import TaskState
 
 state = TaskState(
@@ -261,76 +190,28 @@ if getattr(final, "synthesis", None):
                 print(f"    [{i}] {t.get('action','?')} {t.get('file','?')}: {t.get('description','')[:80]}")
     print(f"{'='*60}\n")
 
-# ── per-phase analytics ───────────────────────────────────────────────────────
-total_calls  = sum(p["calls"]         for p in _analytics["phases"].values())
-total_in_tok = sum(p["input_tokens"]  for p in _analytics["phases"].values())
-total_out_tok= sum(p["output_tokens"] for p in _analytics["phases"].values())
-total_cache  = sum(p["cache_read"]    for p in _analytics["phases"].values())
-
-if _analytics["phases"]:
-    print(f"\n{'='*60}")
-    print(f"  ANALYTICS")
-    print(f"{'='*60}")
-    print(f"  {'Phase':<16} {'Calls':>5}  {'In tok':>8}  {'Out tok':>8}  {'Cache':>7}  {'Time':>7}  Top tools")
-    print(f"  {'-'*16} {'-'*5}  {'-'*8}  {'-'*8}  {'-'*7}  {'-'*7}  ---------")
-    for pname, ps in _analytics["phases"].items():
-        top_tools = ", ".join(
-            f"{t}×{n}" for t, n in sorted(ps["tools"].items(), key=lambda x: -x[1])[:3]
-        )
-        print(f"  {pname:<16} {ps['calls']:>5}  {ps['input_tokens']:>8,}  {ps['output_tokens']:>8,}  "
-              f"{ps['cache_read']:>7,}  {ps['elapsed_s']:>6.1f}s  {top_tools}")
-    print(f"  {'TOTAL':<16} {total_calls:>5}  {total_in_tok:>8,}  {total_out_tok:>8,}  {total_cache:>7,}")
-    if total_in_tok > 0:
-        cache_pct = 100 * total_cache / total_in_tok
-        cost_saved = total_cache * 0.9  # MiniMax cache = 90% discount on cache hits
-        print(f"\n  Cache hit rate: {cache_pct:.1f}% of input tokens  (~{cost_saved:,.0f} tok discount)")
-    print(f"{'='*60}")
-
-# ── JSON summary output ───────────────────────────────────────────────────────
+# ── per-phase analytics + JSON summary ───────────────────────────────────────
 import json as _json
 
-_summary = {
-    "task_id": _rt.TASK_ID,
-    "project": args.dir,
-    "task_type": args.type,
-    "pipeline": phases,
-    "provider": args.provider,
-    "elapsed_s": elapsed,
-    "failed": bool(final.failed),
-    "errors": list(getattr(final, "errors", []) or []),
-    "total_llm_calls": total_calls,
-    "total_input_tokens": total_in_tok,
-    "total_output_tokens": total_out_tok,
-    "total_cache_read_tokens": total_cache,
-    "phases": {
-        pname: {
-            "calls": ps["calls"],
-            "input_tokens": ps["input_tokens"],
-            "output_tokens": ps["output_tokens"],
-            "cache_read_tokens": ps["cache_read"],
-            "elapsed_s": ps["elapsed_s"],
-            "tools": ps["tools"],
-        }
-        for pname, ps in _analytics["phases"].items()
-    },
-    "work": getattr(final, "work_report", None),
-    "scout": {
-        "files_inspected": len((getattr(final, "scout_report", None) or {}).get("findings", [])),
-        "findings_count": len((getattr(final, "scout_report", None) or {}).get("findings", [])),
-    } if getattr(final, "scout_report", None) else None,
-    "synthesis": {
-        "tasks_proposed": len((getattr(final, "synthesis", None) or {}).get("proposed_tasks", []) or []),
-        "confidence": (getattr(final, "synthesis", None) or {}).get("confidence"),
-    } if getattr(final, "synthesis", None) else None,
-}
+print_table(_analytics)
+
+_summary = build_summary(
+    _analytics,
+    task_id=_rt.TASK_ID,
+    project=args.dir,
+    task_type=args.type,
+    pipeline=phases,
+    provider=args.provider,
+    elapsed_s=elapsed,
+    final_state=final,
+)
 
 if args.json_out:
     with open(args.json_out, "w") as _jf:
         _json.dump(_summary, _jf, indent=2, default=str)
     print(f"\n  JSON summary written to: {args.json_out}")
 else:
-    print(f"\n  JSON summary (use --json-out <path> to save):")
-    print("  " + _json.dumps(_summary, default=str)[:300] + " ...")
+    print(f"\n  (use --json-out <path> to save JSON summary)")
 
 print(f"{'='*60}\n")
 sys.exit(0 if not final.failed else 1)
