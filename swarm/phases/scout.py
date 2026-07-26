@@ -259,6 +259,12 @@ class ScoutPhase(Phase):
             # prevents 1-loop completions without over-blocking (a large reading list
             # should NOT produce a proportionally large floor — it's speculative).
             # Without a reading list, use 5 loops to prevent superficial reports.
+            #
+            # Important: track SCOUT_COMPLETE separately from valid JSON parse.
+            # If JSON is malformed, _extract_scout_report returns None but the scout
+            # still ATTEMPTED to complete — that attempt must reset the stall counter
+            # and get a repair nudge rather than being treated as a no-output stall.
+            saw_scout_complete = "SCOUT_COMPLETE" in text
             report = _extract_scout_report(text)
             if report is not None:
                 plan = state.plan or {}
@@ -276,11 +282,25 @@ class ScoutPhase(Phase):
                             "signals, and variables involved. Read the key sections before reporting."
                         ),
                     })
-                    _consecutive_stalls = 0  # reset stall counter — scout did produce output, just too early
+                    _consecutive_stalls = 0  # reset — scout produced output, just too early
                     continue
                 else:
                     self.log(f"Scout complete at loop {loop}")
                     break
+            elif saw_scout_complete:
+                # SCOUT_COMPLETE seen but JSON failed to parse — treat as completion attempt,
+                # not a stall. Reset stall counter and ask for well-formed JSON.
+                self.log(f"SCOUT_COMPLETE seen at loop {loop} but JSON was malformed — requesting repair")
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your SCOUT_COMPLETE JSON was malformed and could not be parsed. "
+                        "Output SCOUT_COMPLETE followed immediately by valid JSON. Use double quotes, "
+                        "no trailing commas, and ensure all strings are properly escaped."
+                    ),
+                })
+                _consecutive_stalls = 0  # reset — scout attempted to complete, not a true stall
+                continue
 
             # Execute tool calls
             tool_calls = parse_tool_calls(text)
