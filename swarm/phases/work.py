@@ -471,6 +471,18 @@ class WorkPhase(Phase):
             messages.append({"role": "assistant", "content": text})
 
             if "WORK_COMPLETE" in text:
+                if mutation_tool_calls > 0 and commit_sha is None:
+                    self.log(
+                        f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit — requiring git_commit"
+                    )
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You have written files but have not committed. "
+                            "Call git_commit now to save your changes, then output WORK_COMPLETE."
+                        ),
+                    })
+                    continue
                 self.log(f"Work complete at loop {loop}")
                 completed = True
                 break
