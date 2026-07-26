@@ -83,9 +83,11 @@ Running with `--verbose` lets you see the model's decision-making between tool c
 
 1. **`search_code` scope leak** (fixed): Without `PROJECT_PATH_OVERRIDE`, `search_code` walked the swarm-controller repo instead of the target project. The model self-corrected at loop 10, wasting 2-3 loops.
 
-2. **Scout early-completion floor** (fixed): The `do not report before loop 5` guard blocked completion even when the plan gave a short reading list and the scout genuinely covered it. Fixed: minimum is now `max(2, len(reading_list))` when a reading list exists, 5 otherwise. When confidence=0.97 and the scout has read all target files, it can now complete at the natural loop.
+2. **Scout early-completion floor** (fixed, two iterations): Originally used `max(2, len(reading_list))` as the minimum loop count — a 15-file reading list produced min=15, blocking scout at loop 13 with spurious "too early" rejections. Fixed: floor is now a flat 3 loops when a reading list exists (the list already guided real work, so a light floor is sufficient), 5 loops without a reading list. Also fixed: when a SCOUT_COMPLETE is rejected for being too early, the `_consecutive_stalls` counter is now reset — previously the rejection would cause a stall increment and fire a contradictory "output SCOUT_COMPLETE now" nudge on the very next loop.
 
 3. **Plan phase stalling** (fixed): Plan loops with no tool call and no PLAN_COMPLETE (model generating prose without committing) now get escalating nudges — stall 1: soft prompt, stall 2+: "output PLAN_COMPLETE now, no more prose."
+
+4. **Plan loop budget** (fixed): Bug/refactor/research tasks need to search the codebase before they can plan. The flat 10-loop limit caused them to hit the ceiling mid-search. New per-type defaults: bug=15, refactor=15, research=15, audit=15. Feature/polish keep 10. Config overrides still take precedence.
 
 ## Known limitations
 
