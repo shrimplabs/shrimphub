@@ -287,4 +287,16 @@ class DiagnosePhase(Phase):
             # Keep raw report for _apply_research_feeder_result
             "_diagnose_report": report,
         }
+
+        # Also surface root_cause + recommended_fix into handoff so work phase sees them.
+        # Work renders handoff.hypotheses and handoff.next_actions — diagnose findings fit there.
+        handoff = dict(state.handoff or {})
+        root_cause = report.get("root_cause", "")
+        recommended_fix = report.get("recommended_fix", "")
+        if root_cause and root_cause not in handoff.get("hypotheses", []):
+            handoff.setdefault("hypotheses", []).insert(0, f"[diagnose] {root_cause}")
+        if recommended_fix and recommended_fix not in handoff.get("next_actions", []):
+            handoff.setdefault("next_actions", []).insert(0, f"[diagnose] {recommended_fix}")
+        state.handoff = handoff
+
         return state
