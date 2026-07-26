@@ -471,14 +471,18 @@ def _check_circuit_breaker() -> tuple[bool, str]:
     except Exception:
         pass  # router check not available — skip
 
-    # Check recent infra failure rate
+    # Check recent infra failure rate — but not 429/rate-limit failures (those are quota, not infra)
     try:
         recent = db.task_get_recent_by_statuses(("completed", "failed"), limit=_INFRA_FAILURE_WINDOW)
         if len(recent) >= 3:
             infra_count = sum(
                 1 for t in recent
-                if (t.get("metadata") or {}).get("infrastructure_failure_count", 0) > 0
-                or (t.get("metadata") or {}).get("last_failure", "").startswith("Infrastructure")
+                if (
+                    (t.get("metadata") or {}).get("infrastructure_failure_count", 0) > 0
+                    or (t.get("metadata") or {}).get("last_failure", "").startswith("Infrastructure")
+                )
+                and "rate limit" not in (t.get("metadata") or {}).get("last_failure", "").lower()
+                and "429" not in (t.get("metadata") or {}).get("last_failure", "")
             )
             rate = infra_count / len(recent)
             if rate > _INFRA_FAILURE_RATE_THRESHOLD:
