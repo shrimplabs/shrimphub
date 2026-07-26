@@ -109,7 +109,20 @@ def _build_scout_prompt(state: TaskState) -> str:
     lines.append(f"")
     lines.append("Use only these canonical tool names: read_file, read_file_range, list_files, search_code.")
     lines.append(f"")
-    lines.append(f"Investigate thoroughly, then output SCOUT_COMPLETE + JSON report. You have {_MAX_SCOUT_LOOPS} loops max — do not report before loop 5.")
+    # Directive vs open-ended framing depends on whether the plan gave us a reading list
+    has_reading_list = bool(plan.get("files_to_inspect_first") or plan.get("likely_files_to_change"))
+    if has_reading_list:
+        lines.append(
+            f"You have a targeted reading list above. Read those files, confirm or refute the plan's "
+            f"hypotheses, then output SCOUT_COMPLETE. Do not explore beyond the listed files unless "
+            f"a read reveals a critical dependency not on the list. Aim to complete within 6-10 loops. "
+            f"You have {_MAX_SCOUT_LOOPS} loops max."
+        )
+    else:
+        lines.append(
+            f"Explore the project to answer the unknowns above, then output SCOUT_COMPLETE. "
+            f"You have {_MAX_SCOUT_LOOPS} loops max — do not report before loop 5."
+        )
     return "\n".join(lines)
 
 
