@@ -276,6 +276,9 @@ def patch_file(relative_path: str, old: str, new: str) -> dict:
 
 
 
+_WRITE_FILE_MAX_BYTES = 12_000  # ~300 lines; larger content truncates mid-JSON in LLM responses
+
+
 def write_file(path_arg: str, content: str) -> dict:
     """Write content to a file, creating parent directories as needed."""
     import swarm.tools.core as _core
@@ -283,6 +286,17 @@ def write_file(path_arg: str, content: str) -> dict:
 
     if _core.READONLY:
         return {"ok": False, "error": "Read-only task: write_file is disabled"}
+    if len(content.encode("utf-8")) > _WRITE_FILE_MAX_BYTES:
+        kb = len(content.encode("utf-8")) // 1024
+        return {
+            "ok": False,
+            "error": (
+                f"Content too large for write_file ({kb}KB > {_WRITE_FILE_MAX_BYTES//1024}KB limit). "
+                "Large files cause stream truncation. Use append_file() in chunks instead: "
+                "write the first section with write_file using a smaller initial block, "
+                "then append_file() for the rest."
+            ),
+        }
     if _core.TASK_TYPE in ("python_plan", "plan"):
         return {"ok": False, "error": "plan tasks are read-only planners -- use create_task() to delegate implementation"}
     if "res://" in str(path_arg):

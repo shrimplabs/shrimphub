@@ -41,9 +41,9 @@ Available tools:
 - read_file_range(path, start_line, end_line) — read part of a file
 - list_files(path) — list directory contents
 - search_code(query) — search code
-- write_file(path, content) — write/overwrite a file
-- patch_file(path, old, new) — replace a string in a file
-- append_file(path, content) — append to a file
+- write_file(path, content) — write/overwrite a file (max ~12KB; use append_file for larger files)
+- patch_file(path, old, new) — replace a string in a file (preferred for editing existing files)
+- append_file(path, content) — append to a file (use this for large new files: write_file a small header, then append_file the rest in chunks)
 - run_command(command, timeout) — run a shell command
 - run_python(code, timeout) — run a Python snippet (use this instead of trying to invoke python/perl via shell)
 - git_commit(message, files) — commit changes
