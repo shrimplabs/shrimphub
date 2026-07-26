@@ -121,7 +121,7 @@ def _build_scout_prompt(state: TaskState) -> str:
     else:
         lines.append(
             f"Explore the project to answer the unknowns above, then output SCOUT_COMPLETE. "
-            f"You have {_MAX_SCOUT_LOOPS} loops max — do not report before loop 5."
+            f"You have {_MAX_SCOUT_LOOPS} loops max."
         )
     return "\n".join(lines)
 
@@ -253,11 +253,19 @@ class ScoutPhase(Phase):
 
             messages.append({"role": "assistant", "content": text})
 
-            # Check for completion — enforce minimum investigation depth
+            # Check for completion — enforce minimum investigation depth.
+            # When the plan gave a reading list, min loops = max(2, len(files)).
+            # Without a reading list, enforce a floor of 5 to prevent superficial reports.
             report = _extract_scout_report(text)
             if report is not None:
-                if loop < 5 and not state.plan.get("fast_path"):
-                    self.log(f"Scout tried to complete at loop {loop} — too early, requiring more investigation")
+                plan = state.plan or {}
+                reading_list = plan.get("files_to_inspect_first", []) + plan.get("likely_files_to_change", [])
+                if reading_list:
+                    min_loops = max(2, len(reading_list))
+                else:
+                    min_loops = 5
+                if loop < min_loops and not plan.get("fast_path"):
+                    self.log(f"Scout tried to complete at loop {loop} — too early (min {min_loops}), requiring more investigation")
                     messages.append({
                         "role": "user",
                         "content": (

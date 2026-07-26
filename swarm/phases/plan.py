@@ -226,6 +226,7 @@ class PlanPhase(Phase):
         plan = None
         text = ""
         last_plan_errors: list[str] = []
+        _plan_stalls = 0
 
         phase_limits = self.config.get("phase_loop_limits") or {}
         max_plan_loops = int(phase_limits.get("plan") or self.config.get("plan_max_loops") or _MAX_PLAN_LOOPS)
@@ -270,11 +271,23 @@ class PlanPhase(Phase):
 
             tool_calls = parse_tool_calls(text)
             if not tool_calls:
-                messages.append({
-                    "role": "user",
-                    "content": "Either inspect one relevant file with a tool call or output PLAN_COMPLETE followed by the JSON plan.",
-                })
+                _plan_stalls += 1
+                if _plan_stalls >= 2:
+                    self.log(f"Plan stalling (stall {_plan_stalls}) — demanding PLAN_COMPLETE")
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You have enough context. Output PLAN_COMPLETE immediately followed by the JSON plan. "
+                            "Do not write prose or ask questions — output the JSON now."
+                        ),
+                    })
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": "Either inspect one relevant file with a tool call or output PLAN_COMPLETE followed by the JSON plan.",
+                    })
                 continue
+            _plan_stalls = 0
 
             tool_results = []
             tool_names = [tc.get("tool", "") for tc in tool_calls]

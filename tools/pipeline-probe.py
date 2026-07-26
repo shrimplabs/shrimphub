@@ -157,5 +157,30 @@ if getattr(final, "work_report", None):
           f"commit={wr.get('commit_sha') or 'none'}")
     if wr.get("no_op"):        print("  ⚠  NoOp: completed with zero mutations")
     if wr.get("uncommitted"):  print("  ⚠  UncommittedWrites: mutations but no commit")
+
+# Show synthesis output if present
+if getattr(final, "synthesis", None):
+    synth = final.synthesis
+    print(f"\n{'='*60}")
+    print(f"  SYNTHESIS OUTPUT")
+    print(f"{'='*60}")
+    if synth.get("summary"):
+        print(f"  Summary: {synth['summary']}")
+    if synth.get("key_conclusions"):
+        print(f"  Conclusions:")
+        for c in synth["key_conclusions"]:
+            print(f"    - {c}")
+    proposed = synth.get("proposed_tasks") or synth.get("implementation_steps") or []
+    if proposed:
+        label = "proposed_tasks" if synth.get("proposed_tasks") else "implementation_steps"
+        print(f"  {label} ({len(proposed)}):")
+        for i, t in enumerate(proposed):
+            dep_str = f" deps={t['depends_on']}" if t.get("depends_on") else ""
+            if label == "proposed_tasks":
+                print(f"    [{i}] {t.get('type','feature')} p={t.get('priority',50)}{dep_str}: {t.get('description','')[:100]}")
+            else:
+                print(f"    [{i}] {t.get('action','?')} {t.get('file','?')}: {t.get('description','')[:80]}")
+    print(f"{'='*60}\n")
+
 print(f"{'='*60}\n")
 sys.exit(0 if not final.failed else 1)

@@ -83,7 +83,9 @@ Running with `--verbose` lets you see the model's decision-making between tool c
 
 1. **`search_code` scope leak** (fixed): Without `PROJECT_PATH_OVERRIDE`, `search_code` walked the swarm-controller repo instead of the target project. The model self-corrected at loop 10, wasting 2-3 loops.
 
-2. **Scout over-continuation**: The model says "I have enough information" then calls one more tool anyway, repeatedly. The `do not report before loop 5` guard is internalized as "keep going" too aggressively. The prompt needs a positive completion signal, not just a floor.
+2. **Scout early-completion floor** (fixed): The `do not report before loop 5` guard blocked completion even when the plan gave a short reading list and the scout genuinely covered it. Fixed: minimum is now `max(2, len(reading_list))` when a reading list exists, 5 otherwise. When confidence=0.97 and the scout has read all target files, it can now complete at the natural loop.
+
+3. **Plan phase stalling** (fixed): Plan loops with no tool call and no PLAN_COMPLETE (model generating prose without committing) now get escalating nudges — stall 1: soft prompt, stall 2+: "output PLAN_COMPLETE now, no more prose."
 
 ## Known limitations
 
