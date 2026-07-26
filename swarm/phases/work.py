@@ -471,6 +471,18 @@ class WorkPhase(Phase):
                 raise RuntimeError(f"LLM call failed: {text[:120]}")
 
             if "WORK_COMPLETE" in text and mutation_tool_calls > 0 and commit_sha is None:
+                # Check if agent committed via run_command (bypassing git_commit tool)
+                try:
+                    from swarm.tools.shell import run as _run
+                    _rc, _out, _err = _run("git status --porcelain")
+                    if _rc == 0 and not _out.strip():
+                        self.log("WORK_COMPLETE accepted: working tree clean (committed via run_command)")
+                        commit_sha = "run_command"
+                        messages.append({"role": "assistant", "content": text})
+                        completed = True
+                        break
+                except Exception:
+                    pass
                 _premature_complete_count += 1
                 self.log(
                     f"Work tried to complete at loop {loop} with {mutation_tool_calls} write(s) but no commit "
