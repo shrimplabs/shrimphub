@@ -1,0 +1,59 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/tetris-neon",
+    "type": "feature",
+    "provider": "minimax"
+  },
+  "runs": [
+    {
+      "name": "A1-work-only",
+      "pipeline": "work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "A2-work-only",
+      "pipeline": "work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "B1-scout-work",
+      "pipeline": "scout->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "B2-scout-work",
+      "pipeline": "scout->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "C1-plan-work",
+      "pipeline": "plan->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "C2-plan-work",
+      "pipeline": "plan->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "D1-plan-scout-work",
+      "pipeline": "plan->scout->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "D2-plan-scout-work",
+      "pipeline": "plan->scout->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "E1-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    },
+    {
+      "name": "E2-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Add high score persistence: save the player's best score to disk (user://high_score.dat) and display it on the game over screen and main menu. Load on startup, update only when beaten."
+    }
+  ]
+}

@@ -211,7 +211,8 @@ class DiagnosePhase(Phase):
                     ),
                 })
 
-            text, _tokens, _thinking = call_llm(_DIAGNOSE_SYSTEM, messages, provider=provider)
+            system = self.config.get("diagnose_system_prompt") or _DIAGNOSE_SYSTEM
+            text, _tokens, _thinking = call_llm(system, messages, provider=provider)
             messages.append({"role": "assistant", "content": text})
 
             report = _extract_diagnose_report(text)

@@ -38,6 +38,7 @@ p.add_argument("--base-url", default=None,   help="Override provider base URL")
 p.add_argument("--dry-run",  action="store_true", help="Print config and exit without running")
 p.add_argument("--verbose",  action="store_true", help="Print model reasoning text between tool calls")
 p.add_argument("--json-out", default=None,        help="Write structured JSON summary to this path")
+p.add_argument("--phase-config", default=None,    help="Path to JSON file with extra phase config (e.g. diagnose_system_prompt)")
 args = p.parse_args()
 
 project_path = Path(args.dir).expanduser().resolve()
@@ -140,6 +141,11 @@ provider_cfg = {
     "work_provider":       _provider,
     "synthesize_provider": _provider,
 }
+
+# Merge any phase_config overrides (e.g. diagnose_system_prompt)
+if args.phase_config:
+    import json as _json
+    provider_cfg.update(_json.loads(Path(args.phase_config).read_text()))
 
 print(f"\n{'='*60}")
 print(f"  Harness: {' → '.join(phases)}")

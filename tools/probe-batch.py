@@ -139,6 +139,13 @@ def run_probe(cfg: dict) -> dict:
     ]
     if provider:
         cmd += ["--provider", provider]
+    phase_config = cfg.get("phase_config")
+    if phase_config:
+        import tempfile as _tf, json as _json
+        _pc_file = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        _json.dump(phase_config, _pc_file)
+        _pc_file.flush()
+        cmd += ["--phase-config", _pc_file.name]
 
     if args.dry_run:
         print(f"  [dry-run] {' '.join(cmd)}")

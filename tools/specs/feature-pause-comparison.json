@@ -1,0 +1,59 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/tetris-neon",
+    "type": "feature",
+    "provider": "minimax"
+  },
+  "runs": [
+    {
+      "name": "A1-work-only",
+      "pipeline": "work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "A2-work-only",
+      "pipeline": "work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "B1-scout-work",
+      "pipeline": "scout->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "B2-scout-work",
+      "pipeline": "scout->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "C1-plan-work",
+      "pipeline": "plan->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "C2-plan-work",
+      "pipeline": "plan->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "D1-plan-scout-work",
+      "pipeline": "plan->scout->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "D2-plan-scout-work",
+      "pipeline": "plan->scout->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "E1-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    },
+    {
+      "name": "E2-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Add a pause menu: pressing Escape during gameplay pauses the game (get_tree().paused = true) and shows an overlay with Resume and Quit to Menu buttons. Resume unpauses; Quit navigates to the main menu. The overlay should match the neon aesthetic (dark background, cyan text). Pressing Escape again should also resume."
+    }
+  ]
+}

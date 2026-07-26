@@ -1,0 +1,48 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/tetris-neon",
+    "type": "feature",
+    "provider": "minimax",
+    "pipeline": "plan->scout->diagnose->work"
+  },
+  "runs": [
+    {
+      "name": "A1-current-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {}
+    },
+    {
+      "name": "A2-current-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {}
+    },
+    {
+      "name": "B1-gap-analysis-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {
+        "diagnose_system_prompt": "You are a gap analyser. Your job is to compare the DESIRED FEATURE against what ACTUALLY EXISTS in the codebase, and produce a precise gap report for a fix agent.\n\nThe scout findings and task description are already provided. Use at most 3-4 targeted tool calls to confirm specific details — do not re-explore what the scout already found.\n\nYou may NOT write files, commit, run commands, or create tasks.\n\nTo call a tool:\n[TOOL_CALL]{\"tool\": \"read_file\", \"args\": {\"path\": \"relative/path/to/file\"}}[/TOOL_CALL]\n\nAvailable tools: read_file, read_file_range, list_files, search_code\n\nOutput your gap analysis starting with DIAGNOSE_COMPLETE on its own line:\n\nDIAGNOSE_COMPLETE\n{\n  \"root_cause\": \"description of what is missing or incorrect\",\n  \"files_inspected\": [\"list of file paths you read\"],\n  \"exact_failure\": \"specific missing piece: file, function, signal, or behaviour\",\n  \"recommended_fix\": \"precise description of what the fix agent needs to ADD or CHANGE\",\n  \"confidence\": 0.9\n}\n\nKey rules:\n- If the feature already exists and is complete, say so explicitly in root_cause and set recommended_fix to 'No changes needed'.\n- If the feature is partially implemented, list exactly what is missing.\n- If the feature does not exist at all, say so and describe what needs to be created.\n- Do NOT assume the feature is done unless you have verified it in the code."
+      }
+    },
+    {
+      "name": "B2-gap-analysis-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {
+        "diagnose_system_prompt": "You are a gap analyser. Your job is to compare the DESIRED FEATURE against what ACTUALLY EXISTS in the codebase, and produce a precise gap report for a fix agent.\n\nThe scout findings and task description are already provided. Use at most 3-4 targeted tool calls to confirm specific details — do not re-explore what the scout already found.\n\nYou may NOT write files, commit, run commands, or create tasks.\n\nTo call a tool:\n[TOOL_CALL]{\"tool\": \"read_file\", \"args\": {\"path\": \"relative/path/to/file\"}}[/TOOL_CALL]\n\nAvailable tools: read_file, read_file_range, list_files, search_code\n\nOutput your gap analysis starting with DIAGNOSE_COMPLETE on its own line:\n\nDIAGNOSE_COMPLETE\n{\n  \"root_cause\": \"description of what is missing or incorrect\",\n  \"files_inspected\": [\"list of file paths you read\"],\n  \"exact_failure\": \"specific missing piece: file, function, signal, or behaviour\",\n  \"recommended_fix\": \"precise description of what the fix agent needs to ADD or CHANGE\",\n  \"confidence\": 0.9\n}\n\nKey rules:\n- If the feature already exists and is complete, say so explicitly in root_cause and set recommended_fix to 'No changes needed'.\n- If the feature is partially implemented, list exactly what is missing.\n- If the feature does not exist at all, say so and describe what needs to be created.\n- Do NOT assume the feature is done unless you have verified it in the code."
+      }
+    },
+    {
+      "name": "C1-minimal-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {
+        "diagnose_system_prompt": "You are a code verifier. Answer one question: does the requested feature exist and work correctly in the codebase?\n\nCheck the scout findings and the task description. Use tool calls only to confirm specific details.\n\nYou may NOT write files, commit, run commands, or create tasks.\n\nTo call a tool:\n[TOOL_CALL]{\"tool\": \"read_file\", \"args\": {\"path\": \"relative/path/to/file\"}}[/TOOL_CALL]\n\nAvailable tools: read_file, read_file_range, list_files, search_code\n\nOutput DIAGNOSE_COMPLETE followed by JSON:\n\nDIAGNOSE_COMPLETE\n{\n  \"root_cause\": \"one sentence: feature missing / partial / complete\",\n  \"files_inspected\": [],\n  \"exact_failure\": \"what is missing or wrong, or 'none' if complete\",\n  \"recommended_fix\": \"what to build, or 'No changes needed' if already done\",\n  \"confidence\": 0.9\n}\n\nBe honest. Do not claim the feature is done unless you see it in the code."
+      }
+    },
+    {
+      "name": "C2-minimal-prompt",
+      "task": "Add a leaderboard: after game over, show the top 5 high scores with rank, score, and date. Store scores persistently using a JSON file at user://leaderboard.json. Match the neon aesthetic.",
+      "phase_config": {
+        "diagnose_system_prompt": "You are a code verifier. Answer one question: does the requested feature exist and work correctly in the codebase?\n\nCheck the scout findings and the task description. Use tool calls only to confirm specific details.\n\nYou may NOT write files, commit, run commands, or create tasks.\n\nTo call a tool:\n[TOOL_CALL]{\"tool\": \"read_file\", \"args\": {\"path\": \"relative/path/to/file\"}}[/TOOL_CALL]\n\nAvailable tools: read_file, read_file_range, list_files, search_code\n\nOutput DIAGNOSE_COMPLETE followed by JSON:\n\nDIAGNOSE_COMPLETE\n{\n  \"root_cause\": \"one sentence: feature missing / partial / complete\",\n  \"files_inspected\": [],\n  \"exact_failure\": \"what is missing or wrong, or 'none' if complete\",\n  \"recommended_fix\": \"what to build, or 'No changes needed' if already done\",\n  \"confidence\": 0.9\n}\n\nBe honest. Do not claim the feature is done unless you see it in the code."
+      }
+    }
+  ]
+}
