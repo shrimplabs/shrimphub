@@ -489,20 +489,31 @@ class WorkPhase(Phase):
                     f"(attempt #{_premature_complete_count}) — requiring git_commit"
                 )
                 if _premature_complete_count >= 3:
-                    # Model is ignoring nudges — commit programmatically on its behalf
-                    self.log("Auto-committing after repeated premature completions")
-                    from swarm.tools.shell import git_commit as _git_commit_fn
-                    auto_result = _git_commit_fn("feat: implement task changes")
-                    if auto_result.get("ok"):
-                        commit_sha = auto_result.get("sha") or "auto"
-                        self.log(f"Auto-commit succeeded: {commit_sha}")
+                    # Model is ignoring nudges — check git status and auto-commit if needed
+                    from swarm.tools.shell import run as _run2
+                    _rc2, _status, _ = _run2("git status --porcelain")
+                    if _rc2 == 0 and not _status.strip():
+                        # Working tree already clean — treat as committed
+                        self.log("Auto-accept: working tree already clean after repeated premature completions")
+                        commit_sha = "run_command"
                         messages.append({"role": "assistant", "content": text})
                         completed = True
                         break
+                    elif _rc2 == 0 and _status.strip():
+                        # There are uncommitted changes — commit them
+                        self.log("Auto-committing after repeated premature completions")
+                        from swarm.tools.shell import git_commit as _git_commit_fn
+                        auto_result = _git_commit_fn("feat: implement task changes")
+                        if auto_result.get("ok"):
+                            commit_sha = auto_result.get("sha") or "auto"
+                            self.log(f"Auto-commit succeeded: {commit_sha}")
+                            messages.append({"role": "assistant", "content": text})
+                            completed = True
+                            break
+                        else:
+                            self.log(f"Auto-commit failed: {auto_result.get('error')} — continuing")
                     else:
-                        self.log(f"Auto-commit failed: {auto_result.get('error')} — aborting")
-                        state.errors.append(f"work: auto-commit failed: {auto_result.get('error')}")
-                        break
+                        self.log(f"git status failed (rc={_rc2}) — continuing")
                 # Strip the premature marker so it doesn't anchor the model's next response
                 scrubbed = text.replace("WORK_COMPLETE", "[BLOCKED: must commit first]")
                 messages.append({"role": "assistant", "content": scrubbed})
