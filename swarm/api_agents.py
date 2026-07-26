@@ -263,5 +263,9 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "circuit_breaker": {
                 "open": orchestrator._circuit_breaker["open"],
                 "reason": orchestrator._circuit_breaker["reason"],
+                "healer": {
+                    svc: {"attempts": s["attempts"]}
+                    for svc, s in orchestrator._healer_state.items()
+                },
             },
         })

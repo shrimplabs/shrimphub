@@ -337,6 +337,105 @@ _circuit_breaker: dict = {
 _INFRA_FAILURE_RATE_THRESHOLD = 0.5   # >50% of recent tasks are infra failures → trip
 _INFRA_FAILURE_WINDOW = 10            # number of recent tasks to sample
 
+# Auto-healer state — tracks repair attempts per service to prevent restart loops
+_healer_state: dict = {
+    "shrimp_router": {"attempts": 0, "last_attempt": 0.0},
+    "headroom_8888": {"attempts": 0, "last_attempt": 0.0},
+}
+_HEALER_MAX_ATTEMPTS = 3
+_HEALER_BACKOFF = [30, 60, 120]  # seconds between attempts
+
+# Service definitions: port → how to check and restart
+_SERVICES = {
+    "shrimp_router": {
+        "port": 8090,
+        "check_url": "http://localhost:8090/health",
+        "restart_cmd": "bash /Users/costas/workspace/shrimp-router/scripts/start-router.sh",
+        "log_file": "/tmp/shrimp-router-autohealer.log",
+    },
+    "headroom_8888": {
+        "port": 8888,
+        "check_url": None,  # TCP check only
+        "restart_cmd": (
+            "/Users/costas/workspace/headroom-venv/bin/headroom proxy "
+            "--port 8888 --mode cache --backend anthropic "
+            "--anthropic-api-url https://api.minimax.io/anthropic "
+            "--intercept-tool-results --no-telemetry "
+            "--log-file /Users/costas/Documents/Projects/paraxenia/swarm-controller/data/headroom.log"
+        ),
+        "log_file": "/Users/costas/Documents/Projects/paraxenia/swarm-controller/data/headroom-server.log",
+    },
+}
+
+
+def _check_service_port(port: int) -> bool:
+    """TCP-level check: is something listening on localhost:port?"""
+    try:
+        with socket.create_connection(("localhost", port), timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+def _try_auto_heal(reason: str) -> None:
+    """Fire-and-forget: detect which services are down and restart them.
+
+    Called in a background thread when the circuit breaker opens.
+    Respects per-service attempt limits and backoff to avoid restart loops.
+    """
+    import subprocess
+    import threading
+    now = time.time()
+
+    def _heal():
+        for svc_name, svc in _SERVICES.items():
+            state = _healer_state[svc_name]
+
+            # Back off between attempts
+            backoff = _HEALER_BACKOFF[min(state["attempts"], len(_HEALER_BACKOFF) - 1)]
+            if state["attempts"] >= _HEALER_MAX_ATTEMPTS:
+                print(f"[AutoHealer] {svc_name}: max attempts ({_HEALER_MAX_ATTEMPTS}) reached — giving up")
+                continue
+            if now - state["last_attempt"] < backoff:
+                remaining = int(backoff - (now - state["last_attempt"]))
+                print(f"[AutoHealer] {svc_name}: backoff — {remaining}s remaining before next attempt")
+                continue
+
+            # Check if actually down
+            if _check_service_port(svc["port"]):
+                print(f"[AutoHealer] {svc_name}: port {svc['port']} is up — skipping restart")
+                state["attempts"] = 0  # reset counter since it recovered
+                continue
+
+            # It's down — attempt restart
+            state["attempts"] += 1
+            state["last_attempt"] = now
+            print(f"[AutoHealer] {svc_name}: port {svc['port']} is DOWN — restart attempt {state['attempts']}/{_HEALER_MAX_ATTEMPTS}")
+
+            try:
+                log_path = svc.get("log_file", "/tmp/autohealer.log")
+                with open(log_path, "a") as lf:
+                    proc = subprocess.Popen(
+                        svc["restart_cmd"],
+                        shell=True,
+                        stdout=lf,
+                        stderr=lf,
+                        start_new_session=True,
+                    )
+                print(f"[AutoHealer] {svc_name}: started pid {proc.pid}")
+
+                # Wait briefly then verify
+                time.sleep(5)
+                if _check_service_port(svc["port"]):
+                    print(f"[AutoHealer] {svc_name}: recovered (port {svc['port']} now responding)")
+                    state["attempts"] = 0
+                else:
+                    print(f"[AutoHealer] {svc_name}: still down after restart attempt {state['attempts']}")
+            except Exception as e:
+                print(f"[AutoHealer] {svc_name}: restart failed: {e}")
+
+    threading.Thread(target=_heal, daemon=True, name="auto-healer").start()
+
 
 def _check_circuit_breaker() -> tuple[bool, str]:
     """Return (should_pause, reason). Checks router health + recent infra failure rate.
@@ -367,6 +466,7 @@ def _check_circuit_breaker() -> tuple[bool, str]:
                 cb["opened_at"] = now
                 cb["reason"] = reason
                 print(f"[CircuitBreaker] OPEN — {reason}")
+                _try_auto_heal(reason)
             return True, reason
     except Exception:
         pass  # router check not available — skip
@@ -388,6 +488,7 @@ def _check_circuit_breaker() -> tuple[bool, str]:
                     cb["opened_at"] = now
                     cb["reason"] = reason
                     print(f"[CircuitBreaker] OPEN — {reason}")
+                    _try_auto_heal(reason)
                 return True, reason
     except Exception:
         pass
@@ -396,6 +497,9 @@ def _check_circuit_breaker() -> tuple[bool, str]:
     if cb["open"]:
         cb["open"] = False
         cb["reason"] = ""
+        # Reset healer attempt counters so next incident gets a fresh set of retries
+        for svc in _healer_state.values():
+            svc["attempts"] = 0
         print("[CircuitBreaker] CLOSED — infra looks healthy")
     return False, ""
 
