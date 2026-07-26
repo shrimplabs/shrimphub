@@ -229,7 +229,11 @@ class PlanPhase(Phase):
         _plan_stalls = 0
 
         phase_limits = self.config.get("phase_loop_limits") or {}
-        max_plan_loops = int(phase_limits.get("plan") or self.config.get("plan_max_loops") or _MAX_PLAN_LOOPS)
+        # Bug/refactor/research tasks need more plan loops — they search before knowing what to plan.
+        # Feature/polish/audit tasks can plan from the injected context with fewer loops.
+        _PLAN_LOOPS_BY_TYPE = {"bug": 15, "refactor": 15, "research": 15, "audit": 15}
+        type_default = _PLAN_LOOPS_BY_TYPE.get(state.task_type or "", _MAX_PLAN_LOOPS)
+        max_plan_loops = int(phase_limits.get("plan") or self.config.get("plan_max_loops") or type_default)
         max_plan_loops = max(1, max_plan_loops)
 
         for loop in range(1, max_plan_loops + 1):
