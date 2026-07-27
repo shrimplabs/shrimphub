@@ -173,14 +173,14 @@ saw varying states of implementation. This is the biggest confound in both datas
 
 | Run | Prompt variant | Loops | Mutations | Commit | Notes |
 |-----|---------------|-------|-----------|--------|-------|
-| A1 | current ("agent repeatedly failed") | 104+ | ? | ? | frozen (rate-limit) |
-| A2 | current ("agent repeatedly failed") | 106+ | ? | ? | frozen (rate-limit) |
-| B1 | gap-analysis (compare desired vs actual) | 149 | 14 | YES | committed |
-| B2 | gap-analysis (compare desired vs actual) | 67 | 1 | YES | committed |
-| C1 | minimal verifier ("does the feature exist?") | 62 | 2 | YES | committed |
-| C2 | minimal verifier ("does the feature exist?") | 81 | 5 | YES | committed |
+| A1 | current ("agent repeatedly failed") | 1800s | 104 loops | ? | **TIMEOUT** (30m cap) |
+| A2 | current ("agent repeatedly failed") | 1800s | 106 loops | ? | **TIMEOUT** (30m cap) |
+| B1 | gap-analysis (compare desired vs actual) | 1489s | 149 | 14 | OK — committed |
+| B2 | gap-analysis (compare desired vs actual) | 506s | 67 | 1 | OK — committed |
+| C1 | minimal verifier ("does the feature exist?") | 770s | 62 | 2 | OK — committed |
+| C2 | minimal verifier ("does the feature exist?") | 598s | 81 | 5 | OK — committed |
 
-A1/A2 are rate-limit frozen mid-run; B and C results are complete (4/4).
+A1/A2 hit the 30-minute probe-batch subprocess timeout and were killed. B and C: 4/4 committed.
 
 ### Key Finding: Prompt framing matters significantly
 
@@ -222,6 +222,47 @@ needs a distinct prompt — it's verifying pre-work state, not diagnosing past f
 Implementation: add a second system prompt constant `_DIAGNOSE_PIPELINE_SYSTEM` and
 select based on whether the task has `failure_context` in its plan (research feeder)
 vs not (fresh pipeline run).
+
+---
+
+## Recommendation Matrix
+
+Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
+
+### Pipeline shape × task type
+
+| Task type | Recommended shape | Avoid | Notes |
+|-----------|-------------------|-------|-------|
+| Feature (UI missing, backend exists) | plan→scout→**diagnose**→work | plan→scout→work | D-shape hallucinated 2/2; diagnose (gap-analysis prompt) committed 4/4 |
+| Feature (from scratch) | plan→scout→**diagnose**→work | plan→scout→work | D-shape hallucinated 2/2 in pause batch; diagnose reduces NoOps |
+| Bug fix | plan→scout→**diagnose**→work | scout→work | Diagnose was designed for this; failure-investigator prompt appropriate when failure_context exists |
+| Refactor | plan→scout→work (tentative) | — | No data yet; diagnose may add latency without benefit for well-scoped refactors |
+
+### Diagnose prompt × context
+
+| Situation | Prompt to use | Why |
+|-----------|--------------|-----|
+| Fresh pipeline run (no prior failures) | `_DIAGNOSE_PIPELINE_SYSTEM` (gap-analysis) | Gives work agent accurate gap report; committed 4/4, finished in 8–25 min |
+| Research feeder (task exhausted attempts) | `_DIAGNOSE_SYSTEM` (failure investigator) | Task has actual failure history to diagnose |
+| `phase_config.diagnose_system_prompt` set | Use that | Explicit override always wins |
+
+### Shape verdict summary
+
+| Shape | Commits | NoOps | Timeout | Verdict |
+|-------|---------|-------|---------|---------|
+| plan→scout→diagnose(gap)→work | 4/4 | 0/4 | 0/4 | ✓ Recommended |
+| plan→scout→diagnose(minimal)→work | 4/4 | 0/4 | 0/4 | ✓ Acceptable |
+| plan→scout→diagnose(failure-framing)→work | 0/2 | ?/2 | 2/2 | ✗ Wrong prompt |
+| plan→scout→work (D-shape) | 0/4 | 2/4 | — | ✗ Hallucination risk |
+| scout→work | partial | partial | — | ~ Context-dependent |
+| plan→work | not tested | — | — | — |
+
+### What was shipped
+
+`swarm/phases/diagnose.py` now auto-selects the prompt:
+- No `failure_context` in plan → `_DIAGNOSE_PIPELINE_SYSTEM` (gap-analysis)
+- `failure_context` present → `_DIAGNOSE_SYSTEM` (failure investigator)
+- `phase_config.diagnose_system_prompt` → explicit override
 
 ---
 

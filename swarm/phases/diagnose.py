@@ -33,6 +33,7 @@ _ALLOWED_DIAGNOSE_TOOLS = {"read_file", "read_file_range", "list_files", "search
 
 from swarm.constants import DIAGNOSE_MAX_LOOPS as _MAX_DIAGNOSE_LOOPS
 
+# Used by research feeder tasks: a prior agent has already failed multiple times.
 _DIAGNOSE_SYSTEM = """\
 You are a root-cause investigator. A software agent has repeatedly failed to
 complete a task. Your job is to diagnose WHY — and produce a short, actionable
@@ -63,6 +64,42 @@ DIAGNOSE_COMPLETE
   "recommended_fix": "precise, actionable description of what the fix agent should change",
   "confidence": 0.8
 }
+"""
+
+# Used by fresh pipeline runs (no prior failures): compare desired vs actual.
+_DIAGNOSE_PIPELINE_SYSTEM = """\
+You are a gap analyser. Your job is to compare the DESIRED FEATURE against what
+ACTUALLY EXISTS in the codebase, and produce a precise gap report for the work
+agent that will implement it.
+
+The scout findings and task description are already provided. Use at most 3-4
+targeted tool calls to confirm specific details — do not re-explore what the
+scout already found.
+
+You may NOT write files, commit, run commands, or create tasks.
+
+To call a tool:
+[TOOL_CALL]{"tool": "read_file", "args": {"path": "relative/path/to/file"}}[/TOOL_CALL]
+
+Available tools: read_file, read_file_range, list_files, search_code
+
+Output your gap analysis starting with DIAGNOSE_COMPLETE on its own line:
+
+DIAGNOSE_COMPLETE
+{
+  "root_cause": "description of what is missing or incorrect",
+  "files_inspected": ["list of file paths you read"],
+  "exact_failure": "specific missing piece: file, function, signal, or behaviour",
+  "recommended_fix": "precise description of what the work agent needs to ADD or CHANGE",
+  "confidence": 0.9
+}
+
+Key rules:
+- If the feature already exists and is complete, say so explicitly in root_cause
+  and set recommended_fix to "No changes needed".
+- If the feature is partially implemented, list exactly what is missing.
+- If the feature does not exist at all, say so and describe what needs to be created.
+- Do NOT assume the feature is done unless you have verified it in the code.
 """
 
 
@@ -211,7 +248,11 @@ class DiagnosePhase(Phase):
                     ),
                 })
 
-            system = self.config.get("diagnose_system_prompt") or _DIAGNOSE_SYSTEM
+            # Use gap-analysis prompt for fresh pipeline runs; failure-investigator
+            # prompt only when the task has actual failure history (research feeder).
+            has_failure_context = bool(state.plan.get("failure_context"))
+            _default_system = _DIAGNOSE_SYSTEM if has_failure_context else _DIAGNOSE_PIPELINE_SYSTEM
+            system = self.config.get("diagnose_system_prompt") or _default_system
             text, _tokens, _thinking = call_llm(system, messages, provider=provider)
             messages.append({"role": "assistant", "content": text})
 
