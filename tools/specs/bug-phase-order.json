@@ -1,0 +1,39 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/classic-snake",
+    "type": "bug",
+    "provider": "minimax"
+  },
+  "runs": [
+    {
+      "name": "A1-scout-diag-work",
+      "pipeline": "scout->diagnose->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    },
+    {
+      "name": "A2-scout-diag-work",
+      "pipeline": "scout->diagnose->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    },
+    {
+      "name": "B1-plan-scout-diag-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    },
+    {
+      "name": "B2-plan-scout-diag-work",
+      "pipeline": "plan->scout->diagnose->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    },
+    {
+      "name": "C1-scout-work",
+      "pipeline": "scout->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    },
+    {
+      "name": "C2-scout-work",
+      "pipeline": "scout->work",
+      "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+    }
+  ]
+}
