@@ -3,73 +3,72 @@
     "dir": "/Users/costas/workspace/classic-snake",
     "type": "bug",
     "provider": "minimax",
-    "pipeline": "plan->scout->diagnose->work",
     "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
   },
   "runs": [
     {
-      "name": "A1-work-only",
-      "pipeline": "work"
-    },
-    {
-      "name": "A2-work-only",
-      "pipeline": "work"
-    },
-    {
-      "name": "B1-plan-work",
+      "name": "A1-plan",
       "pipeline": "plan->work"
     },
     {
-      "name": "B2-plan-work",
-      "pipeline": "plan->work"
+      "name": "B1-plan_plan_plan",
+      "pipeline": "plan->plan->plan->work"
     },
     {
-      "name": "C1-diagnose-work",
+      "name": "C1-diagnose",
       "pipeline": "diagnose->work"
     },
     {
-      "name": "C2-diagnose-work",
-      "pipeline": "diagnose->work"
+      "name": "D1-plan_plan_plan_plan",
+      "pipeline": "plan->plan->plan->plan->work"
     },
     {
-      "name": "D1-plan-diagnose-work",
-      "pipeline": "plan->diagnose->work"
+      "name": "E1-diagnose_diagnose",
+      "pipeline": "diagnose->diagnose->work"
     },
     {
-      "name": "D2-plan-diagnose-work",
-      "pipeline": "plan->diagnose->work"
+      "name": "F1-plan_scout_diagnose_scout",
+      "pipeline": "plan->scout->diagnose->scout->work"
     },
     {
-      "name": "E1-plan-scout-work",
-      "pipeline": "plan->scout->work"
+      "name": "G1-scout_scout_plan_plan",
+      "pipeline": "scout->scout->plan->plan->work"
     },
     {
-      "name": "E2-plan-scout-work",
-      "pipeline": "plan->scout->work"
+      "name": "H1-plan_plan_scout",
+      "pipeline": "plan->plan->scout->work"
     },
     {
-      "name": "F1-scout-plan-work",
+      "name": "I1-scout",
+      "pipeline": "scout->work"
+    },
+    {
+      "name": "J1-diagnose_scout_plan",
+      "pipeline": "diagnose->scout->plan->work"
+    },
+    {
+      "name": "K1-diagnose_plan_scout_plan",
+      "pipeline": "diagnose->plan->scout->plan->work"
+    },
+    {
+      "name": "L1-diagnose_diagnose_scout",
+      "pipeline": "diagnose->diagnose->scout->work"
+    },
+    {
+      "name": "M1-diagnose_plan",
+      "pipeline": "diagnose->plan->work"
+    },
+    {
+      "name": "N1-scout_plan",
       "pipeline": "scout->plan->work"
     },
     {
-      "name": "F2-diagnose-scout-work",
-      "pipeline": "diagnose->scout->work"
+      "name": "O1-plan_scout",
+      "pipeline": "plan->scout->work"
     },
     {
-      "name": "G1-plan-scout-plan-work",
-      "pipeline": "plan->scout->plan->work"
-    },
-    {
-      "name": "G2-scout-diagnose-scout-work",
+      "name": "P1-scout_diagnose_scout",
       "pipeline": "scout->diagnose->scout->work"
-    },
-    {
-      "name": "H1-diagnose-plan-scout-work",
-      "pipeline": "diagnose->plan->scout->work"
-    },
-    {
-      "name": "H2-plan-scout-diagnose-scout-work",
-      "pipeline": "plan->scout->diagnose->scout->work"
     }
   ]
 }
