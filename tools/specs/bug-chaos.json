@@ -1,0 +1,51 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/classic-snake",
+    "type": "bug",
+    "provider": "minimax",
+    "pipeline": "plan->scout->diagnose->work",
+    "task": "Bug: snake dies instantly every time a new game starts. The snake appears briefly then game over triggers on the very first move. Investigate and fix."
+  },
+  "runs": [
+    {
+      "name": "A1-work-only",
+      "pipeline": "work"
+    },
+    {
+      "name": "A2-work-only",
+      "pipeline": "work"
+    },
+    {
+      "name": "B1-plan-work",
+      "pipeline": "plan->work"
+    },
+    {
+      "name": "B2-plan-work",
+      "pipeline": "plan->work"
+    },
+    {
+      "name": "C1-diagnose-work",
+      "pipeline": "diagnose->work"
+    },
+    {
+      "name": "C2-diagnose-work",
+      "pipeline": "diagnose->work"
+    },
+    {
+      "name": "D1-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work"
+    },
+    {
+      "name": "D2-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work"
+    },
+    {
+      "name": "E1-plan-scout-work",
+      "pipeline": "plan->scout->work"
+    },
+    {
+      "name": "E2-plan-scout-work",
+      "pipeline": "plan->scout->work"
+    }
+  ]
+}
