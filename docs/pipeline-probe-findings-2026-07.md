@@ -256,9 +256,62 @@ All 6 committed — no hallucination or NoOp failures on bug tasks (unlike featu
 
 ---
 
+## Batch 5: Bug Chaos (16 random phase orderings)
+
+**Spec:** `tools/specs/bug-chaos.json` (RNG seed=42)  
+**Date:** 2026-07-27/28  
+**Task:** Same planted bug (next_direction mismatch in classic-snake)  
+**Runs:** 16, sequential with repo reset, 1 rep each  
+**Goal:** stress-test whether plan→scout→diagnose→work is genuinely best or just familiar
+
+### Results (sorted by elapsed)
+
+| Shape | Loops | Mutations | Commit | Elapsed |
+|-------|-------|-----------|--------|---------|
+| diagnose→work | 14 | 2 | YES | **109s** |
+| diagnose→diagnose→work | 22 | 2 | YES | 202s |
+| scout→work | 32 | 2 | YES | 249s |
+| plan×4→work | 16 | 2 | YES | 279s |
+| diagnose→plan→scout→plan→work | 23 | 2 | YES | 364s |
+| scout×2→plan×2→work | 46 | 2 | YES | 427s |
+| diagnose→scout→plan→work | 37 | 2 | YES | 493s |
+| plan→scout→diagnose→scout→work | 36 | 5 | YES | 737s |
+| diagnose×2→scout→work | 68 | 7 | YES | 797s |
+| plan×2→scout→work | 33 | 4 | YES | 865s |
+| plan×3→work | 38 | 3 | YES | 932s |
+| scout→plan→work | 40 | 2 | YES | 894s |
+| plan→scout→work | 24 | 2 | YES | 969s |
+| plan→work | 94 | 4 | YES | 1045s |
+| scout→diagnose→scout→work | 64 | 3 | YES | 1131s |
+| **diagnose→plan→work** | **164** | **19** | **NO** | **1982s** |
+
+### Key findings
+
+**diagnose→work is the fastest shape** — 109s, 14 loops, 2 mutations. For a well-described bug, one diagnose pass gives work everything it needs. No scout, no plan, straight to the fix.
+
+**Plan is expensive for bugs** — plan→work took 1045s (94 loops). Adding more plan phases doesn't consistently help. plan×4→work was actually faster (279s) than plan→work (1045s), suggesting repeated planning converges context in a way a single plan doesn't.
+
+**The only failure: diagnose→plan→work** — diagnose correctly identified the bug, then plan overwrote that context with its own framing, and work got confused and burned 164 loops without committing. Putting plan *after* diagnose is actively harmful.
+
+**15/16 committed** — chaos shapes that had never been tried before (diagnose→diagnose→work, scout×2→plan×2→work, diagnose→scout→plan→work) all committed cleanly.
+
+**Mutation count as quality signal holds** — the fast shapes (diagnose→work, scout→work) produced 2 mutations each — exactly right for a one-line fix. Slow or failed shapes produced 4-19 mutations, indicating flailing.
+
+### Revised understanding
+
+The earlier conclusion ("plan is the stabilizer") was based on comparing scout→diagnose→work (high variance) vs plan→scout→diagnose→work (consistent). The chaos data refines this:
+
+- **Plan stabilizes work when the task is ambiguous** — it scopes exploration
+- **For well-described bugs, plan adds latency without benefit** — diagnose alone is sufficient to orient work
+- **The real stabilizer is "give work a clear target"** — diagnose does this cheaply; plan does it expensively
+
+Tentative bug-specific recommendation: **diagnose→work for well-described bugs, plan→scout→diagnose→work for ambiguous ones**.
+
+---
+
 ## Recommendation Matrix
 
-Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
+Based on batches 1–5. All runs used MiniMax-M3.
 
 ### Pipeline shape × task type
 
@@ -266,7 +319,8 @@ Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
 |-----------|-------------------|-------|-------|
 | Feature (UI missing, backend exists) | plan→scout→**diagnose**→work | plan→scout→work | D-shape hallucinated 2/2; diagnose (gap-analysis prompt) committed 4/4 |
 | Feature (from scratch) | plan→scout→**diagnose**→work | plan→scout→work | D-shape hallucinated 2/2 in pause batch; diagnose reduces NoOps |
-| Bug fix | plan→scout→**diagnose**→work | scout→work | Diagnose was designed for this; failure-investigator prompt appropriate when failure_context exists |
+| Bug (well-described) | **diagnose**→work | diagnose→plan→work | 109s vs 1045s+; plan after diagnose overwrites correct context and causes failure |
+| Bug (ambiguous/unclear) | plan→scout→**diagnose**→work | — | Plan needed to scope exploration before diagnose can be targeted |
 | Refactor | plan→scout→work (tentative) | — | No data yet; diagnose may add latency without benefit for well-scoped refactors |
 
 ### Diagnose prompt × context
@@ -279,16 +333,18 @@ Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
 
 ### Shape verdict summary
 
-| Shape | Task type | Commits | NoOps | Timeout | Elapsed | Verdict |
-|-------|-----------|---------|-------|---------|---------|---------|
-| plan→scout→diagnose(gap)→work | feature | 4/4 | 0/4 | 0/4 | 506-1489s | ✓ Recommended |
-| plan→scout→diagnose(minimal)→work | feature | 4/4 | 0/4 | 0/4 | 598-770s | ✓ Acceptable |
-| plan→scout→diagnose(failure-framing)→work | feature | 0/2 | ?/2 | 2/2 | 1800s (killed) | ✗ Wrong prompt |
-| plan→scout→work (D-shape) | feature | 0/4 | 2/4 | — | — | ✗ Hallucination risk |
-| plan→scout→diagnose→work | bug | 4/4 | 0/4 | 0/4 | 170-181s | ✓ Recommended |
-| scout→work | bug | 4/4 | 0/4 | 0/4 | 196s | ✓ Acceptable |
-| scout→diagnose→work | bug | 4/4 | 0/4 | 0/4 | 358-2027s | ~ High variance |
-| plan→work | any | not tested | — | — | — | — |
+| Shape | Task type | Commits | Elapsed | Verdict |
+|-------|-----------|---------|---------|---------|
+| plan→scout→diagnose(gap)→work | feature | 4/4 | 506-1489s | ✓ Recommended |
+| plan→scout→diagnose(minimal)→work | feature | 4/4 | 598-770s | ✓ Acceptable |
+| plan→scout→diagnose(failure-framing)→work | feature | 0/2 | 1800s (killed) | ✗ Wrong prompt |
+| plan→scout→work (D-shape) | feature | 0/4 | — | ✗ Hallucination risk |
+| diagnose→work | bug (well-described) | 1/1 | 109s | ✓ Fastest known |
+| plan→scout→diagnose→work | bug | 4/4 | 170-181s | ✓ Recommended (ambiguous bugs) |
+| scout→work | bug | 5/5 | 196-249s | ✓ Solid baseline |
+| scout→diagnose→work | bug | 2/2 | 358-2027s | ~ High variance |
+| diagnose→plan→work | bug | 0/1 | 1982s | ✗ Plan overwrites diagnose |
+| plan→work | bug | 1/1 | 1045s | ~ Slow, high variance |
 
 ### Cross-task-type pattern
 
