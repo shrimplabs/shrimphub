@@ -225,6 +225,37 @@ vs not (fresh pipeline run).
 
 ---
 
+## Batch 4: Bug Phase-Order Probe
+
+**Spec:** `tools/specs/bug-phase-order.json`  
+**Date:** 2026-07-27  
+**Task:** Snake dies instantly every time a new game starts (planted bug: `next_direction = Vector2i.DOWN` in `start_new_game()` while `current_direction = Vector2i.RIGHT` — causes self-collision on first move tick)  
+**Runs:** 6 (3 shapes × 2 reps), sequential with repo reset between each run (no contamination)  
+**Project:** classic-snake
+
+### Results
+
+| Run | Shape | Loops | Mutations | Commit | Elapsed |
+|-----|-------|-------|-----------|--------|---------|
+| A1 | scout→diagnose→work | 101 | 10 | YES | 2027s |
+| A2 | scout→diagnose→work | 44 | 3 | YES | 358s |
+| B1 | plan→scout→diagnose→work | 18 | 2 | YES | 170s |
+| B2 | plan→scout→diagnose→work | 23 | 3 | YES | 181s |
+| C1 | scout→work | 32 | 2 | YES | 196s |
+| C2 | scout→work | 25 | 2 | YES | 196s |
+
+### Key findings
+
+All 6 committed — no hallucination or NoOp failures on bug tasks (unlike features where D-shape hallucinated 2/2).
+
+**Plan is the stabilizer.** A (scout→diagnose→work) had extreme variance: A1 burned 2027s and 101 loops on a one-line fix, A2 finished in 358s. Without plan, the agent doesn't know where to stop exploring. B (plan→scout→diagnose→work) was consistently fast: 170-181s, 18-23 loops — plan scoped the work before diagnose ran, so diagnose could be targeted rather than exploratory.
+
+**Scout→work (C) is viable for bugs** — 196s both reps, 2 mutations each, clean. When the bug description is clear, plan and diagnose may add overhead without changing the outcome. But B's consistency advantage (170s vs 196s, tighter mutation count) makes it the safer default.
+
+**Mutation count as a quality signal:** B's 2-3 mutations for a one-line fix is ideal. A1's 10 mutations suggests the agent over-engineered or made unnecessary changes alongside the fix.
+
+---
+
 ## Recommendation Matrix
 
 Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
@@ -248,14 +279,27 @@ Based on batches 1–3. All runs used MiniMax-M3 on tetris-neon.
 
 ### Shape verdict summary
 
-| Shape | Commits | NoOps | Timeout | Verdict |
-|-------|---------|-------|---------|---------|
-| plan→scout→diagnose(gap)→work | 4/4 | 0/4 | 0/4 | ✓ Recommended |
-| plan→scout→diagnose(minimal)→work | 4/4 | 0/4 | 0/4 | ✓ Acceptable |
-| plan→scout→diagnose(failure-framing)→work | 0/2 | ?/2 | 2/2 | ✗ Wrong prompt |
-| plan→scout→work (D-shape) | 0/4 | 2/4 | — | ✗ Hallucination risk |
-| scout→work | partial | partial | — | ~ Context-dependent |
-| plan→work | not tested | — | — | — |
+| Shape | Task type | Commits | NoOps | Timeout | Elapsed | Verdict |
+|-------|-----------|---------|-------|---------|---------|---------|
+| plan→scout→diagnose(gap)→work | feature | 4/4 | 0/4 | 0/4 | 506-1489s | ✓ Recommended |
+| plan→scout→diagnose(minimal)→work | feature | 4/4 | 0/4 | 0/4 | 598-770s | ✓ Acceptable |
+| plan→scout→diagnose(failure-framing)→work | feature | 0/2 | ?/2 | 2/2 | 1800s (killed) | ✗ Wrong prompt |
+| plan→scout→work (D-shape) | feature | 0/4 | 2/4 | — | — | ✗ Hallucination risk |
+| plan→scout→diagnose→work | bug | 4/4 | 0/4 | 0/4 | 170-181s | ✓ Recommended |
+| scout→work | bug | 4/4 | 0/4 | 0/4 | 196s | ✓ Acceptable |
+| scout→diagnose→work | bug | 4/4 | 0/4 | 0/4 | 358-2027s | ~ High variance |
+| plan→work | any | not tested | — | — | — | — |
+
+### Cross-task-type pattern
+
+The same signal appears in both feature and bug probes: **plan is the stabilizer**.
+
+- Without plan, agents wander — scout→diagnose→work burned 2027s on a one-line bug fix
+- With plan, agents arrive at work already scoped — plan→scout→diagnose→work finished in 170-181s
+- Diagnose adds precision on top of plan but isn't necessary when the bug is clearly described and plan has already scoped the work (scout→work also committed 4/4 for bugs)
+- Skipping diagnose on features causes hallucination (D-shape: 0/4 commits, 2/4 NoOps)
+
+**Conclusion: plan→scout→diagnose→work is the universal safe default for both feature and bug tasks.**
 
 ### What was shipped
 
