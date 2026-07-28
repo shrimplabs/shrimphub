@@ -46,6 +46,30 @@
     {
       "name": "E2-plan-scout-work",
       "pipeline": "plan->scout->work"
+    },
+    {
+      "name": "F1-scout-plan-work",
+      "pipeline": "scout->plan->work"
+    },
+    {
+      "name": "F2-diagnose-scout-work",
+      "pipeline": "diagnose->scout->work"
+    },
+    {
+      "name": "G1-plan-scout-plan-work",
+      "pipeline": "plan->scout->plan->work"
+    },
+    {
+      "name": "G2-scout-diagnose-scout-work",
+      "pipeline": "scout->diagnose->scout->work"
+    },
+    {
+      "name": "H1-diagnose-plan-scout-work",
+      "pipeline": "diagnose->plan->scout->work"
+    },
+    {
+      "name": "H2-plan-scout-diagnose-scout-work",
+      "pipeline": "plan->scout->diagnose->scout->work"
     }
   ]
 }
