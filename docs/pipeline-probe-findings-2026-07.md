@@ -366,6 +366,146 @@ The same signal appears in both feature and bug probes: **plan is the stabilizer
 
 ---
 
+---
+
+## Batch 6: Feature Chaos (16 random phase orderings)
+
+**Spec:** `tools/specs/feature-chaos.json` (RNG seed=42, same orderings as bug chaos)
+**Date:** 2026-07-28
+**Task:** Add a game timer (MM:SS HUD, persist best time to JSON, "New Best!" on win)
+**Project:** rainbow-minesweeper
+**Runs:** 16, sequential with repo reset, 1 rep each
+
+### Results (sorted by elapsed)
+
+| Shape | Loops | Mutations | Elapsed | Notes |
+|-------|-------|-----------|---------|-------|
+| **diagnose→work** | **23** | **4** | **~4m** | Fastest, cleanest |
+| plan→work | 34 | 4 | ~5m | |
+| plan→scout→work | 26 | 4 | ~7m | |
+| plan→plan→scout→work | 21 | 6 | ~7m | |
+| scout→plan→work | 27 | 7 | ~7m | |
+| diagnose→scout→plan→work | 39 | 9 | ~9m | |
+| plan→plan→plan→work | 44 | 12 | ~8m | Redundant plans |
+| diagnose→plan→work | 59 | 16 | ~9m | Diagnose then plan = wasteful |
+| plan→plan→plan→plan→work | 20 | 7 | ~9m | |
+| diagnose→diagnose→work | 57 | 9 | ~9m | |
+| diagnose→plan→scout→plan→work | 47 | 14 | ~11m | |
+| diagnose→diagnose→scout→work | 35 | 16 | ~9m | |
+| scout→work | 63 | 16 | ~12m | Without synthesis, lots of flailing |
+| scout→scout→plan→plan→work | 132 | 10 | ~26m | Worst by far |
+| plan→scout→diagnose→scout→work | 56 | 12 | ~19m | |
+| plan→scout→diagnose→scout→work (P) | 30 | 9 | ~10m | |
+
+All 16 succeeded (no hallucinations or NoOps for features in this batch).
+
+### Key findings
+
+**diagnose→work wins for features** — 23 loops, 4 mutations, ~4 minutes. Same shape that won for bugs (109s). The gap-analysis synthesises a map AND a plan in one shot; the work agent gets everything it needs without a separate scout or plan phase.
+
+**scout→work is surprisingly bad for features** — 63 loops, 16 mutations, 12 minutes. Scout dumps raw file contents without synthesis; the work agent flails trying to figure out what's missing. Diagnose synthesises that into an actionable gap report.
+
+**More phases ≠ better** — G1 (scout×2→plan×2→work) was worst at 26 minutes. Every extra phase adds LLM overhead without proportional benefit. The work agent doesn't get smarter from more pre-work; it gets more confused.
+
+**plan alone is the second-best option** — plan→work at ~5m is competitive. It doesn't map the codebase but gives the work agent a clear goal, which is enough to avoid flailing. The work agent's own read loops fill in the map.
+
+---
+
+## Batch 7: Work-Only Baselines
+
+**Date:** 2026-07-28
+
+### Feature (work only) — rainbow-minesweeper, game timer
+
+| Rep | Loops | Mutations | vs diagnose→work |
+|-----|-------|-----------|-----------------|
+| 1 | 69 | 14 | 3× more loops, 3.5× more mutations |
+| 2 | 64 | 13 | consistent |
+
+Bare work on features is reliably messy. The work agent reads files as it needs them but has no synthesis of what's missing, so it flails and over-engineers.
+
+### Bug (work only) — classic-snake, snake dies instantly (precise description)
+
+| Rep | Loops | Mutations | vs diagnose→work |
+|-----|-------|-----------|-----------------|
+| 1 | 10 | 2 | faster than diagnose |
+| 2 | 7 | 2 | consistent |
+
+For a well-described single-file bug, bare work is optimal. The precise description gives the work agent a search target; it reads the relevant file, spots the wrong value, fixes it, done. Diagnose adds overhead without benefit.
+
+---
+
+## Batch 8: Vague Bug Description
+
+**Task:** "Bug: the game doesn't work correctly." (classic-snake, same one-line bug)
+
+| Run | Pipeline | Loops | Mutations |
+|-----|----------|-------|-----------|
+| diag1 | diagnose→work | 8 | 2 |
+| diag2 | diagnose→work | 10 | 4 |
+| work1 | work | 11 | 2 |
+| work2 | work | 19 | 3 |
+
+Even with a maximally vague description, bare `work` found the bug comparably to diagnose. The one-line bug is simple enough that both pipelines converge quickly — the work agent's natural read-then-fix loop is a decent bug hunter on simple bugs regardless of description quality.
+
+---
+
+## Batch 9: Vague Bug, Multi-File
+
+**Task:** "Bug: the game seems broken." (two planted bugs across two files: `score += 0` in score_manager.gd, and food spawn range restricted to inner grid in main.gd)
+
+| Run | Pipeline | Loops | Mutations |
+|-----|----------|-------|-----------|
+| diag1 | diagnose→work | 33 | 10 |
+| diag2 | diagnose→work | 104 | 8 |
+| work1 | work | 21 | 3 |
+| work2 | work | 13 | 3 |
+
+**Bare work won again** — and by a lot. diag2 went to 104 loops (diagnose may have sent work on a wrong path). Work found and fixed both bugs with 13-21 loops and 3 mutations each. The work agent's read-then-fix loop naturally explores multiple files; diagnose's gap-analysis framing doesn't specifically help with multi-file bugs.
+
+---
+
+## Revised Recommendation Matrix (Batches 1–9)
+
+### Core findings
+
+| Finding | Confidence | Evidence |
+|---------|-----------|---------|
+| diagnose→work is the universal fast path | High | Fastest in bug chaos (109s), feature chaos (~4m), and beats work-only on features |
+| work-only is optimal for well-described bugs | High | 7-10 loops vs 14+ for diagnose; consistent across 4 reps |
+| diagnose does not help bugs, even multi-file vague ones | Medium | Batch 8+9: work matched or beat diagnose; diag2 burned 104 loops on a 2-file bug |
+| scout-only is poor for features | High | 63 loops, 16 mutations vs 23/4 for diagnose→work |
+| More phases = more latency, rarely more quality | High | G1 (5 phases) was worst in feature chaos; plan×4 mediocre in bug chaos |
+| plan after diagnose is harmful for bugs | Medium | diagnose→plan→work: only failure in bug chaos (164 loops, no commit) |
+| D-shape (plan→scout→work) hallucination risk | High | 2/2 NoOps in Batch 1 — only on features, never reproduced on bugs |
+
+### Recommended defaults by task type
+
+| Task type | Recommended | Fallback | Avoid |
+|-----------|-------------|----------|-------|
+| Feature (any) | `diagnose→work` | `plan→work` | `plan→scout→work` (hallucination), `scout→work` (flailing) |
+| Bug (well-described) | `work` | `diagnose→work` | `diagnose→plan→work` |
+| Bug (vague/multi-file) | `work` | `diagnose→work` | `diagnose→plan→work` |
+| Refactor | `diagnose→work` (predicted) | `plan→scout→work` | — (no data yet) |
+
+### Predictions
+
+1. **diagnose→work will outperform for refactors** — refactors are structurally like features (existing code, need to understand what's there before changing it). The gap-analysis framing maps cleanly onto "what does this code do vs what should it do."
+
+2. **work-only will degrade on features as codebase grows** — on a large codebase, the work agent's opportunistic file reading will miss context that diagnose would synthesise. The break-even point is somewhere between the small projects we've tested and a 50+ file project.
+
+3. **diagnose variance on bugs is a prompt alignment problem** — the gap-analysis prompt is oriented toward "what's missing" (feature framing). On bugs, "what's wrong" is a subtly different question. A bug-specific diagnose prompt ("compare expected vs actual behaviour") might improve diagnose's bug performance.
+
+4. **plan still has a role for truly ambiguous features** — if the task description is vague AND the codebase is large, diagnose alone may not have enough signal to produce a useful gap report. A single plan phase before diagnose may be worth the latency in those cases.
+
+### What to ship
+
+- **Default pipeline config:** `diagnose→work` for features, `work` for bugs
+- **Bug-specific diagnose prompt:** test `_DIAGNOSE_BUG_SYSTEM` ("compare expected vs actual behaviour in the code") to see if diagnose can match work-only on bugs — if so, `diagnose→work` becomes truly universal
+- **Scout deprecation for features:** remove scout from default feature pipelines; it adds latency without improving outcomes vs diagnose
+
+---
+
 ## Work Phase Fixes Applied During This Session
 
 Five commits to `swarm/phases/work.py` during the probe session:

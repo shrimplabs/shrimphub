@@ -39,6 +39,7 @@ p.add_argument("--dry-run",  action="store_true", help="Print config and exit wi
 p.add_argument("--verbose",  action="store_true", help="Print model reasoning text between tool calls")
 p.add_argument("--json-out", default=None,        help="Write structured JSON summary to this path")
 p.add_argument("--phase-config", default=None,    help="Path to JSON file with extra phase config (e.g. diagnose_system_prompt)")
+p.add_argument("--scout-provider", default=None, help="Override provider for scout/diagnose phases only")
 args = p.parse_args()
 
 project_path = Path(args.dir).expanduser().resolve()
@@ -137,7 +138,7 @@ state = TaskState(
 
 provider_cfg = {
     "plan_provider":       _provider,
-    "scout_provider":      _provider,
+    "scout_provider":      args.scout_provider or _provider,
     "work_provider":       _provider,
     "synthesize_provider": _provider,
 }
