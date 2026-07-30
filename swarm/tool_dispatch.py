@@ -112,6 +112,7 @@ from swarm.qa_tools import (
     harness_kill_game,
     harness_poll_state, harness_inject,
 )
+from swarm.tools.gpu_scheduler import generate_image, generate_3d_asset
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +570,22 @@ def _populate_registry():
     _reg("run_sequence",      lambda a, ws, p: qa_run_sequence(a.get("actions", [])),                      task_types=_QA_TYPES)
     _reg("create_bug_task", lambda a, ws, p: qa_create_bug_task(a.get("description", ""), a.get("evidence_path", ""), a.get("priority", 80), a.get("dependencies", None)), task_types=_QA_TYPES)
     _reg("requeue_self",    lambda a, ws, p: qa_requeue_self(a.get("bug_task_ids", [])),                  task_types=_QA_TYPES)
+
+    # --- GPU Scheduler tools (art_pass only) ---
+    _ART_TYPES = {"art_pass"}
+    _reg("generate_image",    lambda a, ws, p: generate_image(
+            a.get("prompt", ""),
+            int(a.get("width", 512)),
+            int(a.get("height", 512)),
+            int(a.get("steps", 1)),
+            float(a.get("cfg", 0.0)),
+            a.get("slug", ""),
+        ), task_types=_ART_TYPES)
+    _reg("generate_3d_asset", lambda a, ws, p: generate_3d_asset(
+            a.get("image_path", ""),
+            a.get("quality", "draft"),
+            a.get("slug", ""),
+        ), task_types=_ART_TYPES)
 
     # --- Harness QA tools ---
     def _harness_launch_game(a, ws, p):
