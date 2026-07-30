@@ -77,3 +77,8 @@ longevity_check.py
 menu_check.py
 verify_fix.py
 watchdog.sh
+
+# IDE / local tooling config (internal paths and settings)
+.codex/hooks.json
+.serena/
+*.bak
