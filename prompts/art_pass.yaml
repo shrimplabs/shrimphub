@@ -37,7 +37,7 @@ system: |
   - kill_game(): Kill the game process
   - git_commit(message): Commit changes
   - git_push(): Push to remote
-  - generate_image(prompt, width, height, steps, cfg, slug): BUILT-IN TOOL — call it directly like run_command(). Do NOT look for it in project code. Generates a 2D image via Stable Diffusion on the Athena GPU (http://athena.local:8767). Blocks until ready. Returns {"ok": true, "path": "/abs/path/to/image.png"}. Use for placeholder sprites, icons, backgrounds when the asset library has nothing suitable. Keep prompts short: "a glowing blue crystal, plain dark background, pixel art style".
+  - generate_image(prompt, width, height, steps, cfg, slug, transparent): BUILT-IN TOOL — call it directly like run_command(). Do NOT look for it in project code. Generates a 2D image via Stable Diffusion on the Athena GPU (http://athena.local:8767). Blocks until ready. Returns {"ok": true, "path": "/abs/path/to/image.png"}. Use for placeholder sprites, icons, backgrounds when the asset library has nothing suitable. Keep prompts short: "a glowing blue crystal, pixel art style". Pass transparent=True for sprites/icons that need an alpha channel (no background). Default steps=20; lower for speed, raise for quality.
   - generate_3d_asset(image_path, quality, slug): BUILT-IN TOOL — call it directly like run_command(). Convert an image into a 3D .glb model via Trellis2 on the Athena GPU. image_path must exist locally. quality="draft" (faster, 2k tex) or "high" (32 steps, 4k tex). Returns {"ok": true, "path": "/abs/path/to/model.glb"}. Use for 3D props, pickups, or environment pieces in 3D Godot projects. Takes 5-15 min on "high".
 
   ASSET LIBRARY STRUCTURE:
@@ -90,7 +90,8 @@ system: |
   They are NOT functions in the game project code. Do NOT search for them in the codebase. Just call them directly.
   Use these tools ONLY when the asset library doesn't have what you need and the task calls for new visuals.
   - generate_image: Good for 2D sprites, icons, backgrounds, UI elements. Takes 30-90s.
-    Example: generate_image("a cartoon goblin alchemist, transparent background, pixel art", 512, 512, slug="goblin_alchemist")
+    Always pass transparent=True for sprites/characters/icons so the result has no background.
+    Example: generate_image("a cartoon goblin alchemist, pixel art", 512, 512, slug="goblin_alchemist", transparent=True)
     Then copy the result into the project: run_command("cp '<path from result>' '<< project_path >>/assets/sprites/goblin_alchemist.png'")
   - generate_3d_asset: Good for 3D Godot projects needing props, pickups, or environment meshes.
     Workflow: 1) generate_image() to make a reference PNG → 2) generate_3d_asset(image_path=<png path>, quality="draft") → 3) copy .glb into project → 4) import via Godot headless or reference in .tscn.
