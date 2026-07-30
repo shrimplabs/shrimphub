@@ -48,9 +48,9 @@ def _poll_job(job_id: str) -> dict[str, Any]:
 def _copy_result_files(job: dict[str, Any], dest_dir: Path) -> list[str]:
     """Download result files from the scheduler into dest_dir.
 
-    Athena stores results on its own filesystem — fetch them via HTTP
-    using the /jobs/{id}/files/{filename} endpoint rather than assuming
-    the path is locally accessible.
+    Athena stores results on its own filesystem — fetch them via HTTP.
+    Prefers result.files[].absolute_url (added in Athena v2), falls back to
+    constructing the URL from job_id + filename, then local path as last resort.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     job_id = job.get("id", "")
@@ -58,13 +58,12 @@ def _copy_result_files(job: dict[str, Any], dest_dir: Path) -> list[str]:
     files_meta = result.get("files") or []
     copied = []
     for f in files_meta:
-        remote_path = f.get("path", "")
-        filename = Path(remote_path).name if remote_path else ""
+        filename = f.get("filename") or Path(f.get("path", "")).name
         if not filename:
             continue
-        # Try scheduler download endpoint first
-        download_url = f"{_BASE_URL}/files/{job_id}/{filename}"
         dst = dest_dir / filename
+        # Prefer absolute_url provided by scheduler; fall back to constructed URL
+        download_url = f.get("absolute_url") or f"{_BASE_URL}/files/{job_id}/{filename}"
         try:
             resp = requests.get(download_url, timeout=60, stream=True)
             if resp.status_code == 200:
@@ -76,7 +75,7 @@ def _copy_result_files(job: dict[str, Any], dest_dir: Path) -> list[str]:
         except Exception:
             pass
         # Fallback: local path (works when scheduler runs on same machine)
-        src = Path(remote_path)
+        src = Path(f.get("path", ""))
         if src.exists():
             shutil.copy2(src, dst)
             copied.append(str(dst))
