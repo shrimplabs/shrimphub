@@ -494,9 +494,34 @@ class WorkPhase(Phase):
         max_work_loops = int(phase_limits.get("work") or self.config.get("work_max_loops") or _MAX_WORK_LOOPS)
         max_work_loops = max(1, max_work_loops)
 
+        # art_pass tasks use their YAML system block as the system prompt so the
+        # LLM is framed as an asset-integration agent, not a code engineer.
+        _effective_work_system = _WORK_SYSTEM
+        if state.task_type == "art_pass":
+            _art_yaml_path = _PROMPTS_DIR / "art_pass.yaml"
+            if _art_yaml_path.exists():
+                import yaml as _yaml
+                try:
+                    _art_data = _yaml.safe_load(_art_yaml_path.read_text())
+                    _art_system = _art_data.get("system", "")
+                    if _art_system:
+                        _effective_work_system = _art_system.replace(
+                            "<< project >>", state.project
+                        ).replace(
+                            "<< project_path >>", state.project_path
+                        ).replace(
+                            "<< godot_status >>", ""
+                        ).replace(
+                            "<< godot_command >>", rt.GODOT_PATH or "godot"
+                        ).replace(
+                            "<< project_path_arg >>", state.project_path
+                        )
+                except Exception:
+                    pass
+
         for loop in range(1, max_work_loops + 1):
             self.log(f"Work loop {loop}/{max_work_loops}")
-            text, _tokens, _thinking = call_llm(_WORK_SYSTEM, messages, provider=provider)
+            text, _tokens, _thinking = call_llm(_effective_work_system, messages, provider=provider)
 
             if text.startswith("Error:") or text.startswith("API error"):
                 self.log(f"LLM error at loop {loop}: {text[:120]} — aborting work phase")
