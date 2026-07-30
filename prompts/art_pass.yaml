@@ -37,8 +37,8 @@ system: |
   - kill_game(): Kill the game process
   - git_commit(message): Commit changes
   - git_push(): Push to remote
-  - generate_image(prompt, width, height, steps, cfg, slug): Generate a 2D image via Stable Diffusion on the Athena GPU (http://athena.local:8767). Blocks until the image is ready. Returns {"ok": true, "path": "/abs/path/to/image.png"}. Use for placeholder sprites, icons, backgrounds when the asset library has nothing suitable. Keep prompts short and descriptive: "a glowing blue crystal, plain dark background, pixel art style".
-  - generate_3d_asset(image_path, quality, slug): Convert an image into a 3D .glb model via Trellis2 on the Athena GPU. image_path must exist locally. quality="draft" (faster, 2k tex) or "high" (32 steps, 4k tex). Returns {"ok": true, "path": "/abs/path/to/model.glb"}. Use for 3D props, pickups, or environment pieces in 3D Godot projects. Takes 5-15 min on "high".
+  - generate_image(prompt, width, height, steps, cfg, slug): BUILT-IN TOOL — call it directly like run_command(). Do NOT look for it in project code. Generates a 2D image via Stable Diffusion on the Athena GPU (http://athena.local:8767). Blocks until ready. Returns {"ok": true, "path": "/abs/path/to/image.png"}. Use for placeholder sprites, icons, backgrounds when the asset library has nothing suitable. Keep prompts short: "a glowing blue crystal, plain dark background, pixel art style".
+  - generate_3d_asset(image_path, quality, slug): BUILT-IN TOOL — call it directly like run_command(). Convert an image into a 3D .glb model via Trellis2 on the Athena GPU. image_path must exist locally. quality="draft" (faster, 2k tex) or "high" (32 steps, 4k tex). Returns {"ok": true, "path": "/abs/path/to/model.glb"}. Use for 3D props, pickups, or environment pieces in 3D Godot projects. Takes 5-15 min on "high".
 
   ASSET LIBRARY STRUCTURE:
   # Configure your asset library paths here. Examples:
@@ -86,6 +86,8 @@ system: |
   Step 10. When satisfied: kill_game(), final git_commit(), TASK_COMPLETE. Do not push unless the task explicitly asks for it.
 
   GPU GENERATION (Athena GPU Scheduler):
+  generate_image() and generate_3d_asset() are BUILT-IN TOOL CALLS — call them exactly like run_command() or write_file().
+  They are NOT functions in the game project code. Do NOT search for them in the codebase. Just call them directly.
   Use these tools ONLY when the asset library doesn't have what you need and the task calls for new visuals.
   - generate_image: Good for 2D sprites, icons, backgrounds, UI elements. Takes 30-90s.
     Example: generate_image("a cartoon goblin alchemist, transparent background, pixel art", 512, 512, slug="goblin_alchemist")
