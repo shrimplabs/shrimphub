@@ -46,15 +46,38 @@ def _poll_job(job_id: str) -> dict[str, Any]:
 
 
 def _copy_result_files(job: dict[str, Any], dest_dir: Path) -> list[str]:
-    """Copy files listed in job result.json (or result dict) into dest_dir."""
+    """Download result files from the scheduler into dest_dir.
+
+    Athena stores results on its own filesystem — fetch them via HTTP
+    using the /jobs/{id}/files/{filename} endpoint rather than assuming
+    the path is locally accessible.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
+    job_id = job.get("id", "")
     result = job.get("result") or {}
     files_meta = result.get("files") or []
     copied = []
     for f in files_meta:
-        src = Path(f.get("path", ""))
+        remote_path = f.get("path", "")
+        filename = Path(remote_path).name if remote_path else ""
+        if not filename:
+            continue
+        # Try scheduler download endpoint first
+        download_url = f"{_BASE_URL}/files/{job_id}/{filename}"
+        dst = dest_dir / filename
+        try:
+            resp = requests.get(download_url, timeout=60, stream=True)
+            if resp.status_code == 200:
+                with open(dst, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        fh.write(chunk)
+                copied.append(str(dst))
+                continue
+        except Exception:
+            pass
+        # Fallback: local path (works when scheduler runs on same machine)
+        src = Path(remote_path)
         if src.exists():
-            dst = dest_dir / src.name
             shutil.copy2(src, dst)
             copied.append(str(dst))
     return copied
