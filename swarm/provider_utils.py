@@ -36,15 +36,10 @@ LLM_PROVIDERS: dict = {
         "format": "anthropic",
         "max_tokens": 32768,
     },
-    "athena": {
-        "base_url": "http://athena.local:10098/v1",
-        "model": "laguna-q5ks-ctx256k-noop",
-        "format": "openai",
-        "max_tokens": 32768,
-    },
-    "qwen-a3b": {
-        "base_url": "http://athena.local:10099/v1",
-        "model": "qwen3.6-35b-a3b-fast",
+    # Example local provider — replace base_url and model with your own server
+    "local": {
+        "base_url": "http://localhost:10098/v1",
+        "model": "your-local-model",
         "format": "openai",
         "max_tokens": 32768,
     },

@@ -65,3 +65,15 @@ data/audit_learnings_last_run.txt
 
 # Runtime PID files
 *.pid
+
+# Internal session artifacts
+docs/internal/
+
+# Test project directories created by spawn tests
+spawn-test-proj/
+
+# One-off debug scripts
+longevity_check.py
+menu_check.py
+verify_fix.py
+watchdog.sh
