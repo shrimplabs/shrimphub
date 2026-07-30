@@ -167,7 +167,7 @@ def register_phase(cls: type[Phase]) -> type[Phase]:
 
 def _ensure_phases_loaded() -> None:
     """Import phase modules so they self-register."""
-    from swarm.phases import plan, scout, work, validate, synthesize, create_tasks, diagnose  # noqa: F401
+    from swarm.phases import plan, scout, work, validate, synthesize, create_tasks, diagnose, art  # noqa: F401
 
 
 def _write_phase_artifact(state: TaskState, phase_name: str, config: dict | None, log_fn=print) -> None:

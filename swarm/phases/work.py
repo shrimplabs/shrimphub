@@ -403,6 +403,39 @@ def _build_work_prompt(state: TaskState) -> str:
                 lines.append(f"  ⚠ {r}")
         lines.append("")
 
+    # Art brief — injected by the art phase for art_pass tasks.
+    art_brief = (scout or {}).get("_art_brief") or (handoff or {}).get("art_brief")
+    if art_brief:
+        lines.append("ART BRIEF (visual assessment from art phase):")
+        lines.append(f"  Style: {art_brief.get('visual_style', '')}")
+        lines.append("")
+        work_order = art_brief.get("work_order", [])
+        if work_order:
+            lines.append(f"  Work order (implement in this order): {', '.join(work_order)}")
+            lines.append("")
+        elements_by_name = {e.get("name"): e for e in art_brief.get("elements", [])}
+        for name in work_order:
+            e = elements_by_name.get(name)
+            if not e or e.get("priority") == "skip":
+                continue
+            lines.append(f"  ELEMENT: {name}")
+            lines.append(f"    Current: {e.get('current_state', '')}")
+            lines.append(f"    Target: {e.get('target', '')}")
+            lines.append(f"    Method: {e.get('method', '')}")
+            if e.get("prompt_hint"):
+                w = e.get("width", 512)
+                h = e.get("height", 512)
+                lines.append(f"    Prompt: \"{e['prompt_hint']}\" ({w}x{h})")
+            lines.append("")
+        if art_brief.get("asset_library_notes"):
+            lines.append(f"  Asset library: {art_brief['asset_library_notes']}")
+            lines.append("")
+        lines.append(
+            "  generate_image and generate_3d_asset are BUILT-IN TOOL CALLS — call them directly. "
+            "Do NOT search the project code for them. They work like run_command()."
+        )
+        lines.append("")
+
     work_profile = _build_work_profile_section(state)
     if work_profile:
         lines.append(work_profile)

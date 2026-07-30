@@ -1015,7 +1015,7 @@ def generate_task_script(task: dict) -> str:
             "feature":  ["scout", "work", "validate"],
             "bug":      ["scout", "work", "validate"],
             "polish":   ["scout", "work", "validate"],
-            "art_pass": ["work", "validate"],
+            "art_pass": ["art", "work", "validate"],
             "refactor": ["scout", "plan", "work", "validate"],
         }
         pipeline = (_pipeline_from_metadata
