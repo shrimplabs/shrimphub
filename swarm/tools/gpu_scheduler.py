@@ -86,12 +86,16 @@ def generate_image(
     prompt: str,
     width: int = 512,
     height: int = 512,
-    steps: int = 1,
+    steps: int = 20,
     cfg: float = 0.0,
     slug: str = "",
+    transparent: bool = False,
 ) -> dict[str, Any]:
     """
-    Generate a 2D image via the Athena GPU Scheduler (Stable Diffusion / sd-turbo).
+    Generate a 2D image via the Athena GPU Scheduler (Stable Diffusion).
+
+    transparent=True removes the background and returns a second PNG with alpha channel
+    (role="transparent" in the files list); path points to the transparent version if present.
 
     Returns {"ok": True, "job_id": "...", "path": "/abs/path/to/image.png", "files": [...]}
     or      {"ok": False, "error": "...", "job_id": "..."}
@@ -105,6 +109,8 @@ def generate_image(
     }
     if slug:
         payload["slug"] = slug
+    if transparent:
+        payload["remove_background"] = True
 
     job = _submit("image.generate", payload)
     job_id = job["id"]
@@ -119,7 +125,15 @@ def generate_image(
 
     dest = Path("data/generated") / job_id
     copied = _copy_result_files(completed, dest)
-    first = copied[0] if copied else ""
+    # Prefer transparent PNG if present (role="transparent")
+    files_meta = (completed.get("result") or {}).get("files") or []
+    transparent_files = [f for f in files_meta if f.get("role") == "transparent"]
+    if transparent_files:
+        tf_name = transparent_files[0].get("filename") or Path(transparent_files[0].get("path", "")).name
+        tf_path = str(dest / tf_name) if tf_name else ""
+        first = tf_path if tf_path in copied else (copied[0] if copied else "")
+    else:
+        first = copied[0] if copied else ""
     return {"ok": True, "job_id": job_id, "path": first, "files": copied}
 
 
