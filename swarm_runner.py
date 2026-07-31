@@ -962,12 +962,13 @@ def generate_task_script(task: dict) -> str:
     scout_loops = {**_default_scout_loops, **_scout_loops_cfg} if scout_provider else {}
     compaction_provider = str(_config.get("compaction_provider", ""))
     plan_provider = str(_config.get("plan_provider", ""))
-    work_provider = str(_config.get("work_provider", ""))
     synthesize_provider = str(_config.get("synthesize_provider", ""))
     # Pipeline resolution (priority: per-task > project-level > global config)
     _pipelines_cfg = _config.get("pipelines", {})
     _project_pipelines_cfg = _config.get("project_pipelines", {})
     _project_pipeline_cfg = _project_pipelines_cfg.get(project, {})
+    # Per-project provider overrides (e.g. _work_provider, _scout_provider in project_pipelines)
+    work_provider = str(_project_pipeline_cfg.get("_work_provider") or _config.get("work_provider", ""))
     _pipeline_from_metadata = metadata.get("pipeline")  # set at task creation for A/B testing
     _project_pipeline_override = _project_pipeline_cfg.get(task_type) \
         or _project_pipeline_cfg.get("*")
@@ -1015,7 +1016,7 @@ def generate_task_script(task: dict) -> str:
             "feature":  ["scout", "work", "validate"],
             "bug":      ["scout", "work", "validate"],
             "polish":   ["scout", "work", "validate"],
-            "art_pass": ["art", "work", "validate"],
+            "art_pass": ["work", "validate"],
             "refactor": ["scout", "plan", "work", "validate"],
         }
         pipeline = (_pipeline_from_metadata
