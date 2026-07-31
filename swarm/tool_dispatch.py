@@ -577,9 +577,10 @@ def _populate_registry():
             a.get("prompt", ""),
             int(a.get("width", 512)),
             int(a.get("height", 512)),
-            int(a.get("steps", 1)),
+            int(a.get("steps", 20)),
             float(a.get("cfg", 0.0)),
             a.get("slug", ""),
+            bool(a.get("transparent", False)),
         ), task_types=_ART_TYPES)
     _reg("generate_3d_asset", lambda a, ws, p: generate_3d_asset(
             a.get("image_path", ""),
