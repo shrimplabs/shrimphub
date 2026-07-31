@@ -309,7 +309,13 @@ def git_commit(message: str, files: list = None) -> dict:
         invalidate_shell_cache(_core2.PROJECT)
     except Exception:
         pass
-    return {"ok": True, "message": "Committed", "output": out}
+    # Auto-push if a remote is configured
+    push_out = ""
+    _rc, _remotes, _ = run("git remote")
+    if _remotes.strip():
+        _rc, _po, _pe = run("git push 2>&1")
+        push_out = f"\nPush: {'ok' if _rc == 0 else 'failed: ' + _pe.strip()}"
+    return {"ok": True, "message": "Committed", "output": out + push_out}
 
 
 def git_push() -> dict:
