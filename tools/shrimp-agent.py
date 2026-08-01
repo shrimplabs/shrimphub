@@ -83,7 +83,7 @@ def _setup_provider(provider_name: str, config: dict):
 
     all_providers = {}
     # built-in providers
-    for name, cfg in pu.BUILTIN_PROVIDERS.items():
+    for name, cfg in pu.LLM_PROVIDERS.items():
         all_providers[name] = cfg
     # config.json overrides
     for name, cfg in config.get("llm_providers", {}).items():
@@ -117,7 +117,9 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
     rt.PROJECT_PATH_OVERRIDE = str(project_path)
     rt.TASK_ID = task_id
     rt.TASK_TYPE = "feature"
+    rt.TASK_DESC = task_desc
     rt.MAX_TOOL_LOOPS = 150
+    rt.DATA_DIR = str(_SWARM_ROOT / "data")
 
     # Provider
     rt.LLM_PROVIDER = provider
@@ -125,13 +127,14 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
     rt.WORK_PROVIDER = ""
     rt.SYNTHESIZE_PROVIDER = ""
     rt.PLAN_PROVIDER = ""
+    rt.COMPACTION_PROVIDER = ""
     rt.LLM_PROVIDERS = _setup_provider(provider, config)
 
-    # Pipeline — flat mode (no phases, just the loop)
-    rt.PIPELINE_PHASES = []
-    rt.PIPELINE_MODE = "flat"
-    rt.ADAPTIVE_FLAT_ENABLED = False
+    # Pipeline — flat mode (no phases, just the tool loop)
+    rt.PIPELINE = []
+    rt.ADAPTIVE_FLAT = False
     rt.LOOP_MODEL_ROUTING = {}
+    rt.PHASE_LOOP_LIMITS = {}
 
     # Misc
     rt.TASK_COMPLETE_REQUIRES_COMMIT = False
@@ -139,19 +142,18 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
     rt.QA_CYCLE = 0
     rt.QA_MAX_CYCLES = 3
     rt.COMPACT_TOKEN_THRESHOLD = 120_000
-    rt.JITTER_ENABLED = False      # no jitter in interactive mode
     rt.THINKING_ENABLED = False
     rt.THINKING_BUDGET = 0
     rt.META_INVESTIGATION_ENABLED = False
-    rt.AGENT_TIMEOUT = 0           # no watchdog in interactive mode
+    rt.AGENT_TIMEOUT = 0
     rt.MAX_LINES = 5000
     rt.GIT_BRANCH = "main"
-    rt.PIPELINE_MAX_REPAIR_ATTEMPTS = 0
     rt.LAST_FAILURE = ""
     rt.RESEARCH_CONTEXT = ""
     rt.ATTEMPT_HISTORY = ""
     rt.MCP_SERVERS = {}
     rt.RAG_ENABLED = False
+    rt.TASK_METADATA = {}
 
     # tool core globals
     tc.PROJECT = project_name
@@ -258,18 +260,15 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
     _patch_logging(project_path)
     _patch_llm_streaming()
 
-    # Inject custom system prompt
-    _orig_build = None
-    try:
-        _orig_build = rt._build_system_prompt
-        def _custom_sys(*args, **kwargs):
-            return _SYSTEM_PROMPT.format(project_path=project_path)
-        rt._build_system_prompt = _custom_sys
-    except AttributeError:
-        pass
-
-    # Patch task description into the runtime
-    rt.TASK_DESCRIPTION = description
+    # Override the system/user prompts that main() would pick for "feature" type
+    sys_prompt = _SYSTEM_PROMPT.format(project_path=project_path)
+    rt.FEATURE_SYSTEM = sys_prompt
+    rt.FEATURE_USER = description
+    rt.system_prompt = sys_prompt
+    rt.user_prompt = description
+    # Also override the Python feature prompts in case of fallthrough
+    rt.PYTHON_FEATURE_SYSTEM = sys_prompt
+    rt.PYTHON_FEATURE_USER = description
 
     print(f"\n{bold('shrimp-agent')} {dim(f'@ {project_path.name}')} {dim(f'[{provider}]')}\n")
     print(f"{cyan('▶')} {description}\n")
@@ -283,9 +282,6 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
         print(f"\n{red('error:')} {e}", flush=True)
         traceback.print_exc()
         exit_code = 1
-    finally:
-        if _orig_build:
-            rt._build_system_prompt = _orig_build
 
     return exit_code
 
