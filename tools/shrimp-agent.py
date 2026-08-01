@@ -295,9 +295,11 @@ def _patch_llm_streaming():
 
         _format_tool_call_display(text)
 
-        # Show prose
+        # Show prose — strip all known tool call formats
         clean = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', text, flags=re.DOTALL)
         clean = re.sub(r'<tool_call>.*?</tool_call>', '', clean, flags=re.DOTALL)
+        clean = re.sub(r'\]<\]minimax\[>\[.*?\]<\]minimax\[>\[', '', clean, flags=re.DOTALL)
+        clean = re.sub(r'<invoke[^>]*>.*?</invoke>', '', clean, flags=re.DOTALL)
         clean = clean.replace("TASK_COMPLETE", "").strip()
         if clean:
             print(f"\n{cyan('●')} {clean}\n", flush=True)
@@ -343,35 +345,21 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 def repl(project_path: Path, provider: str, config: dict):
-    # Disable readline terminal capability queries — prevents escape sequences
-    # being injected into input when running inside shrimpterm or other SSH clients
+    # Disable readline terminal capability queries (prevents escape codes in shrimpterm)
     try:
         import readline
         readline.parse_and_bind("")
     except ImportError:
         pass
-    # Also tell the terminal we don't want to query its capabilities
     os.environ.setdefault("TERM", "dumb")
 
     print(f"\n{bold('🦐 shrimp-agent')} {dim(f'v0.1 @ {project_path}')}")
-    print(f"{dim(f'provider: {provider}  •  Ctrl+C to exit')}\n")
-
-    # Persistent conversation — we'll accumulate messages across turns
-    conversation: list[dict] = []
-
-    import swarm.agent_runtime as rt
-    import swarm.llm_utils as lu
-    from swarm.provider_utils import resolve_provider
-
-    _setup_runtime(project_path, provider, "", config)
-    _patch_logging(project_path)
-
-    pconf = resolve_provider(provider, rt.LLM_PROVIDERS)
-    sys_prompt = _SYSTEM_PROMPT.format(project_path=project_path)
+    print(f"{dim(f'provider: {provider}  •  Ctrl+C or /exit to quit')}")
+    print(dim("Each message runs a full agent loop. /clear resets context.\n"))
 
     while True:
         try:
-            user_input = _strip_escapes(input(f"{green('you')} › "))
+            user_input = _strip_escapes(input(f"\n{green('you')} › "))
         except (KeyboardInterrupt, EOFError):
             print(f"\n{dim('bye')}")
             break
@@ -382,73 +370,15 @@ def repl(project_path: Path, provider: str, config: dict):
             print(dim("bye"))
             break
         if user_input.lower() == "/clear":
-            conversation.clear()
-            print(dim("conversation cleared"))
+            print(dim("context cleared (each turn is independent)"))
             continue
-        if user_input.lower() == "/provider":
-            print(dim(f"provider: {provider}  model: {pconf.get('model','?')}"))
-            continue
-
-        conversation.append({"role": "user", "content": user_input})
-
-        print(f"\n{cyan('shrimp')} › ", end="", flush=True)
-
-        try:
-            result = lu.call_llm(sys_prompt, conversation, provider=provider)
-            text = result[0] if isinstance(result, tuple) else result
-            tokens = result[1] if isinstance(result, tuple) else {}
-        except Exception as e:
-            print(f"\n{red('LLM error:')} {e}", flush=True)
-            conversation.pop()
+        if user_input.lower() == "/help":
+            print(dim("/exit  quit  /help  /clear"))
             continue
 
-        # Strip tool calls from display but execute them
-        tool_calls = re.findall(
-            r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]', text, re.DOTALL
-        )
-        display_text = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', text, flags=re.DOTALL).strip()
-        display_text = display_text.replace("TASK_COMPLETE", "").strip()
-
-        if display_text:
-            print(display_text, flush=True)
-
-        # Execute any tool calls
-        if tool_calls:
-            from swarm.tool_dispatch import execute_tool
-            tool_results = []
-            for tc_raw in tool_calls:
-                try:
-                    tc_data = json.loads(tc_raw.strip())
-                    tool_name = tc_data.get("tool", "")
-                    tool_args = tc_data.get("args", {})
-                    print(f"\n  {dim('⚙ ' + tool_name)}", flush=True)
-                    result_data = execute_tool(tool_name, tool_args, str(project_path), provider)
-                    result_str = json.dumps(result_data) if isinstance(result_data, dict) else str(result_data)
-                    # Show brief result
-                    brief = result_str[:200] + ("…" if len(result_str) > 200 else "")
-                    print(f"  {dim(brief)}", flush=True)
-                    tool_results.append({"tool": tool_name, "result": result_data})
-                except Exception as e:
-                    print(f"  {red('tool error:')} {e}", flush=True)
-                    tool_results.append({"tool": "?", "error": str(e)})
-
-            # Feed tool results back as assistant + tool_result turn
-            conversation.append({"role": "assistant", "content": text})
-            tool_result_content = "\n".join(
-                f"[{r.get('tool','?')}]: {json.dumps(r.get('result', r.get('error')))}"
-                for r in tool_results
-            )
-            conversation.append({"role": "user", "content": f"Tool results:\n{tool_result_content}"})
-        else:
-            conversation.append({"role": "assistant", "content": text})
-
-        # Token info
-        if tokens:
-            in_t = tokens.get("input", 0)
-            out_t = tokens.get("output", 0)
-            print(f"\n{dim(f'  [{in_t}in {out_t}out]')}", flush=True)
-
-        print()
+        print(f"\n{dim('─' * 40)}", flush=True)
+        run_task(user_input, project_path, provider, config)
+        print(f"{dim('─' * 40)}", flush=True)
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
