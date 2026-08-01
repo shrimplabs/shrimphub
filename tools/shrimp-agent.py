@@ -26,6 +26,12 @@ import time
 import traceback
 from pathlib import Path
 
+_ANSI_ESCAPE = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+def _strip_escapes(text: str) -> str:
+    """Remove ANSI/VT escape sequences that terminals inject into input."""
+    return _ANSI_ESCAPE.sub('', text).strip()
+
 # ── locate swarm-controller root ─────────────────────────────────────────────
 
 _TOOL_DIR = Path(__file__).resolve().parent
@@ -288,6 +294,16 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 def repl(project_path: Path, provider: str, config: dict):
+    # Disable readline terminal capability queries — prevents escape sequences
+    # being injected into input when running inside shrimpterm or other SSH clients
+    try:
+        import readline
+        readline.parse_and_bind("")
+    except ImportError:
+        pass
+    # Also tell the terminal we don't want to query its capabilities
+    os.environ.setdefault("TERM", "dumb")
+
     print(f"\n{bold('🦐 shrimp-agent')} {dim(f'v0.1 @ {project_path}')}")
     print(f"{dim(f'provider: {provider}  •  Ctrl+C to exit')}\n")
 
@@ -306,7 +322,7 @@ def repl(project_path: Path, provider: str, config: dict):
 
     while True:
         try:
-            user_input = input(f"{green('you')} › ").strip()
+            user_input = _strip_escapes(input(f"{green('you')} › "))
         except (KeyboardInterrupt, EOFError):
             print(f"\n{dim('bye')}")
             break
