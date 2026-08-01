@@ -178,6 +178,7 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
     # Misc
     rt.TASK_COMPLETE_REQUIRES_COMMIT = False
     rt.READ_ONLY = False
+    rt.READONLY = False
     rt.QA_CYCLE = 0
     rt.QA_MAX_CYCLES = 3
     rt.COMPACT_TOKEN_THRESHOLD = 120_000
@@ -193,6 +194,40 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
     rt.MCP_SERVERS = {}
     rt.RAG_ENABLED = False
     rt.TASK_METADATA = {}
+    rt.API_PORT = 0  # disable swarm API calls
+
+    # Disable file locking — multi-agent coordination, not needed standalone
+    import swarm.runtime_helpers as _rh
+    _rh._lock_project_file = lambda path: {"ok": True}
+    _rh._unlock_claimed_files = lambda: None
+
+    # Intercept execute_tool to stub out swarm-API-dependent tools that would
+    # hang in standalone mode (list_tasks, create_task, etc.)
+    import swarm.tool_dispatch as _td
+    # Intercept execute_tool to stub out swarm-API-dependent tools that hang
+    # when there's no swarm server running (list_tasks, create_task, etc.)
+    import swarm.tool_dispatch as _td
+    _orig_execute = _td.execute_tool
+    _STANDALONE_NOOP = {"list_tasks", "list_subtasks"}
+    _STANDALONE_BLOCK = {"create_task", "create_tasks", "create_tasks_file_aware"}
+    def _patched_execute(tool_call: dict) -> dict:
+        tool = tool_call.get("tool", "")
+        if tool in _STANDALONE_NOOP:
+            return {"ok": True, "tasks": []}
+        if tool in _STANDALONE_BLOCK:
+            return {"ok": False, "error": f"{tool} not available in standalone mode"}
+        return _orig_execute(tool_call)
+    _td.execute_tool = _patched_execute
+    rt.execute_tool = _patched_execute  # patch the name bound in agent_runtime's namespace
+
+    # Clear any stale broadcast claim files from previous swarm agents
+    for f in ["broadcast_claims", ".broadcast_claims"]:
+        stale = project_path / f
+        if stale.exists():
+            try:
+                stale.unlink()
+            except Exception:
+                pass
 
     # tool core globals
     tc.PROJECT = project_name
@@ -344,6 +379,10 @@ def _patch_llm_streaming():
     _orig = lu.call_llm
 
     def _wrapped(sys_prompt, messages, provider=None):
+        # Short-circuit the graph reflection loop — requires swarm API
+        if "GRAPH REFLECTION phase" in sys_prompt:
+            return ("REFLECTION_COMPLETE", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0})
+
         result = _orig(sys_prompt, messages, provider=provider)
         text = result[0] if isinstance(result, tuple) else result
 
