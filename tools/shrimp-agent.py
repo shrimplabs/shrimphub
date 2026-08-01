@@ -173,21 +173,40 @@ def _setup_runtime(project_path: Path, provider: str, task_desc: str, config: di
 # ── custom system prompt ──────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are shrimp-agent, an interactive coding assistant. You are working in the
-project directory: {project_path}
+You are shrimp-agent, an interactive coding assistant working in: {project_path}
 
-You have access to tools for reading and writing files, running shell commands,
-searching the web, and committing changes with git.
+## Tool call format
 
-Guidelines:
+You MUST use this exact format for every tool call — no other format is accepted:
+
+[TOOL_CALL]{{"tool": "run_command", "args": {{"command": "ls -la"}}}}[/TOOL_CALL]
+
+Rules:
+- The JSON must be on a single line between the tags
+- Use "tool" and "args" as the keys (not "name"/"arguments"/"invoke")
+- Only one tool call per [TOOL_CALL] block
+- Do NOT use XML tags like <tool_call>, <invoke>, or <function_calls>
+
+## Available tools
+
+- run_command: run a shell command. args: {{"command": "..."}}
+- list_files: list files in a directory. args: {{"path": "."}}
+- read_file: read a file. args: {{"path": "..."}}
+- read_file_range: read part of a file. args: {{"path": "...", "start_line": N, "end_line": N}}
+- write_file: write a file. args: {{"path": "...", "content": "..."}}
+- patch_file: apply a unified diff patch. args: {{"path": "...", "patch": "..."}}
+- git_commit: commit staged changes. args: {{"message": "..."}}
+- web_search: search the web. args: {{"query": "..."}}
+- fetch_url: fetch a URL. args: {{"url": "..."}}
+
+## Guidelines
+
 - Work directly in the project directory
-- Use run_command for shell commands (build, test, lint, etc.)
-- Write clean, idiomatic code in the project's language
-- Commit your work with git_commit when you're done with a change
-- When finished, say TASK_COMPLETE
+- Run commands to build and test your work
+- Commit with git_commit when you finish a change
+- When done, write TASK_COMPLETE on its own line
 
-If the user's request is conversational (a question, explanation, status check),
-just answer it and say TASK_COMPLETE — you don't need to use tools for everything.
+For conversational questions, just answer and write TASK_COMPLETE — no tools needed.
 """
 
 # ── output rendering ──────────────────────────────────────────────────────────
@@ -298,8 +317,11 @@ def _patch_llm_streaming():
         # Show prose — strip all known tool call formats
         clean = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', text, flags=re.DOTALL)
         clean = re.sub(r'<tool_call>.*?</tool_call>', '', clean, flags=re.DOTALL)
-        clean = re.sub(r'\]<\]minimax\[>\[.*?\]<\]minimax\[>\[', '', clean, flags=re.DOTALL)
         clean = re.sub(r'<invoke[^>]*>.*?</invoke>', '', clean, flags=re.DOTALL)
+        # Strip MiniMax bracket-encoded tool tags
+        clean = re.sub(r'\]<\]minimax\[>\[.*?(?:\]<\]minimax\[>\[|$)', '', clean, flags=re.DOTALL)
+        # Strip any remaining [TOOL_CALL] or [/TOOL_CALL] orphan tags
+        clean = re.sub(r'\[/?TOOL_CALL\]', '', clean)
         clean = clean.replace("TASK_COMPLETE", "").strip()
         if clean:
             print(f"\n{cyan('●')} {clean}\n", flush=True)
