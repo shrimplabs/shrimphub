@@ -192,59 +192,99 @@ just answer it and say TASK_COMPLETE — you don't need to use tools for everyth
 
 # ── output rendering ──────────────────────────────────────────────────────────
 
+_TOOL_ICONS = {
+    "run_command":     "$ ",
+    "write_file":      "✎ ",
+    "read_file":       "📄",
+    "patch_file":      "✎ ",
+    "list_files":      "ls",
+    "git_commit":      "✔ ",
+    "git_push":        "↑ ",
+    "web_search":      "🔍",
+    "fetch_url":       "🌐",
+    "read_file_range": "📄",
+}
+
+_CURRENT_LOOP = [0]
+
 def _patch_logging(project_path: Path):
-    """Redirect agent runtime log() to pretty terminal output."""
+    """Redirect agent runtime log() to informative terminal output."""
     import swarm.agent_runtime as rt
 
-    original_log = rt.log if hasattr(rt, "_orig_log") else None
-
     def _pretty_log(msg: str, *args):
-        # Filter out noisy internal lines
-        if any(skip in msg for skip in (
-            "[LLM] cache", "[LLM] routed", "Executing tool:",
-            "Work loop", "Pipeline:", "[Pipeline", "Phase:", "PHASE:",
-        )):
-            # Show tool executions dimly
-            if "Executing tool:" in msg:
-                tool = msg.split("Executing tool:")[-1].strip()
-                print(dim(f"  ⚙ {tool}"), flush=True)
+        # Loop counter
+        m = re.search(r'loop (\d+)/(\d+)', msg, re.IGNORECASE)
+        if m:
+            loop, total = m.group(1), m.group(2)
+            _CURRENT_LOOP[0] = int(loop)
+            print(dim(f"\n─── loop {loop}/{total} ───"), flush=True)
             return
 
-        if "[LLM]" in msg and "provider=" in msg:
-            model = ""
-            m = re.search(r"model=(\S+)", msg)
-            if m:
-                model = m.group(1)
+        # Tool execution
+        if "Executing tool:" in msg:
+            tool = msg.split("Executing tool:")[-1].strip()
+            icon = _TOOL_ICONS.get(tool, "⚙ ")
+            print(f"  {cyan(icon)} {bold(tool)}", end="  ", flush=True)
+            return
+
+        # Thinking blocks
+        if "[LLM] thinking:" in msg:
+            thought = msg.split("[LLM] thinking:")[-1].strip()
+            if len(thought) > 100:
+                thought = thought[:100] + "…"
+            print(dim(f"  💭 {thought}"), flush=True)
+            return
+
+        # LLM call — show model
+        if "[LLM] provider=" in msg:
+            m2 = re.search(r'model=(\S+)', msg)
+            model = m2.group(1) if m2 else "?"
             print(dim(f"  🦐 {model}"), flush=True)
+            return
+
+        # Warnings / special events
+        if "WARNING" in msg or "nudging" in msg:
+            print(yellow(f"  ⚠  {msg.strip()}"), flush=True)
             return
 
         if msg.startswith("[") and "]" in msg:
             tag = msg[1:msg.index("]")]
             body = msg[msg.index("]")+1:].strip()
-            if tag in ("WrapUp", "Stall", "Meta", "VisionCap", "Hint"):
+            if tag in ("WrapUp", "Stall", "Meta", "Hint"):
                 print(yellow(f"  [{tag}] {body}"), flush=True)
-                return
-
-        # LLM response text — print as-is
-        if not msg.startswith("["):
-            print(msg, flush=True)
+            # suppress other internal tags
             return
+
+        # Plain prose from agent
+        if msg.strip() and not msg.startswith("["):
+            print(msg, flush=True)
 
     rt.log = _pretty_log
 
-def _stream_response(response_text: str):
-    """Print LLM response, stripping tool call blocks."""
-    # Remove [TOOL_CALL]...[/TOOL_CALL] blocks
-    clean = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', response_text, flags=re.DOTALL)
-    clean = re.sub(r'<tool_call>.*?</tool_call>', '', clean, flags=re.DOTALL)
-    clean = clean.strip()
-    if clean and clean != "TASK_COMPLETE":
-        print(f"\n{cyan('●')} {clean}\n", flush=True)
 
-# ── intercept LLM responses for streaming ────────────────────────────────────
+def _format_tool_call_display(text: str):
+    """Show tool calls with key args before execution."""
+    calls = re.findall(r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]', text, re.DOTALL)
+    for raw in calls:
+        try:
+            import json as _json
+            tc = _json.loads(raw.strip())
+            tool = tc.get("tool", "?")
+            args = tc.get("args", {})
+            key_arg = ""
+            for k in ("command", "path", "message", "query", "url", "filename"):
+                if k in args:
+                    val = str(args[k])[:60]
+                    key_arg = f" {dim(val)}"
+                    break
+            icon = _TOOL_ICONS.get(tool, "⚙ ")
+            print(f"  {cyan(icon)} {bold(tool)}{key_arg}", flush=True)
+        except Exception:
+            pass
+
 
 def _patch_llm_streaming():
-    """Wrap call_llm to print assistant responses as they arrive."""
+    """Wrap call_llm to show prose and tool calls as they arrive."""
     import swarm.llm_utils as lu
 
     _orig = lu.call_llm
@@ -252,7 +292,16 @@ def _patch_llm_streaming():
     def _wrapped(sys_prompt, messages, provider=None):
         result = _orig(sys_prompt, messages, provider=provider)
         text = result[0] if isinstance(result, tuple) else result
-        _stream_response(text)
+
+        _format_tool_call_display(text)
+
+        # Show prose
+        clean = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', text, flags=re.DOTALL)
+        clean = re.sub(r'<tool_call>.*?</tool_call>', '', clean, flags=re.DOTALL)
+        clean = clean.replace("TASK_COMPLETE", "").strip()
+        if clean:
+            print(f"\n{cyan('●')} {clean}\n", flush=True)
+
         return result
 
     lu.call_llm = _wrapped
