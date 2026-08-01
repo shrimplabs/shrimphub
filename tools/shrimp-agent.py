@@ -22,9 +22,42 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
+
+# ── heartbeat ─────────────────────────────────────────────────────────────────
+
+class Heartbeat:
+    """Prints a 'still working' line every N seconds of silence."""
+
+    def __init__(self, interval: int = 30):
+        self._interval = interval
+        self._last = time.time()
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def ping(self):
+        """Call whenever real output is printed to reset the timer."""
+        self._last = time.time()
+
+    def start(self):
+        self._t.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        while not self._stop.wait(5):
+            if time.time() - self._last >= self._interval:
+                loop = _CURRENT_LOOP[0]
+                print(dim(f"  ⏳ still working... (loop {loop})"), flush=True)
+                self._last = time.time()
+
+
+_HEARTBEAT: Heartbeat | None = None
 
 _ANSI_ESCAPE = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
@@ -236,6 +269,8 @@ def _patch_logging(project_path: Path):
         if m:
             loop, total = m.group(1), m.group(2)
             _CURRENT_LOOP[0] = int(loop)
+            if _HEARTBEAT:
+                _HEARTBEAT.ping()
             print(dim(f"\n─── loop {loop}/{total} ───"), flush=True)
             return
 
@@ -314,6 +349,8 @@ def _patch_llm_streaming():
 
         _format_tool_call_display(text)
 
+        if _HEARTBEAT:
+            _HEARTBEAT.ping()
         # Show prose — strip all known tool call formats
         clean = re.sub(r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', text, flags=re.DOTALL)
         clean = re.sub(r'<tool_call>.*?</tool_call>', '', clean, flags=re.DOTALL)
@@ -333,11 +370,13 @@ def _patch_llm_streaming():
 # ── one-shot task runner ──────────────────────────────────────────────────────
 
 def run_task(description: str, project_path: Path, provider: str, config: dict) -> int:
+    global _HEARTBEAT
     import swarm.agent_runtime as rt
 
     _setup_runtime(project_path, provider, description, config)
     _patch_logging(project_path)
     _patch_llm_streaming()
+    _HEARTBEAT = Heartbeat(interval=30).start()
 
     # Override the system/user prompts that main() would pick for "feature" type
     sys_prompt = _SYSTEM_PROMPT.format(project_path=project_path)
@@ -361,6 +400,9 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
         print(f"\n{red('error:')} {e}", flush=True)
         traceback.print_exc()
         exit_code = 1
+    finally:
+        _HEARTBEAT.stop()
+        _HEARTBEAT = None
 
     return exit_code
 
