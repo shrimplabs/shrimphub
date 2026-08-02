@@ -294,6 +294,7 @@ Setting explicit pipelines in `config.json` takes priority over the
 
 ## Related
 
+- [Adaptive Flat](adaptive-flat.md) — deep dive into how the interception mechanism works, routing decisions, stats, and known limitations
 - [Snapshots and Clones](snapshots-and-clones.md) — running pipeline A/B experiments across project clones
 - [task-pipeline-architecture.md](task-pipeline-architecture.md) — original design rationale for the phase model
 - `swarm_runner.py` lines 958–1030 — full resolution logic
