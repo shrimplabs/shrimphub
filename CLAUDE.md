@@ -402,6 +402,7 @@ Meta-agents are background agents that maintain and improve the swarm itself. Th
 | `minimax_base_url` | MiniMax default | Override MiniMax API endpoint |
 | `disable_remote_repo` | `true` | Set `false` to enable Gitea repo provisioning in the wizard |
 | `login_required` | `false` | Set `true` to enable session auth (API open to network by default) |
+| `adaptive_flat` | `true` | Route each LLM call to fast/strong provider based on tool type (read-only → fast, write/commit → strong). Toggle live via `POST /api/adaptive-flat`. Set `false` to revert to phase-based pipelines. |
 | `auto_scale` | `false` | Dynamically adjust `max_active_agents` based on 429 rate-limit responses |
 | `spawn_per_cycle` | `1` | Max agents to spawn per monitor fill cycle |
 | `use_worktrees` | `true` | Run validation in git worktrees (isolated from main) |

@@ -283,7 +283,7 @@ PHASE_LOOP_LIMITS: dict = {}   # optional per-phase loop overrides, e.g. {"plan"
 
 # EXPERIMENT: adaptive_flat keeps the legacy continuous transcript but routes
 # individual loops between fast and strong providers based on recent tool use.
-ADAPTIVE_FLAT: bool = True  # run-12 policy: adaptive flat is the default for all tasks
+ADAPTIVE_FLAT: bool = False  # overridden per-task by wrapper script; set via config.json "adaptive_flat"
 LOOP_MODEL_ROUTING: dict = {}
 
 # Write-blocked tools during scout phase -- enforced at dispatch level.

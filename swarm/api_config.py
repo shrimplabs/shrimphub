@@ -479,6 +479,29 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
         return jsonify({"ok": True, **updated})
 
     # ---------- Event Bus ----------
+    # ---------- Adaptive Flat ----------
+    @app.route("/api/adaptive-flat", methods=["GET"])
+    def get_adaptive_flat():
+        return jsonify({"enabled": bool(config.get("adaptive_flat", True))})
+
+    @app.route("/api/adaptive-flat", methods=["POST"])
+    def set_adaptive_flat():
+        import swarm.agent_runtime as _rt
+        body = request.get_json(silent=True) or {}
+        enabled = bool(body.get("enabled", True))
+        config["adaptive_flat"] = enabled
+        _rt.ADAPTIVE_FLAT = enabled
+        config_file = data_dir.parent / "config.json"
+        if config_file.exists():
+            try:
+                cfg = json.loads(config_file.read_text())
+            except Exception:
+                cfg = {}
+            cfg["adaptive_flat"] = enabled
+            config_file.write_text(json.dumps(cfg, indent=2) + "\n")
+        print(f"[Config] adaptive_flat={enabled}")
+        return jsonify({"ok": True, "enabled": enabled})
+
     @app.route("/api/event-bus", methods=["GET"])
     def get_event_bus():
         from swarm.events import bus as _eb

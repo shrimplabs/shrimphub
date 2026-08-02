@@ -239,6 +239,27 @@ Task-level metadata keys:
 
 ---
 
+## Toggling adaptive flat
+
+Adaptive flat is controlled by `"adaptive_flat"` in `config.json` (default `true`). Toggle it live without restarting:
+
+```bash
+# Disable globally
+curl -X POST http://localhost:5001/api/adaptive-flat \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+
+# Re-enable
+curl -X POST http://localhost:5001/api/adaptive-flat \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# Check current state
+curl http://localhost:5001/api/adaptive-flat
+```
+
+The change takes effect for the next agent spawned — running agents are not affected.
+
 ## Disabling adaptive flat (reverting to phase-based)
 
 Adaptive flat is the current system default. To disable it globally and use

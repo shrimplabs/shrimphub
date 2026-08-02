@@ -977,10 +977,13 @@ def generate_task_script(task: dict) -> str:
     _project_experiment_cfg = _project_pipeline_cfg.get("_experiment", {}) if isinstance(_project_pipeline_cfg.get("_experiment", {}), dict) else {}
     _metadata_pipeline_mode = str(metadata.get("pipeline_mode") or metadata.get("experiment_pipeline_mode") or "")
     _project_pipeline_mode = str(_project_experiment_cfg.get("pipeline_mode") or _project_pipeline_cfg.get("_pipeline_mode") or "")
+    _global_adaptive_flat = bool(_config.get("adaptive_flat", True))  # default on; set false in config.json to disable
+    _explicit_non_flat = _metadata_pipeline_mode in ("fixed", "flat", "phase") or _project_pipeline_mode in ("fixed", "flat", "phase")
     adaptive_flat_enabled = bool(
         metadata.get("adaptive_flat")
         or _metadata_pipeline_mode == "adaptive_flat"
         or _project_pipeline_mode == "adaptive_flat"
+        or (_global_adaptive_flat and not _explicit_non_flat)
     )
     _global_loop_model_routing = _config.get("loop_model_routing", {}) if isinstance(_config.get("loop_model_routing", {}), dict) else {}
     _project_loop_model_routing = _project_pipeline_cfg.get("_loop_model_routing", {}) if isinstance(_project_pipeline_cfg.get("_loop_model_routing", {}), dict) else {}
