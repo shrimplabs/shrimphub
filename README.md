@@ -521,6 +521,8 @@ pytest tests/test_dashboard.py
 
 ## Architecture Notes
 
+- [Snapshots and Clones](docs/snapshots-and-clones.md) — save/restore/fork project task graphs; the mechanism behind pipeline experiments
+- [Game Test Harness](docs/game_test_harness_spec.md) — StateServer (port 11009) and TestHarness checkpoint protocol (port 11010); QA agent types
 - [Plugin System](docs/plugin_system.md) — full schema reference, context providers, worked example
 - [Controller Integrity Model](docs/controller_integrity_model.md) — invariants, branch continuity, state ownership
 - [Controller Integrity Health Model](docs/controller_integrity_health_model.md) — reading diagnostics, dashboard signals, repair actions
