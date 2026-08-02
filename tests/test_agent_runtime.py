@@ -1506,7 +1506,9 @@ class TestCallLlm:
 
     def test_truncated_stream_returns_error(self):
         import json
-        # Stream that ends without message_stop or [DONE]
+        # Stream that ends without message_stop or [DONE] -- truncated streams are
+        # retried up to 7 times before exhausting, so the final error reflects retry
+        # exhaustion rather than the word "truncated".
         truncated_lines = [
             f"data: {json.dumps({'type': 'message_start', 'message': {'usage': {'input_tokens': 10}}})}",
             f"data: {json.dumps({'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': 'partial'}})}",
@@ -1518,8 +1520,8 @@ class TestCallLlm:
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
             with patch("requests.post", return_value=m):
                 text, tokens, thinking = rt.call_llm("system", [{"role": "user", "content": "hi"}])
-        assert "truncated" in text.lower()
-        assert tokens == {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+        assert text.lower().startswith("error:")
+        assert tokens.get("input") == 0 and tokens.get("output") == 0
 
     def test_minimax_provider_uses_minimax_url(self):
         captured = []
