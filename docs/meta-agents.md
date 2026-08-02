@@ -1,8 +1,8 @@
-# Meta-Agent Design Document
+# Meta-Agent Reference
 
 Meta-agents are scheduled agents that operate across the entire swarm rather than on a single project. They form an observability and self-improvement layer on top of the standard agent pool. Each meta-agent has read access to all projects and limited write access (task creation only — no direct code edits to projects outside their designated scope).
 
-The first meta-agent, the **Gardener**, is already implemented. This document covers the full planned suite.
+All meta-agents are **off by default** and are gated by the global `meta_mode_enabled` flag. Enable individually via `config.json`.
 
 ---
 
@@ -13,11 +13,11 @@ Standard agents       → one project, one task, write code
 ────────────────────────────────────────────────────────
 Meta-agents           → all projects, read + create tasks
   Gardener            → cross-project pattern detection     [IMPLEMENTED]
-  Librarian           → prompt quality feedback loop        [PLANNED]
-  Archaeologist       → dead project resurrection           [PLANNED]
-  Cartographer        → project health narrative            [PLANNED]
-  Auditor             → systemic code quality               [PLANNED]
-  Scheduler           → load balancing + prioritisation     [PLANNED]
+  Librarian           → prompt quality feedback loop        [IMPLEMENTED]
+  Archaeologist       → stall detection + unblock tasks     [IMPLEMENTED]
+  Cartographer        → project health narrative            [IMPLEMENTED]
+  Meta-auditor        → systemic code quality / drift       [IMPLEMENTED]
+  Scheduler           → time-based periodic task creation   [IMPLEMENTED]
 ```
 
 ---
@@ -69,7 +69,7 @@ Meta-agents           → all projects, read + create tasks
 
 ## Librarian — Prompt Quality Feedback Loop
 
-**Status:** Planned
+**Status:** Implemented (`swarm/api_librarian.py`, `prompts/librarian.yaml`)
 
 **Role:** Close the feedback loop between agent behavior in the field and the prompt files that drive them. Reads task failure histories, identifies where agents consistently misunderstand instructions or make the same mistakes, and proposes specific prompt edits as tasks.
 
@@ -117,9 +117,9 @@ Meta-agents           → all projects, read + create tasks
 
 ---
 
-## Archaeologist — Dead Project Resurrection
+## Archaeologist — Stall Detection and Recovery
 
-**Status:** Planned
+**Status:** Implemented (`swarm/api_archaeologist.py`, `prompts/archaeologist.yaml`)
 
 **Role:** Investigate projects that have gone silent and produce a recovery plan. Where the Gardener looks for patterns across many projects, the Archaeologist goes deep on one specific dead or stalled project and figures out what happened, what the current state is, and what it would take to continue.
 
@@ -168,7 +168,7 @@ Meta-agents           → all projects, read + create tasks
 
 ## Cartographer — Project Health Narrative
 
-**Status:** Planned
+**Status:** Implemented (`swarm/api_cartographer.py`, `prompts/cartographer.yaml`)
 
 **Role:** Maintain a live, human-readable map of the entire swarm's state. Goes beyond the numeric health score to produce narrative descriptions of what each project is doing, where it's stuck, and how long it's been in that state. Both the dashboard and other meta-agents consume this.
 
@@ -215,11 +215,11 @@ after next 6 completions. No known issues.
 
 ---
 
-## Auditor — Systemic Code Quality
+## Meta-Auditor — Systemic Code Quality
 
-**Status:** Planned (distinct from the per-project `audit` task type)
+**Status:** Implemented (`swarm/api_meta_auditor.py`, `prompts/meta_auditor.yaml`)
 
-**Role:** The existing `audit` task type runs on a single project every 20 completions and looks for code quality issues within that project. The meta-Auditor looks *across* all projects for systemic issues — structural problems that affect many projects because they share a common origin, template, or pattern.
+**Role:** The existing `audit` task type runs on-demand for a single project. The meta-Auditor looks *across* all projects for systemic issues — structural problems that affect many projects because they share a common origin, template, or pattern.
 
 **The problem it solves:** When a template file (e.g. `state_server.gd`) has a bug, every project that copied it has the same bug. Per-project audits find it in each project independently and create N identical fix tasks. The meta-Auditor finds it once and creates N coordinated fix tasks with correct dependency ordering.
 
@@ -252,11 +252,11 @@ after next 6 completions. No known issues.
 
 ---
 
-## Scheduler — Load Balancing and Prioritisation
+## Scheduler — Periodic Task Creation
 
-**Status:** Planned
+**Status:** Implemented (`swarm/api_scheduler.py`)
 
-**Role:** Observe the current task queue, agent slot usage, project priorities, and external signals (time of day, quota pressure, recent failures), then recommend or directly adjust which projects are active/paused and what the agent ceiling should be.
+**Role:** Creates tasks for projects on a configured time-based schedule. Distinct from the orchestrator's slot-filling logic — the Scheduler fires specific task types at specific intervals regardless of queue depth.
 
 **The problem it solves:** The current system fills slots naively (least-recently-worked project gets the next agent). It doesn't know that running 20 feature agents and 5 QA agents simultaneously causes rate limit pressure, or that a project with a demo tomorrow should get priority, or that 3am is a good time to run expensive research tasks.
 
@@ -298,18 +298,18 @@ after next 6 completions. No known issues.
 
 ---
 
-## Implementation Priority
+## Implementation Status
 
-| Agent | Value | Complexity | Recommended order |
-|---|---|---|---|
-| Gardener | High — compounds over time | Medium | ✅ Done |
-| Librarian | High — improves all agents | Medium | 2 |
-| Cartographer | Medium — context for others | Low | 3 |
-| Archaeologist | High — recovers lost work | Medium | 4 |
-| Auditor | Medium — catches systemic drift | Medium | 5 |
-| Scheduler | Medium — efficiency gains | High | 6 |
+| Agent | Status | Config key |
+|---|---|---|
+| Gardener | ✅ Implemented | `gardener_enabled` |
+| Librarian | ✅ Implemented | `librarian_enabled` |
+| Cartographer | ✅ Implemented | `cartographer_enabled` |
+| Archaeologist | ✅ Implemented | `archaeologist_enabled` |
+| Meta-auditor | ✅ Implemented | `meta_auditor_*` |
+| Scheduler | ✅ Implemented | `scheduler_enabled` |
 
-The Librarian and Cartographer are highest priority after the Gardener. The Librarian's improvements compound — every prompt improvement makes every subsequent agent run better. The Cartographer is low complexity and provides context that makes the Archaeologist and Gardener more effective.
+All meta-agents require `meta_mode_enabled: true` in `config.json` as a master gate.
 
 ---
 

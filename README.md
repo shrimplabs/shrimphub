@@ -22,7 +22,8 @@ Point it at a workspace full of projects, give it API keys, and it autonomously 
 - **Harness QA** — deterministic checkpoint testing via `TestHarness` autoload; no vision model needed
 - **Scenario QA** — compiled JSON scenario files that replay end-to-end user flows; near-zero cost after the first run
 - **Art pass agents** — replace placeholder assets, wire up icons and sprites, screenshot-verify improvements
-- **Auto-QA** — Godot projects automatically receive a QA task every 8 completions; audit every 20
+- **Auto-QA** — Godot projects automatically receive a QA task every 8 completions
+- **Auto-replan** — per-project opt-in that spawns a `project_plan` when the task queue empties
 - **Context compaction** — long agent conversations are summarised mid-run to stay within provider context windows
 - **Stall detection** — if an agent repeats the same tool call 3× identically, a redirect prompt is injected automatically
 - **Real-time dashboard** — live agent log streaming via SSE, dependency graph with minimap, per-project health metrics, token tracking
@@ -240,6 +241,7 @@ Register a custom provider at runtime via `POST /api/provider`:
 | `research` | 50 | Read-only investigation; produces findings injected into the task that requested it |
 | `plan` | 50 | Read-only planner — write-blocked; creates tasks as its deliverable |
 | `project_plan` | 50 | Godot sprint planner — reads `GAME_DESIGN.md`, creates a full dependency-ordered task DAG |
+| `playthrough_bot` | 50 | Builds a deterministic zero-LLM completion bot for a game |
 | `audit` | 50 | Code quality audit |
 | `triage` | 50 | Issue triage — files bug tasks, writes `TRIAGE_REPORT.md` |
 
@@ -321,7 +323,26 @@ Open **http://localhost:5001**
 - **Kill / Kill All** — stop individual agents or all at once with confirm dialog
 - **New Project wizard** — conversational scaffolding that plans a full task graph and bootstraps a git repo
 
-## CLI (`swarm-code`)
+## CLI Tools
+
+### `shrimp-agent` — interactive local coding agent
+
+Think Claude Code, but powered by your own LLMs. Wraps `swarm/agent_runtime.py` directly — same tool loop, same providers, same stall detection as background agents, but interactive. No Flask or SQLite required.
+
+```bash
+# Interactive REPL in current directory
+python3 tools/shrimp-agent.py
+
+# One-shot task, exits when done
+python3 tools/shrimp-agent.py "add a high score screen"
+
+# Override provider or working directory
+python3 tools/shrimp-agent.py --provider claude --dir ~/workspace/my-game
+```
+
+REPL commands: `/clear`, `/provider`, `/exit`. Pairs well with [shrimpterm](http://geoduck.local:3000/dewdrops-games/ShrimpTerm) for mobile use.
+
+### `swarm-code` — swarm API CLI
 
 `tools/swarm-code.py` is a standalone terminal harness for the swarm API. No extra dependencies — stdlib only.
 
@@ -450,6 +471,21 @@ StateServer commands over TCP port 11009:
 | `{"command":"input","type":"click","x":N,"y":N}` | Inject mouse click |
 | `{"command":"press_button","id":"start"}` | Fire button by `qa_label` metadata or node name |
 | `{"command":"a11y_tree"}` | Flat list of all visible interactive elements |
+
+## Meta-Agents
+
+Meta-agents run on a schedule and operate across the whole swarm rather than on one project. All are **off by default** — enable individually in `config.json`. All are gated by `meta_mode_enabled`.
+
+| Agent | Config key | What it does |
+|-------|-----------|--------------|
+| **Gardener** | `gardener_enabled` | Surveys all projects, detects cross-project failure patterns, creates fix tasks, maintains `data/SWARM_KNOWLEDGE.md` |
+| **Librarian** | `librarian_enabled` | Reads agent failure histories, proposes targeted prompt edits as refactor tasks (or applies them directly if `librarian_autonomous_edits: true`) |
+| **Cartographer** | `cartographer_enabled` | Writes a narrative health map (`data/PROJECT_MAP.md`) every N hours; consumed by dashboard and other meta-agents |
+| **Archaeologist** | `archaeologist_enabled` | Detects stalled projects (no progress in 72h+), diagnoses root cause, creates an unblock task DAG |
+| **Scheduler** | `scheduler_enabled` | Creates periodic tasks for projects on a time-based schedule |
+| **Meta-auditor** | `meta_auditor_*` | Cross-project audit: flags systemic quality regressions and template drift |
+
+Enable all at once with `"meta_mode_enabled": true` and the individual `*_enabled` keys. See [docs/meta-agents.md](docs/meta-agents.md) for full config reference.
 
 ## MCP Integration
 

@@ -1,13 +1,13 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents (Claude Code, Codex, etc.) when working with code in this repository.
 
 ## What This Is
 
 Swarm Controller is a modular agent orchestration system. It spawns LLM-powered subprocesses to build, refactor, and maintain multiple code projects (Godot, Python, TypeScript, Swift/iOS, Unity, Rust, Go, C++, C#). Key properties:
 
 - SQLite-backed state (WAL mode, thread-safe)
-- Multiple LLM providers: Minimax, Codex, OpenRouter, Kimi, custom
+- Multiple LLM providers: Minimax, Claude, OpenRouter, Kimi, custom
 - Automatic task retry with failure context fed back into prompts
 - Research feeder escalation: on attempt exhaustion a research task is spawned, feeds diagnosis back into the original task (no reparenting — original task stays the dep-graph node)
 - Dependency self-healing: chains unblock when pruned-failed deps are detected

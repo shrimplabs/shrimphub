@@ -16,7 +16,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Loop stall detection: injects a redirect prompt when the same tool call repeats 3× identically
 - Token tracking: input/output tokens recorded per agent, visible in dashboard
 - Auto-QA: Godot projects automatically receive a QA task every 8 completions
-- Auto-audit: Godot projects receive an audit task every 20 completions
+- Auto-audit: cross-project auditing handled by the meta-auditor meta-agent (`api_meta_auditor.py`); per-project `audit` tasks can be created manually or by the Gardener
 - Auto-replan: per-project opt-in toggle that spawns `project_plan` when a project's task queue empties
 - Context compaction: long agent conversations are summarised mid-run to reduce token usage; threshold is 120k estimated tokens (~80k buffer before MiniMax's 200k window)
 - Jitter: random 0.5-3 s sleep before every LLM call to spread RPM load
@@ -672,7 +672,7 @@ Failure → `_spawn_validation_bug_task()` creates a priority-100 bug task.
 
 After every `QA_AUTO_THRESHOLD` (default: 8) successful task completions on a Godot project, `_finish_agent()` automatically creates a `qa` task (priority 75). Detection uses `project.godot` presence -- Python/other projects are never auto-QA'd. Won't double-spawn if a QA task is already pending or in-progress for that project.
 
-After every `AUDIT_AUTO_THRESHOLD` (default: 20) completions, an `audit` task is similarly auto-spawned.
+Cross-project auditing is handled by the **meta-auditor** meta-agent (`swarm/api_meta_auditor.py`) on a configurable schedule — not a per-completion threshold. Enable with `meta_auditor_*` config keys.
 
 ### QA Cycle Cap
 
