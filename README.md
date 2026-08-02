@@ -521,6 +521,7 @@ pytest tests/test_dashboard.py
 
 ## Architecture Notes
 
+- [Playthrough Bot](docs/playthrough-bot.md) — deterministic zero-LLM game completion bots; `playthrough_kit.py` scaffold, per-project bot authoring, milestone ladder, closure wiring
 - [Snapshots and Clones](docs/snapshots-and-clones.md) — save/restore/fork project task graphs; the mechanism behind pipeline experiments
 - [Game Test Harness](docs/game_test_harness_spec.md) — StateServer (port 11009) and TestHarness checkpoint protocol (port 11010); QA agent types
 - [Plugin System](docs/plugin_system.md) — full schema reference, context providers, worked example
