@@ -119,6 +119,18 @@ if not resolved:
 # Run a single probe
 # ---------------------------------------------------------------------------
 
+def run_reset(reset_cmd: str, proj_dir: str, name: str) -> None:
+    """Run a reset command in proj_dir before each probe run."""
+    import shlex
+    print(f"  RESET  {name:<30}  {reset_cmd}")
+    result = subprocess.run(
+        shlex.split(reset_cmd), cwd=proj_dir,
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"  WARN: reset command failed (rc={result.returncode}): {result.stderr.strip()}")
+
+
 def run_probe(cfg: dict) -> dict:
     name     = cfg["name"]
     pipeline = cfg["pipeline"]
@@ -128,6 +140,10 @@ def run_probe(cfg: dict) -> dict:
     provider = cfg.get("provider")
     json_out = str(out_dir / f"{name}.json")
     log_out  = str(out_dir / f"{name}.log")
+
+    reset_cmd = cfg.get("reset_cmd") or defaults.get("reset_cmd")
+    if reset_cmd and not args.dry_run:
+        run_reset(reset_cmd, proj_dir, name)
 
     cmd = [
         str(PYTHON), str(PROBE),
@@ -202,10 +218,17 @@ if args.dry_run:
     sys.exit(0)
 
 results = []
-with ThreadPoolExecutor(max_workers=args.parallel) as ex:
-    futures = {ex.submit(run_probe, cfg): cfg["name"] for cfg in resolved}
-    for fut in as_completed(futures):
-        results.append(fut.result())
+needs_reset = any(cfg.get("reset_cmd") or defaults.get("reset_cmd") for cfg in resolved)
+if needs_reset:
+    # reset_cmd requires sequential execution — parallel runs on the same repo corrupt each other
+    print("Note: reset_cmd set — forcing sequential execution (parallel ignored)")
+    for cfg in resolved:
+        results.append(run_probe(cfg))
+else:
+    with ThreadPoolExecutor(max_workers=args.parallel) as ex:
+        futures = {ex.submit(run_probe, cfg): cfg["name"] for cfg in resolved}
+        for fut in as_completed(futures):
+            results.append(fut.result())
 
 # Sort by original order
 name_order = {cfg["name"]: i for i, cfg in enumerate(resolved)}

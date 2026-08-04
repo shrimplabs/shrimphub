@@ -1,0 +1,50 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/classic-snake",
+    "type": "art_pass",
+    "provider": "minimax",
+    "reset_cmd": "git checkout -- assets/ icon.svg"
+  },
+  "runs": [
+    {
+      "name": "A1-work-only",
+      "pipeline": "work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "A2-work-only",
+      "pipeline": "work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "B1-diagnose-work",
+      "pipeline": "diagnose->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "B2-diagnose-work",
+      "pipeline": "diagnose->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "C1-scout-work",
+      "pipeline": "scout->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "C2-scout-work",
+      "pipeline": "scout->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "D1-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    },
+    {
+      "name": "D2-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work",
+      "task": "Art pass: improve the visual quality of classic-snake. The snake head, body segments, food apple, and background tile all use basic SVG placeholder art. Replace or improve them with more polished visuals that match a clean retro-arcade aesthetic: the snake should have a distinct head shape and segmented body, the food should look like a bright apple or berry, and the background tile should be a subtle dark grid. Keep all assets as SVGs committed to assets/sprites/. Do not change any game logic."
+    }
+  ]
+}
