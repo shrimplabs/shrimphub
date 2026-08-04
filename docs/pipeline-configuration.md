@@ -37,12 +37,14 @@ If no override is set, these defaults apply:
 
 | Task type | Default pipeline |
 |-----------|-----------------|
-| `feature` | `scout → work → validate` |
-| `bug` | `scout → work → validate` |
-| `polish` | `scout → work → validate` |
+| `feature` | `diagnose → work → validate` |
+| `bug` | `work → validate` |
+| `polish` | `work → validate` |
 | `art_pass` | `work → validate` |
-| `refactor` | `scout → plan → work → validate` |
+| `refactor` | `diagnose → work → validate` |
 | everything else | `[]` (flat loop, no phases) |
+
+Defaults are based on pipeline probe research (batches 1–9, July 2026). Key results: `diagnose→work` beat `scout→work` on features (4m vs 12m, no hallucination); `work`-only is fastest for well-described bugs; `plan→scout→work` hallucinated 2/2 on features and is explicitly avoided. See [pipeline-probe-findings-2026-07.md](experiment-designs/pipeline-probe-findings-2026-07.md) for the full data.
 
 As of run-12, **adaptive flat** is the system-wide default for all tasks
 (`ADAPTIVE_FLAT = True` in `swarm/agent_runtime.py`). The phase-based

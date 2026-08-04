@@ -1012,15 +1012,19 @@ def generate_task_script(task: dict) -> str:
         if _flat_provider:
             _effective_llm_provider = _flat_provider
     else:
-        # Default pipelines by task type (WS2): Variant C (scout→work→validate)
-        # is the default for implementation task types. Larger refactor tasks
-        # get an extra plan phase. Explicitly configured pipelines always win.
+        # Default pipelines by task type — based on pipeline probe research (batches 1-9,
+        # docs/pipeline-probe-findings-2026-07.md). Key findings:
+        # - feature: diagnose→work beats scout→work (4m vs 12m, no hallucination risk)
+        # - bug: work-only is fastest for well-described bugs; diagnose adds latency
+        # - refactor: diagnose→work predicted to win (same structure as features)
+        # - polish/art_pass: work-only sufficient (narrow scope, codebase context not critical)
+        # - plan→scout→work (D-shape) hallucinated 2/2 on features — explicitly avoided
         _DEFAULT_PIPELINES: dict = {
-            "feature":  ["scout", "work", "validate"],
-            "bug":      ["scout", "work", "validate"],
-            "polish":   ["scout", "work", "validate"],
+            "feature":  ["diagnose", "work", "validate"],
+            "bug":      ["work", "validate"],
+            "polish":   ["work", "validate"],
             "art_pass": ["work", "validate"],
-            "refactor": ["scout", "plan", "work", "validate"],
+            "refactor": ["diagnose", "work", "validate"],
         }
         pipeline = (_pipeline_from_metadata
                     or _project_pipeline_override
