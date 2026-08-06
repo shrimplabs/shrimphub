@@ -248,6 +248,22 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
         except Exception:
             prompt_warnings = []
         repo_commit = _current_repo_commit()
+        # Expose frozen handle state so quota-freeze leaks are visible before
+        # they become multi-day idle incidents.
+        try:
+            from swarm.agent_lifecycle import _active_handles, _handle_lock
+            _now = time.time()
+            with _handle_lock:
+                frozen = [
+                    (aid, _now - data.get("freeze_started", _now))
+                    for aid, data in _active_handles.items()
+                    if data.get("freeze_started")
+                ]
+            frozen_handles = len(frozen)
+            frozen_max_age_seconds = round(max((age for _, age in frozen), default=0), 1)
+        except Exception:
+            frozen_handles = 0
+            frozen_max_age_seconds = 0
         return jsonify({
             "status": "ok",
             "monitor_alive": monitor_thread.is_alive(),
@@ -259,6 +275,8 @@ def register_routes(app, agent_tracker, orchestrator, db, data_dir, _last_monito
             "running_commit": running_commit,
             "repo_commit": repo_commit,
             "code_stale": bool(running_commit and repo_commit and running_commit != repo_commit),
+            "frozen_handles": frozen_handles,
+            "frozen_max_age_seconds": frozen_max_age_seconds,
             "shrimp_router": _check_shrimp_router(),
             "circuit_breaker": {
                 "open": orchestrator._circuit_breaker["open"],

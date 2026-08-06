@@ -636,14 +636,24 @@ def check_agent_status() -> List[threading.Thread]:
     _lazy_imports()
 
     now = time.time()
+    # Absolute deadline: 4× AGENT_TIMEOUT (default 8 h). A handle older than
+    # this is a zombie regardless of freeze_started — quota freeze can't last
+    # days. Protects against freeze_started leaking and exempting a handle from
+    # the normal watchdog forever (root cause of the 13-day idle incident).
+    _ZOMBIE_DEADLINE = max(AGENT_TIMEOUT * 4, 28800)  # min 8 h
     with _handle_lock:
         finished = []
         timed_out = []
         for agent_id, data in list(_active_handles.items()):
             exit_code = data["process"].poll()
+            age = now - data["started"]
             if exit_code is not None:
                 finished.append((agent_id, exit_code, data))
-            elif AGENT_TIMEOUT > 0 and not data.get("freeze_started") and now - data["started"] > AGENT_TIMEOUT:
+            elif age > _ZOMBIE_DEADLINE:
+                # Hard absolute deadline — kills even freeze-exempt handles.
+                print(f"[Swarm] Agent {agent_id[:8]} zombie: age={age:.0f}s exceeds absolute deadline {_ZOMBIE_DEADLINE}s — force-killing")
+                timed_out.append((agent_id, data))
+            elif AGENT_TIMEOUT > 0 and not data.get("freeze_started") and age > AGENT_TIMEOUT:
                 timed_out.append((agent_id, data))
 
     finish_threads: List[threading.Thread] = []
