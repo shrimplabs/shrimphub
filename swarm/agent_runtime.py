@@ -16,6 +16,7 @@ Example wrapper:
 """
 
 import json
+import time
 import atexit
 import collections as _collections
 import os
@@ -1112,7 +1113,9 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
                 if first.get("type") == "text":
                     new_content = [{**first, "text": loop_prefix + first["text"]}, *content[1:]]
                     conv_with_prefix[-1] = {**last, "content": new_content}
+        _llm_t0 = time.time()
         response, tokens, thinking_blocks = call_llm(system_with_budget, conv_with_prefix, provider=_active_provider)
+        _llm_elapsed = time.time() - _llm_t0
         if _adaptive_flat_enabled:
             try:
                 import swarm.agent_runtime as _self_mod
@@ -1126,7 +1129,7 @@ Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LI
         _cr = tokens.get("cache_read", 0)
         _cw = tokens.get("cache_write", 0)
         _cache_str = f" cache_read={_cr} cache_write={_cw}" if (_cr or _cw) else ""
-        log(f"[LLM] in={tokens['input']} out={tokens['output']}{_cache_str}")
+        log(f"[LLM] in={tokens['input']} out={tokens['output']}{_cache_str} t={_llm_elapsed:.1f}s")
         # Write live token counts so dashboard can display them without waiting for agent exit
         try:
             _tok_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
