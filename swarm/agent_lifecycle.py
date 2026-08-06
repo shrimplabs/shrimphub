@@ -653,6 +653,12 @@ def check_agent_status() -> List[threading.Thread]:
                 # Hard absolute deadline — kills even freeze-exempt handles.
                 print(f"[Swarm] Agent {agent_id[:8]} zombie: age={age:.0f}s exceeds absolute deadline {_ZOMBIE_DEADLINE}s — force-killing")
                 timed_out.append((agent_id, data))
+            elif data.get("freeze_started") and (now - data["freeze_started"]) > 1800:
+                # Frozen handle that's been stuck for >30 min — likely a leaked
+                # quota-freeze (SIGCONT never sent). Log so the cause is visible
+                # in monitor-errors.jsonl and stdout for post-incident diagnosis.
+                frozen_age = now - data["freeze_started"]
+                print(f"[Swarm] Agent {agent_id[:8]} frozen {frozen_age:.0f}s — possible quota-freeze leak (freeze_started set but SIGCONT never fired)")
             elif AGENT_TIMEOUT > 0 and not data.get("freeze_started") and age > AGENT_TIMEOUT:
                 timed_out.append((agent_id, data))
 

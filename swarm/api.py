@@ -814,6 +814,20 @@ def create_app(
                     continue
                 import traceback
                 traceback.print_exc()
+                # Persist to structured log so monitor errors survive log
+                # rotation and are reviewable after an incident.
+                try:
+                    import json as _json
+                    _merr = {
+                        "ts": time.time(),
+                        "error": type(exc).__name__,
+                        "msg": str(exc),
+                        "tb": traceback.format_exc(),
+                    }
+                    with open(data_dir / "monitor-errors.jsonl", "a") as _mf:
+                        _mf.write(_json.dumps(_merr) + "\n")
+                except Exception:
+                    pass
                 # Sleep briefly and continue -- never let an unhandled exception
                 # (e.g. disk-full OSError during spawn) kill the monitor thread.
                 time.sleep(5)
@@ -1369,6 +1383,19 @@ def create_app(
             print(f"[Startup] WARNING: {_missing} in config but not in registry -- preserving in managed list")
         orchestrator.MANAGED_PROJECTS = sorted(config_managed | registry_managed)
     config["managed_projects"] = orchestrator.MANAGED_PROJECTS
+    # Persist the final resolved list back to config.json so restarts don't lose it.
+    # This is the canonical fix for the "managed_projects drops on restart" bug: the
+    # in-memory config dict is the source of truth during a run, but config.json is what
+    # survives a restart. Without this write, any project registered after the last
+    # explicit POST /api/managed-projects call would be lost on next boot.
+    try:
+        with _config_write_lock:
+            _disk_cfg = json.loads(config_file.read_text()) if config_file.exists() else {}
+            _disk_cfg["managed_projects"] = config["managed_projects"]
+            config_file.write_text(json.dumps(_disk_cfg, indent=2))
+        print(f"[Startup] Persisted {len(config['managed_projects'])} managed projects to config.json")
+    except Exception as _persist_err:
+        print(f"[Startup] WARNING: could not persist managed_projects to config.json: {_persist_err}")
 
     try:
         from swarm.maintenance.file_locks import reconcile_stale_file_locks
