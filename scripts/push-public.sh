@@ -32,12 +32,15 @@ if ! command -v gitleaks &>/dev/null; then
     exit 1
 fi
 
-echo "→ Running gitleaks scan on tracked files..."
-cd "$REPO_ROOT"
-gitleaks detect --config "$REPO_ROOT/.gitleaks.toml" --redact 2>&1
-if [ $? -ne 0 ]; then
+echo "→ Running gitleaks scan on current HEAD (not history)..."
+TMPCHECK=$(mktemp -d)
+git -C "$REPO_ROOT" archive HEAD | tar -x -C "$TMPCHECK"
+gitleaks detect --config "$REPO_ROOT/.gitleaks.toml" --no-git --source "$TMPCHECK" --redact 2>&1
+STATUS=$?
+rm -rf "$TMPCHECK"
+if [ $STATUS -ne 0 ]; then
     echo ""
-    echo "Error: gitleaks found secrets or internal references in tracked files."
+    echo "Error: gitleaks found secrets or internal references in current HEAD."
     echo "Fix the issues above before pushing to GitHub."
     exit 1
 fi
