@@ -257,7 +257,7 @@ working trees exactly as agents left them.
 
 ```bash
 RUN_ID="void-patrol-pipeline-ab-run1-20260606"
-DEST="/Users/costas/workspace/_archive/${RUN_ID}"
+DEST="~/workspace/_archive/${RUN_ID}"
 mkdir -p "$DEST"
 
 for project in \
@@ -268,8 +268,8 @@ for project in \
   void-patrol-variant-d-run1 \
   void-patrol-variant-f-run1
 do
-  if [ -d "/Users/costas/workspace/$project" ]; then
-    mv "/Users/costas/workspace/$project" "$DEST/"
+  if [ -d "~/workspace/$project" ]; then
+    mv "~/workspace/$project" "$DEST/"
   fi
 done
 ```

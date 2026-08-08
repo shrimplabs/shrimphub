@@ -1,5 +1,5 @@
 """
-Tools for submitting jobs to the Athena GPU Scheduler (http://athena.local:8767).
+Tools for submitting jobs to a GPU image scheduler.
 
 Provides two agent-callable functions:
   generate_image(prompt, width, height, steps, cfg, slug)   -> {"ok": True, "path": "/abs/path.png", ...}
@@ -8,6 +8,8 @@ Provides two agent-callable functions:
 Both block until the job reaches succeeded/failed status, then copy the result into
 the calling agent's data directory (data/generated/<job_id>/) so it's accessible
 to subsequent tool calls without knowing the scheduler's results path.
+
+Configure the scheduler URL via the ATHENA_SCHEDULER_URL environment variable.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from typing import Any
 
 import requests
 
-_BASE_URL = os.environ.get("ATHENA_SCHEDULER_URL", "http://athena.local:8767")
+_BASE_URL = os.environ.get("ATHENA_SCHEDULER_URL", "http://localhost:8767")
 _POLL_INTERVAL = 5   # seconds between status polls
 _TIMEOUT = 1200      # 20 min hard cap per job
 
@@ -146,7 +148,7 @@ def generate_3d_asset(
     Convert an image into a 3D asset (.glb) via Trellis2 on the Athena GPU Scheduler.
 
     quality: "draft" (faster, 2k texture) or "high" (32 steps, 4k texture).
-    image_path must be an absolute path readable by the scheduler host (athena.local).
+    image_path must be an absolute path readable by the scheduler host.
 
     Returns {"ok": True, "job_id": "...", "path": "/abs/path/to/model.glb", "files": [...]}
     or      {"ok": False, "error": "...", "job_id": "..."}

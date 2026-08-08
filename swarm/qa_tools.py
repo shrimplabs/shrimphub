@@ -450,10 +450,8 @@ def _reap_stale_godot_for_path(project_path: str) -> list[int]:
             continue
         if "--path" not in line:
             continue
-        # Match either the resolved path or the symlink path. Both
-        # /Users/costas/workspace/marble-mania and
-        # /Users/costas/Documents/Projects/paraxenia/marble-mania
-        # should be treated as the same project.
+        # Match either the resolved path or the symlink path — both the
+        # workspace symlink and the real path should match the same project.
         path_match = False
         for candidate in {project_norm, project_norm_alt}:
             if candidate and candidate in line:

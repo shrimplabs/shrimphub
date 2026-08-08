@@ -1,6 +1,6 @@
 {
   "default": {
-    "dir": "/Users/costas/workspace/rainbow-minesweeper",
+    "dir": "~/workspace/rainbow-minesweeper",
     "type": "feature",
     "provider": "minimax",
     "task": "Add a game timer: show elapsed time in MM:SS format in the HUD during play. When the player wins, save their time to disk (user://best_times.json) keyed by level number and show 'New Best!' if they beat their previous best. The timer should reset on each new game."

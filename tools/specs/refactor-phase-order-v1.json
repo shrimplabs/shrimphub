@@ -1,6 +1,6 @@
 {
   "default": {
-    "dir": "/Users/costas/workspace/tetris-neon",
+    "dir": "~/workspace/tetris-neon",
     "type": "refactor",
     "provider": "minimax",
     "reset_cmd": "git checkout 0d2639d13a05a8262367241e8feee1edf3c6f047 -- ."

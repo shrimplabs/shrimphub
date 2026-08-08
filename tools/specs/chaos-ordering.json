@@ -1,6 +1,6 @@
 {
   "default": {
-    "dir": "/Users/costas/workspace/tetris-neon",
+    "dir": "~/workspace/tetris-neon",
     "type": "feature",
     "provider": "minimax"
   },

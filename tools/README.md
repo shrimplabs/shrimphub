@@ -1,8 +1,7 @@
 # tools/
 
 CLI utilities and test harnesses that ship with swarm-controller. All are
-standalone scripts designed to work from a terminal or over SSH (e.g. via
-[shrimpterm](http://geoduck.local:3000/dewdrops-games/ShrimpTerm)).
+standalone scripts designed to work from a terminal or over SSH.
 
 ---
 
@@ -39,9 +38,7 @@ All providers registered in `config.json` are available.
 **Pair with shrimpterm:** SSH into your mac from your phone, run `shrimp-agent` in any project
 directory — full coding agent in your mobile terminal.
 
-**Related:** [swarm-controller](http://geoduck.local:3000/dewdrops-games/swarm-controller) ·
-[shrimpterm](http://geoduck.local:3000/dewdrops-games/ShrimpTerm) ·
-[shrimp-router](http://geoduck.local:8090) (model load balancer, round-robins MiniMax / Athena / local)
+**Related:** swarm-controller (this repo) · shrimp-router (model load balancer, round-robins across providers)
 
 ---
 
@@ -141,8 +138,7 @@ the same QA pipeline tools (`swarm/qa_tools.py`) as live QA agents.
 .venv/bin/python tools/game_harness.py anti-grav-rush --steps 30 --provider claude
 ```
 
-**Related:** [game-harness research project](http://geoduck.local:3000/dewdrops-games/game-harness)
-(OODA loop research on LLM-controlled game interfaces — orient/decide phases in progress).
+**Related:** game-harness research project (OODA loop research on LLM-controlled game interfaces — orient/decide phases in progress).
 
 ---
 
@@ -193,9 +189,7 @@ python3 tools/swarm-code.py --status
 
 | Component | URL | What it is |
 |-----------|-----|------------|
-| swarm-controller | `http://geoduck.local:3000/dewdrops-games/swarm-controller` | This repo — orchestrator + harnesses |
-| shrimp-router | `http://geoduck.local:8090` | Model load balancer (MiniMax / Athena / local) |
-| shrimpterm | `http://geoduck.local:3000/dewdrops-games/ShrimpTerm` | iOS/tmux SSH terminal |
+| swarm-controller | this repo | Orchestrator + harnesses |
+| shrimp-router | `http://localhost:8090` (configurable) | Model load balancer (round-robins across providers) |
 | swarm dashboard | `http://localhost:5001` | Live agent dashboard |
-| game-harness | `http://geoduck.local:3000/dewdrops-games/game-harness` | QA/OODA loop research |
-| Athena (local GPU) | `http://athena.local:8888` | qwen35/Gemma served via headroom proxy |
+| Local GPU scheduler | set via `ATHENA_SCHEDULER_URL` | Stable Diffusion / 3D asset generation |

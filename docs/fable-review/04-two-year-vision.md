@@ -121,7 +121,7 @@ template, synced to projects, never hand-written per game.
   offline — telemetry must never affect gameplay.
 
 ### 2b. The relay (the one piece that can't run on the Mac)
-Players' browsers can't reach `geoduck.local`. Cheapest correct answer: a ~100-line
+Players' browsers can't reach the local controller directly. Cheapest correct answer: a ~100-line
 ingestion relay (Cloudflare Worker + KV/R2, or a $5 VPS with nginx + append-only
 JSONL) that accepts POSTs, buffers, and lets the controller **pull** on a schedule.
 The controller stays a pull-only system with no inbound exposure — consistent with the

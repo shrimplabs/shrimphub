@@ -1,6 +1,6 @@
 {
   "default": {
-    "dir": "/Users/costas/workspace/classic-snake",
+    "dir": "~/workspace/classic-snake",
     "type": "bug",
     "provider": "minimax"
   },

@@ -124,7 +124,7 @@ system: |
      ```python
      import os
      import sys
-     sys.path.insert(0, os.environ.get("SWARM_CONTROLLER_PATH", "/Users/costas/Documents/Projects/paraxenia/swarm-controller"))
+     sys.path.insert(0, os.environ.get("SWARM_CONTROLLER_PATH", "/path/to/swarm-controller"))
      from swarm.tools.playthrough_kit import run_bot_cli, Action, Milestone
 
      # Ordered milestone ladder -- last milestone = completion gate.

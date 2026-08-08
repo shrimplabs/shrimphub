@@ -1,6 +1,6 @@
 {
   "default": {
-    "dir": "/Users/costas/workspace/void-patrol-no-art-run12",
+    "dir": "~/workspace/void-patrol-no-art-run12",
     "type": "art_pass",
     "provider": "minimax",
     "reset_cmd": "git checkout def024f30a5f4846f3c76832fb92774d1e4507cc -- .",

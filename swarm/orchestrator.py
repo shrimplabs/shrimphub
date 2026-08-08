@@ -348,20 +348,14 @@ _SERVICES = {
     "shrimp_router": {
         "port": 8090,
         "check_url": "http://localhost:8090/health",
-        "restart_cmd": "bash /Users/costas/workspace/shrimp-router/scripts/start-router.sh",
+        "restart_cmd": os.environ.get("SHRIMP_ROUTER_START_CMD", ""),
         "log_file": "/tmp/shrimp-router-autohealer.log",
     },
     "headroom_8888": {
         "port": 8888,
         "check_url": None,  # TCP check only
-        "restart_cmd": (
-            "/Users/costas/workspace/headroom-venv/bin/headroom proxy "
-            "--port 8888 --mode cache --backend anthropic "
-            "--anthropic-api-url https://api.minimax.io/anthropic "
-            "--intercept-tool-results --no-telemetry "
-            "--log-file /Users/costas/Documents/Projects/paraxenia/swarm-controller/data/headroom.log"
-        ),
-        "log_file": "/Users/costas/Documents/Projects/paraxenia/swarm-controller/data/headroom-server.log",
+        "restart_cmd": os.environ.get("HEADROOM_START_CMD", ""),
+        "log_file": os.environ.get("HEADROOM_LOG_FILE", "/tmp/headroom-server.log"),
     },
 }
 

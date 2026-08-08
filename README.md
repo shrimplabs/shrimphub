@@ -340,7 +340,7 @@ python3 tools/shrimp-agent.py "add a high score screen"
 python3 tools/shrimp-agent.py --provider claude --dir ~/workspace/my-game
 ```
 
-REPL commands: `/clear`, `/provider`, `/exit`. Pairs well with [shrimpterm](http://geoduck.local:3000/dewdrops-games/ShrimpTerm) for mobile use.
+REPL commands: `/clear`, `/provider`, `/exit`. Pairs well with a mobile SSH terminal for on-the-go use.
 
 ### `swarm-code` — swarm API CLI
 

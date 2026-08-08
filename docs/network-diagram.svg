@@ -89,8 +89,8 @@
   <text x="381" y="551" text-anchor="middle" fill="#64748b" font-size="9">apollo.local:8081</text>
 
   <rect x="450" y="522" width="118" height="34" rx="4" fill="#252540" stroke="#6d28d9" stroke-width="1"/>
-  <text x="509" y="538" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-hephaestus</text>
-  <text x="509" y="551" text-anchor="middle" fill="#64748b" font-size="9">hephaestus.local:8090</text>
+  <text x="509" y="538" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="bold">vlm-remote</text>
+  <text x="509" y="551" text-anchor="middle" fill="#64748b" font-size="9">remote-host:8090</text>
 
   <!-- Legend -->
   <rect x="60" y="500" width="220" height="105" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>

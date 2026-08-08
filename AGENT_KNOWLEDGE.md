@@ -439,7 +439,7 @@ Regression test added commit da630671 in tests/test_db.py.
 
 **Note**: task description cites `tests/test_agent_recovery.py` but no such file exists in this repo. Equivalent coverage: `tests/test_lifecycle.py`, `tests/test_improvements.py`, `tests/test_agent_finish_phases.py`, `tests/test_pipeline_phase_artifacts.py`, `tests/test_db.py` (189/189 pass).
 
-**Worktree gotcha**: pytest had 1 unrelated failure in `test_dispatches_list_files` due to a missing `.` in `/private/var/folders/.../pytest-of-costas/pytest-212/test_worktree_tasks_do_not_pul0/worktree/.` -- not related to this task. Skip with `--ignore=tests/test_agent_runtime.py` or pytest-xdist single worker if needed.
+**Worktree gotcha**: pytest may have 1 unrelated failure in `test_dispatches_list_files` due to a missing `.` in the pytest temp worktree path -- not related to this task. Skip with `--ignore=tests/test_agent_runtime.py` or pytest-xdist single worker if needed.
 
 **Duplicated-task warning (updated)**: Future tasks requesting this fix should `grep -rn "_task_history_lookup" swarm/ tests/ --include='*.py'` first. Zero hits => no-op.
 
