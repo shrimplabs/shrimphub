@@ -448,7 +448,7 @@ def run_task(description: str, project_path: Path, provider: str, config: dict) 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 def repl(project_path: Path, provider: str, config: dict):
-    # Disable readline terminal capability queries (prevents escape codes in shrimpterm)
+    # Disable readline terminal capability queries (prevents escape codes in some terminal emulators)
     try:
         import readline
         readline.parse_and_bind("")

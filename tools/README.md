@@ -24,10 +24,10 @@ python3 tools/shrimp-agent.py --provider athena-qwen35
 python3 tools/shrimp-agent.py --provider claude
 
 # Run in a specific project directory
-python3 tools/shrimp-agent.py --dir ~/workspace/shrimpterm
+python3 tools/shrimp-agent.py --dir ~/workspace/my-project
 
 # Combine
-python3 tools/shrimp-agent.py "fix the SSH timeout bug" --provider minimax --dir ~/workspace/shrimpterm
+python3 tools/shrimp-agent.py "fix the SSH timeout bug" --provider minimax --dir ~/workspace/my-project
 ```
 
 **REPL commands:** `/clear` (wipe history), `/provider` (show active model), `/exit` or Ctrl+C
@@ -35,7 +35,7 @@ python3 tools/shrimp-agent.py "fix the SSH timeout bug" --provider minimax --dir
 **Provider** defaults to `SWARM_PROVIDER` env var → `llm_provider` in `config.json` → `minimax`.
 All providers registered in `config.json` are available.
 
-**Pair with shrimpterm:** SSH into your mac from your phone, run `shrimp-agent` in any project
+**Pair with a mobile terminal:** SSH into your mac from your phone, run `shrimp-agent` in any project
 directory — full coding agent in your mobile terminal.
 
 **Related:** swarm-controller (this repo) · shrimp-router (model load balancer, round-robins across providers)
