@@ -18,7 +18,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Auto-QA: Godot projects automatically receive a QA task every 8 completions
 - Auto-audit: cross-project auditing handled by the meta-auditor meta-agent (`api_meta_auditor.py`); per-project `audit` tasks can be created manually or by the Gardener
 - Auto-replan: per-project opt-in toggle that spawns `project_plan` when a project's task queue empties
-- Context compaction: long agent conversations are summarised mid-run to reduce token usage; threshold is 120k estimated tokens (~80k buffer before MiniMax's 200k window)
+- Context compaction: long agent conversations are summarised mid-run to reduce token usage; threshold is dynamic based on provider context window (default ~120k for 200k-window providers)
 - Jitter: random 0.5-3 s sleep before every LLM call to spread RPM load
 - Project registry persistence: all managed projects are registered on startup so they always appear in the dashboard
 - QA cycle cap: QA agents stop requeuing themselves after `qa_max_cycles` (default 3, configurable); prevents infinite QA loops
@@ -127,27 +127,32 @@ rm -rf dir         # not: rm -r dir
 swarm_runner.py              thin entry point + generate_task_script()
 swarm_mcp_server.py          MCP server exposing swarm API as tools (register in ~/.claude/settings.json)
 sync_templates.py            sync state_server.gd + test_harness.gd to all managed Godot projects
-swarm/api.py                 Flask app factory, registers all api_*.py route modules, monitor thread (1311 lines)
-swarm/orchestrator.py        high-level scheduling, fill_slots, quota, infra-freeze check (1439 lines)
-swarm/agent_runtime.py       LLM tool loop + prompt selection + continuation logic (1740 lines)
-swarm/agent_lifecycle.py     agent spawning, status checking, prune_history (712 lines)
-swarm/agent_finish.py        agent completion pipeline: worktree phase, diff, validation, auto-tasks (886 lines)
-swarm/agent_recovery.py      task retry, research feeder escalation, plan validation (1445 lines)
+swarm/api.py                 Flask app factory, registers all api_*.py route modules, monitor thread (1443 lines)
+swarm/orchestrator.py        high-level scheduling, fill_slots, quota, infra-freeze check (1616 lines)
+swarm/agent_runtime.py       LLM tool loop + prompt selection + continuation logic (1913 lines)
+swarm/agent_lifecycle.py     agent spawning, status checking, prune_history (851 lines)
+swarm/agent_finish.py        agent completion pipeline: worktree phase, diff, validation, auto-tasks (1201 lines)
+swarm/agent_recovery.py      task retry, research feeder escalation, plan validation (1455 lines)
 swarm/agent_loop_helpers.py  loop stall detection, wrap-up warning helpers
 swarm/agent_auto_tasks.py    auto-QA, auto-audit, auto-integration spawning
 swarm/runtime_config.py      agent config variables (WORKSPACE, PROJECT, etc.) and sync helpers
 swarm/runtime_helpers.py     file locking, path normalization, API helpers, project activity context
-swarm/tool_dispatch.py       tool validation (_TOOL_REQUIRED_ARGS) and dispatch table (execute_tool) (662 lines)
+swarm/tool_dispatch.py       tool validation (_TOOL_REQUIRED_ARGS) and dispatch table (execute_tool) (693 lines)
 swarm/meta_investigation.py  out-of-band LLM investigator for repeated errors (178 lines)
-swarm/db.py                  SQLite layer (WAL, thread-local connections, schema evolution) (1416 lines)
+swarm/db.py                  SQLite layer (WAL, thread-local connections, schema evolution) (1532 lines)
 swarm/tasks.py               Task dataclass + SQLiteTaskSource (391 lines)
 swarm/projects.py            Project dataclass + SQLiteProjectRegistry (826 lines)
 swarm/agents.py              Agent dataclass + SQLiteAgentTracker (874 lines)
 swarm/strategies.py          Task selection strategies (325 lines)
 swarm/dependencies.py        DAG + cycle detection (476 lines)
+swarm/analytics.py           Read-only aggregate queries for the dashboard Analytics panel (521 lines)
+swarm/circuit_breaker.py     Per-provider circuit breaker (open/half-open/closed state machine) (302 lines)
 swarm/constants.py           Module-level constants (MAX_TOOL_LOOPS, AGENT_TIMEOUT, etc.)
+swarm/events.py              Intra-process event bus for AGENT_FINISHED/AGENT_EXITED lifecycle events (162 lines)
+swarm/gardener_knowledge.py  Shared pattern-memory store written by the Gardener meta-agent (256 lines)
+swarm/log_rotation.py        Log file rotation + signal extraction at agent-finish time (318 lines)
 swarm/provider_utils.py      LLM provider configs + resolution helpers
-swarm/llm_utils.py           LLM call helpers shared across modules (726 lines)
+swarm/llm_utils.py           LLM call helpers shared across modules (773 lines)
 swarm/model_routing.py       Per-task model/provider routing based on pipeline config
 swarm/pipeline.py            Pipeline phase definitions and execution (419 lines)
 swarm/project_graph_policy.py  Closure-aware dep graph expansion policy (425 lines)
@@ -161,10 +166,10 @@ swarm/learnings.py           Learning/feedback management
 swarm/task_chains.py         Auto-chain tasks to project HEAD
 swarm/task_mutations.py      Centralized task mutation helpers
 swarm/validation.py          Post-task validation (Godot + Python) (1568 lines)
-swarm/worktree.py            Git worktree isolation for validation runs (313 lines)
+swarm/worktree.py            Git worktree isolation for validation runs (336 lines)
 swarm/vision.py              Vision model dispatch (MCP, local mlx-vlm, REST)
 swarm/mcp_client.py          MCP server subprocess management
-swarm/qa_tools.py            QA/vision tools: StateServer, click_element, vision_query (1943 lines)
+swarm/qa_tools.py            QA/vision tools: StateServer, click_element, vision_query (2018 lines)
 swarm/prompts.py             Prompt loading and template rendering
 swarm/plan_cleanup.py        Sprint plan snapshot cleanup
 swarm/login.py               Auth helpers
@@ -172,6 +177,7 @@ swarm/rag/                   RAG backend (ChromaDB)
 swarm/tools/core.py          Agent tool implementations: file I/O, git, web, task creation, MCP (483 lines)
 swarm/tools/knowledge.py     Shared knowledge base + scratchpad tools (366 lines)
 swarm/closure/               Closure/verification system: proposals, regressions, runs, specs, status (~2524 lines)
+swarm/phases/                Per-phase agent loop implementations (plan, scout, diagnose, synthesize, work, validate, art, create_tasks — ~2733 lines total)
 swarm/maintenance/
   agents.py                  Agent maintenance (restart, reconciliation)
   plans.py                   Sprint plan snapshot management
@@ -183,18 +189,19 @@ swarm/maintenance/
 swarm/api_agents.py          Agent lifecycle endpoints (214 lines)
 swarm/api_auth.py            Authentication (80 lines)
 swarm/api_broadcast.py       Broadcast read/write (shared knowledge) (75 lines)
-swarm/api_chat.py            Unified chat co-pilot + project creation wizard (2399 lines)
-swarm/api_config.py          Configuration management (479 lines)
-swarm/api_deps.py            Dependency graph + integrity diagnostics (1495 lines)
+swarm/api_analytics.py       Analytics aggregate query endpoints (64 lines)
+swarm/api_chat.py            Unified chat co-pilot + project creation wizard (2429 lines)
+swarm/api_config.py          Configuration management (604 lines)
+swarm/api_deps.py            Dependency graph + integrity diagnostics (1505 lines)
 swarm/api_history.py         Task/agent history (174 lines)
-swarm/api_metrics.py         Health metrics (517 lines)
+swarm/api_metrics.py         Health metrics (525 lines)
 swarm/api_plans.py           Sprint planner management (131 lines)
-swarm/api_projects.py        Project management (1048 lines)
+swarm/api_projects.py        Project management (1047 lines)
 swarm/api_spawn.py           Agent spawning (191 lines)
 swarm/api_snapshots.py       Sprint plan snapshot CRUD (895 lines)
-swarm/api_tasks.py           Task CRUD & batch creation (959 lines)
+swarm/api_tasks.py           Task CRUD & batch creation (969 lines)
 swarm/api_webhook.py         Webhook firing (145 lines)
-swarm/api_wizard.py          Project creation wizard routes (1572 lines)
+swarm/api_wizard.py          Project creation wizard routes (1618 lines)
 swarm/api_gardener.py        Gardener meta-agent routes + scheduler (287 lines)
 swarm/api_librarian.py       Librarian meta-agent routes + trigger logic (244 lines)
 swarm/api_cartographer.py    Cartographer meta-agent routes + interval scheduling (279 lines)

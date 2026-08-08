@@ -107,8 +107,8 @@ No restart required.
 curl -X POST http://localhost:5001/api/provider \
   -H "Content-Type: application/json" \
   -d '{
-    "provider":    "athena",
-    "base_url":    "http://headroom.local:8888/anthropic/v1",
+    "provider":    "my-proxy",
+    "base_url":    "http://localhost:8888/anthropic/v1",
     "model":       "MiniMax-M3",
     "format":      "anthropic",
     "api_key_env": "MINIMAX_API_KEY",
@@ -124,8 +124,8 @@ survives a restart.
 ```json
 {
   "llm_providers": {
-    "athena": {
-      "base_url":    "http://headroom.local:8888/anthropic/v1",
+    "my-proxy": {
+      "base_url":    "http://localhost:8888/anthropic/v1",
       "model":       "MiniMax-M3",
       "format":      "anthropic",
       "api_key_env": "MINIMAX_API_KEY",
@@ -343,7 +343,7 @@ Returns every registered provider with its config (API key value is redacted;
   },
   "llm_providers": {
     "athena": {
-      "base_url":    "http://headroom.local:8888/anthropic/v1",
+      "base_url":    "http://localhost:8888/anthropic/v1",
       "model":       "MiniMax-M3",
       "format":      "anthropic",
       "api_key_env": "MINIMAX_API_KEY",

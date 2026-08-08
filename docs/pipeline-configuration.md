@@ -21,6 +21,7 @@ Available phases:
 |-------|---------|
 | `plan` | Read the codebase, form a strategy, output a concrete work plan |
 | `scout` | Fast read-only exploration — find the relevant files and surface findings |
+| `diagnose` | Verify the problem is real and locate the root cause before writing any code |
 | `synthesize` | Merge scout findings into actionable work packets |
 | `work` | Write code, make changes, run tests |
 | `validate` | Run post-task checks (Godot headless, pytest, etc.) |
