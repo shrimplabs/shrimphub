@@ -133,7 +133,7 @@ elif curl -s --max-time 1 http://localhost:8090/health >/dev/null 2>&1; then
     echo "✓ Shrimp router already responding on port 8090"
 elif [ ! -d "$SHRIMP_DIR" ]; then
     echo "→ shrimp-router not found at $SHRIMP_DIR — cloning..."
-    git clone https://github.com/your-org/shrimp-router.git "$SHRIMP_DIR" 2>&1
+    git clone https://github.com/shrimplabs/shrimp-router.git "$SHRIMP_DIR" 2>&1
     if [ -d "$SHRIMP_DIR" ]; then
         echo "→ Installing shrimp-router..."
         python3 -m venv "$SHRIMP_DIR/.venv"

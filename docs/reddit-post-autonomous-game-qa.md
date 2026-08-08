@@ -80,7 +80,7 @@ I looked and couldn't find anyone else doing the full cycle autonomously. If I'm
 
 **It's open source**
 
-The whole thing: [github.com/paraxenia/swarm-controller](https://github.com/paraxenia/swarm-controller)
+The whole thing: [github.com/shrimplabs/shrimphub](https://github.com/shrimplabs/shrimphub)
 
 The playthrough bot pattern works standalone — you don't need the full orchestration system. Add `state_server.gd` to your Godot project, implement `get_game_state()`, write a milestone ladder, and you have regression testing that actually plays your game. Wire it into CI and any breaking change gets caught before it ships.
 

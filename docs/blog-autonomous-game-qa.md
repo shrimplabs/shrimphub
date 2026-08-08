@@ -20,7 +20,7 @@ We wanted to remove that bottleneck entirely.
 
 ## The Swarm
 
-About a year ago we built [Swarm Controller](https://github.com/paraxenia/swarm-controller) — an open source LLM agent orchestration system designed to build, fix, and maintain Godot games autonomously. You give it a game design document and a codebase; it spawns agents that write features, fix bugs, run QA, and iterate.
+About a year ago we built [Swarm Controller](https://github.com/shrimplabs/shrimphub) — an open source LLM agent orchestration system designed to build, fix, and maintain Godot games autonomously. You give it a game design document and a codebase; it spawns agents that write features, fix bugs, run QA, and iterate.
 
 It currently manages 30+ Godot game projects. Over its lifetime it has:
 
@@ -212,7 +212,7 @@ The Godot ecosystem in particular is full of developers who would use this tomor
 
 ## Get Started
 
-- **Swarm Controller** (full orchestration system): [github.com/paraxenia/swarm-controller](https://github.com/paraxenia/swarm-controller)
+- **Swarm Controller** (full orchestration system): [github.com/shrimplabs/shrimphub](https://github.com/shrimplabs/shrimphub)
 - **State server template**: `templates/godot/autoload/state_server.gd`
 - **Playthrough kit**: `swarm/tools/playthrough_kit.py`
 - **Example bots**: `tests/playthrough_bot.py` in any managed game project

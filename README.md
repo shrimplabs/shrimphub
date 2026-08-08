@@ -50,7 +50,7 @@ Open **http://localhost:5001**
 ### Manual install
 
 ```bash
-git clone https://github.com/your-org/shrimphub.git
+git clone https://github.com/shrimplabs/shrimphub.git
 cd shrimphub
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
