@@ -4,7 +4,6 @@ Concrete OSS-prep checklist for `swarm-controller`.
 
 This document is the working checklist for release readiness. Use it alongside:
 
-- `docs/open_source_readiness_findings.md`
 - `docs/release_checklist.md`
 - `docs/windows_compatibility_findings.md`
 
