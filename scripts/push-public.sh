@@ -22,11 +22,25 @@ GITHUB_REMOTE="${1:-github}"
 BRANCH="${2:-main}"
 TMPDIR="$(mktemp -d)"
 
-echo "→ Checking git-filter-repo is installed..."
+echo "→ Checking dependencies..."
 if ! command -v git-filter-repo &>/dev/null; then
     echo "Error: git-filter-repo not found. Install with: pip install git-filter-repo"
     exit 1
 fi
+if ! command -v gitleaks &>/dev/null; then
+    echo "Error: gitleaks not found. Install with: brew install gitleaks"
+    exit 1
+fi
+
+echo "→ Running gitleaks scan on current working tree..."
+gitleaks detect --source "$REPO_ROOT" --config "$REPO_ROOT/.gitleaks.toml" --no-git --redact 2>&1
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "Error: gitleaks found secrets or internal references in tracked files."
+    echo "Fix the issues above before pushing to GitHub."
+    exit 1
+fi
+echo "✓ gitleaks scan clean"
 
 echo "→ Checking github remote exists..."
 if ! git remote get-url "$GITHUB_REMOTE" &>/dev/null; then

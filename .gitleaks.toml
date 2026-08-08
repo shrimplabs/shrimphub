@@ -1,0 +1,81 @@
+# Gitleaks configuration for shrimphub / swarm-controller
+# Extends the default ruleset with project-specific private terms.
+# Run: gitleaks detect --source . --config .gitleaks.toml
+
+title = "swarm-controller gitleaks config"
+
+[extend]
+# Use the built-in default ruleset as the base
+useDefault = true
+
+# Private terms that should never appear in tracked files
+[[rules]]
+id = "private-hostname-geoduck"
+description = "Private Gitea server hostname"
+regex = '''geoduck\.local'''
+tags = ["internal", "hostname"]
+
+[[rules]]
+id = "private-hostname-hephaestus"
+description = "Private GPU server hostname"
+regex = '''hephaestus\.local'''
+tags = ["internal", "hostname"]
+
+[[rules]]
+id = "private-hostname-athena-local"
+description = "Private Athena host (use ATHENA_SCHEDULER_URL env var instead)"
+regex = '''athena\.local'''
+tags = ["internal", "hostname"]
+
+[[rules]]
+id = "private-hostname-artemis"
+description = "Private VLM cluster node"
+regex = '''artemis\.local'''
+tags = ["internal", "hostname"]
+
+[[rules]]
+id = "private-hostname-apollo"
+description = "Private VLM cluster node"
+regex = '''apollo\.local'''
+tags = ["internal", "hostname"]
+
+[[rules]]
+id = "private-project-shrimpterm"
+description = "Shrimpterm — private commercial project, not yet public"
+regex = '''shrimpterm'''
+tags = ["internal", "product"]
+
+[[rules]]
+id = "private-codename-paraxenia"
+description = "Paraxenia — internal codename, not the public brand"
+regex = '''paraxenia\.com'''
+tags = ["internal", "brand"]
+
+[[rules]]
+id = "private-org-dewdrops"
+description = "Gitea org name — internal only"
+regex = '''dewdrops-games'''
+tags = ["internal", "org"]
+
+# Allowlist: paths and patterns that are safe to ignore
+[allowlist]
+description = "Safe exceptions"
+paths = [
+    # Internal docs folder is gitignored but may exist on disk
+    '''internal/''',
+    # Config file is gitignored
+    '''config\.json''',
+    # .env is gitignored
+    '''\.env''',
+    # This config file itself
+    '''\.gitleaks\.toml''',
+    # Memory files (not tracked)
+    '''\.claude/''',
+]
+regexes = [
+    # References to env var names are fine — only actual values are secrets
+    '''MINIMAX_API_KEY=\s*$''',
+    '''ANTHROPIC_API_KEY=\s*$''',
+    '''OPENROUTER_API_KEY=\s*$''',
+    '''KIMI_API_KEY=\s*$''',
+]
