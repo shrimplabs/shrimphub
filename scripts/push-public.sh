@@ -32,8 +32,9 @@ if ! command -v gitleaks &>/dev/null; then
     exit 1
 fi
 
-echo "→ Running gitleaks scan on current working tree..."
-gitleaks detect --source "$REPO_ROOT" --config "$REPO_ROOT/.gitleaks.toml" --no-git --redact 2>&1
+echo "→ Running gitleaks scan on tracked files..."
+cd "$REPO_ROOT"
+gitleaks detect --config "$REPO_ROOT/.gitleaks.toml" --redact 2>&1
 if [ $? -ne 0 ]; then
     echo ""
     echo "Error: gitleaks found secrets or internal references in tracked files."
