@@ -1,6 +1,9 @@
 # Blog posts / external write-ups (translated and published elsewhere)
 reports/
 
+# QA screenshots (local test artifacts)
+qa_screenshots/
+
 # Environment
 .env
 .env.bak
