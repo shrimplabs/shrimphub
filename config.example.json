@@ -3,6 +3,8 @@
   "max_active_agents": 3,
   "max_lines": 5000,
   "agent_timeout": 7200,
+  "spawn_per_cycle": 1,
+
   "llm_provider": "minimax",
   "llm_providers": {
     "minimax": {
@@ -17,22 +19,64 @@
     }
   },
   "fallback_providers": [],
+  "minimax_base_url": "",
+
+  "adaptive_flat": true,
+  "loop_model_routing": {
+    "fast_provider": "",
+    "strong_provider": ""
+  },
+
+  "event_bus_enabled": true,
+  "compact_token_threshold": 120000,
+
+  "quota_limit_percent": 90,
+  "auto_scale": false,
+  "auto_scale_floor": 1,
+
   "godot_path": "",
+  "xogot_path": "",
+  "xogot_projects": [],
+
+  "language": "GDScript",
+  "file_extensions": [".gd"],
+  "ignore_dirs": [],
+  "ignore_extensions": [],
+
   "managed_projects": [],
   "paused_projects": [],
   "lock_project": false,
   "task_selection_strategy": "least_recently_worked",
+
   "qa_max_cycles": 3,
   "thinking_task_types": [],
   "thinking_task_budget": 10000,
+
   "vision_provider": "minimax-mcp",
   "vision_provider_fast": "local",
   "vision_providers": {},
+
+  "playthrough_auto_enabled": false,
+
   "disable_remote_repo": true,
   "login_required": false,
+
   "meta_investigation": true,
+  "meta_investigation_provider": "",
+
   "auto_replan_projects": [],
-  "auto_scale": false,
+  "project_pipelines": {},
+  "phase_loop_limits_by_type": {},
+
+  "use_worktrees": true,
+  "allow_self_modification": false,
+  "human_review_flag_enabled": false,
+  "local_fallback_on_quota": false,
+
+  "log_retention_days": 0,
+  "log_rotation_action": "delete",
+  "log_extract_signals": false,
+
   "escalation_policy": {
     "bug":         {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
     "feature":     {"max_attempts": 3, "on_exhaust": "research", "research_max_attempts": 2},
@@ -48,33 +92,32 @@
     "plan":        {"max_attempts": 2, "on_exhaust": "cancel"},
     "project_plan":{"max_attempts": 2, "on_exhaust": "cancel"}
   },
+
   "rag": {
     "enabled": false,
     "backend": "chromadb",
     "index_path": "~/godot-rag",
     "top_k": 5
   },
-  "scout_provider": "",
-  "scout_loops": {"bug": 15, "feature": 25, "refactor": 20, "polish": 15, "art_pass": 15},
-  "compaction_provider": "",
-  "pipelines": {},
+
   "meta_mode_enabled": false,
+  "meta_scheduler_enabled": false,
   "gardener_enabled": false,
-  "gardener_schedule": "0 */6 * * *",
   "gardener_max_tasks_per_run": 3,
   "gardener_skip_projects": [],
   "librarian_enabled": false,
+  "librarian_trigger_interval": 50,
+  "librarian_max_prompt_tasks": 3,
   "librarian_autonomous_edits": false,
   "cartographer_enabled": false,
+  "cartographer_interval_hours": 2,
   "archaeologist_enabled": false,
+  "archaeologist_stall_threshold_hours": 72,
+  "archaeologist_max_concurrent": 2,
   "scheduler_enabled": false,
-  "scheduler_interval_minutes": 15,
-  "scheduler_allow_pause": true,
-  "scheduler_allow_agent_ceiling_adjust": true,
-  "scheduler_off_peak_hours": [0, 6],
   "meta_auditor_enabled": false,
   "meta_auditor_interval_days": 7,
-  "allow_self_modification": false,
+
   "completion_webhook_url": "",
   "mcp_servers": {}
 }
