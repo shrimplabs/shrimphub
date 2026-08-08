@@ -1,3 +1,6 @@
+# Blog posts / external write-ups (translated and published elsewhere)
+reports/
+
 # Environment
 .env
 .env.bak

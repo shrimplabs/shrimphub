@@ -24,7 +24,7 @@ system: |
   - write_file(path, content): Write a file
   - run_command(command): Run shell commands
   - launch_game(project_path): Launch the game for visual verification. MUST be called before any screenshot.
-  - get_game_state(command): Query the StateServer. Use command="screenshot_b64" to capture from the Godot renderer directly — works even when the window is behind other apps or screen is locked. Save the base64: run_command("echo '<base64>' | base64 -d > filename.png")
+  - get_game_state(command): Query the StateServer. Use command="screenshot_b64" to capture from the Godot renderer directly — works even when the window is behind other apps or screen is locked. For visual verification, use take_screenshot(filename) — it writes a PNG file directly. Do NOT use get_game_state(command="screenshot_b64") for visual checks — the base64 string it returns is too large to save via any shell command or python3 -c argument. Only use screenshot_b64 if you need raw pixel data for programmatic analysis, not for vision_query.
   - take_screenshot(filename): Fallback screenshot. If get_game_state fails or returns an error, immediately switch to take_screenshot — do NOT attempt to debug or reconnect to StateServer.
   - vision_query(image_path, question, model): Analyze a screenshot — use model="powerful" for art assessment
   - click_element(image_path, element_description): Click a UI element
@@ -57,7 +57,7 @@ system: |
   APPROACH:
   Step 1. Read GAME_DESIGN.md to understand the game's visual style and needs.
   Step 2. List the project's existing assets folder to understand what's already there.
-  Step 3. Launch the game → wait(3) → get_game_state(command="screenshot_b64") → save base64 to file → assess the menu with vision_query(model="powerful").
+  Step 3. Launch the game → wait(3) → get_game_state(command="screenshot_b64") → save base64 to file using python3 (NOT echo) → assess the menu with vision_query(model="powerful").
      Prefer get_game_state over take_screenshot — it captures from the Godot renderer and works regardless of window focus.
      If get_game_state returns an error, immediately use take_screenshot instead. Never debug StateServer connectivity — just fall back.
      Then PLAY THE GAME before doing your full visual assessment:
@@ -83,7 +83,10 @@ system: |
   Step 7. Launch the game → get_game_state(command="screenshot_b64") → save to file → vision_query(model="powerful") to verify the change looks better.
   Step 8. If it doesn't look right, revert: run_command("git checkout -- path/to/file") and try a different approach.
   Step 9. Commit each successful improvement before moving to the next area.
-  Step 10. When satisfied: kill_game(), final git_commit(), TASK_COMPLETE. Do not push unless the task explicitly asks for it.
+  Step 10. STOPPING RULE — you have budget for multiple visual verification cycles; use it. Each cycle is: commit an improvement → launch → take_screenshot(filename) → vision_query → assess → improve another area. Stop when EITHER condition is true:
+     (a) vision_query confirms the art looks stylistically intentional and distinct across at least 2 separate areas (e.g. player sprite + one enemy, or background + UI icons), OR
+     (b) you have completed 3 or more full visual verification cycles.
+     Do NOT stop after the very first commit unless the game already looks polished. Iterate: each cycle should make the game look more intentional than placeholder.
 
   GPU GENERATION (Athena GPU Scheduler):
   generate_image() and generate_3d_asset() are BUILT-IN TOOL CALLS — call them exactly like run_command() or write_file().

@@ -1,0 +1,31 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/tetris-neon",
+    "type": "refactor",
+    "provider": "minimax",
+    "reset_cmd": "git checkout 0d2639d13a05a8262367241e8feee1edf3c6f047 -- ."
+  },
+
+  "runs": [
+    {
+      "name": "A1-plan-scout-work",
+      "pipeline": "plan->scout->work->validate",
+      "task": "Refactor scripts/game_scene.gd (1635 lines). It is a monolithic file mixing input handling, piece logic, board state, scoring, and UI updates. Split it into focused modules: extract piece movement and rotation into a dedicated PieceController, extract board state and line-clear logic into a BoardManager, and reduce game_scene.gd to a thin coordinator that wires them together. Keep all existing behaviour identical — no feature changes. Each extracted class should be in its own file under scripts/."
+    },
+    {
+      "name": "A2-plan-scout-work",
+      "pipeline": "plan->scout->work->validate",
+      "task": "Refactor scripts/game_scene.gd (1635 lines). It is a monolithic file mixing input handling, piece logic, board state, scoring, and UI updates. Split it into focused modules: extract piece movement and rotation into a dedicated PieceController, extract board state and line-clear logic into a BoardManager, and reduce game_scene.gd to a thin coordinator that wires them together. Keep all existing behaviour identical — no feature changes. Each extracted class should be in its own file under scripts/."
+    },
+    {
+      "name": "B1-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Refactor scripts/game_scene.gd (1635 lines). It is a monolithic file mixing input handling, piece logic, board state, scoring, and UI updates. Split it into focused modules: extract piece movement and rotation into a dedicated PieceController, extract board state and line-clear logic into a BoardManager, and reduce game_scene.gd to a thin coordinator that wires them together. Keep all existing behaviour identical — no feature changes. Each extracted class should be in its own file under scripts/."
+    },
+    {
+      "name": "B2-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Refactor scripts/game_scene.gd (1635 lines). It is a monolithic file mixing input handling, piece logic, board state, scoring, and UI updates. Split it into focused modules: extract piece movement and rotation into a dedicated PieceController, extract board state and line-clear logic into a BoardManager, and reduce game_scene.gd to a thin coordinator that wires them together. Keep all existing behaviour identical — no feature changes. Each extracted class should be in its own file under scripts/."
+    }
+  ]
+}

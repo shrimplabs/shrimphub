@@ -319,7 +319,7 @@ Open **http://localhost:5001**
 - **needs_human_review** — tasks flagged after a research feeder exhausts appear with a red border
 - **Repair** — surgically fixes broken project state (resets failed/orphaned tasks, resurrects missing deps)
 - **Restart** — resets all tasks for a project to pending (nuclear option)
-- **Auto mode** — continuously fills agent slots; pauses automatically when API quota is hit
+- **Auto mode** — continuously fills agent slots; pauses automatically when API quota is hit. Manual suspend: `POST /api/auto-mode {"enabled": true, "suspend": true}` — engages the same quota-suspension state without hitting the threshold; the quota watcher lifts it automatically when usage drops back below `quota_limit_percent`
 - **Kill / Kill All** — stop individual agents or all at once with confirm dialog
 - **New Project wizard** — conversational scaffolding that plans a full task graph and bootstraps a git repo
 

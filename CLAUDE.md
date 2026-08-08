@@ -29,7 +29,7 @@ Swarm Controller is a modular agent orchestration system. It spawns LLM-powered 
 - Project Creation Wizard: chat-based new project scaffolding (`/api/wizard/plan`, `/api/wizard/create`)
 - RAG backend: optional ChromaDB vector search for agent code context
 - Task auto-chaining: tasks created within a project are chained to the project HEAD to prevent floating chains
-- Event bus: intra-process pub/sub for `AGENT_FINISHED` / `AGENT_EXITED` lifecycle events. Sourced from `swarm.constants.EVENT_BUS_ENABLED_DEFAULT` (currently held at `False` until the 48h production soak in `data/13a-phase1-baseline.md` validates p50 inter-task gap ≤3s, zero double-/lost-finish incidents, and `handler_errors==0`; see `VALIDATION_STATE.md` for feature-897612801-0069). When flipped, the bus becomes the primary finish wake-up path alongside the monitor thread's polling loop. Rollback: `POST /api/event-bus {"enabled": false}`, `event_bus_enabled: false` in `config.json`, or `SWARM_EVENT_BUS=0` env var.
+- Event bus: intra-process pub/sub for `AGENT_FINISHED` / `AGENT_EXITED` lifecycle events. Sourced from `swarm.constants.EVENT_BUS_ENABLED_DEFAULT` (flipped to `True` 2026-08-08 after soak validated p50=1.8s ≤3s target, handler_errors=0). The bus is the primary finish wake-up path alongside the monitor thread's polling loop. Rollback: `POST /api/event-bus {"enabled": false}`, `event_bus_enabled: false` in `config.json`, or `SWARM_EVENT_BUS=0` env var.
 
 ## Setup
 
@@ -410,6 +410,7 @@ Meta-agents are background agents that maintain and improve the swarm itself. Th
 | `local_fallback_on_quota` | `false` | Fall back to a local LLM when quota is exhausted |
 | `human_review_flag_enabled` | `false` | Surface tasks flagged by agents for human review |
 | `project_pipelines` | `{}` | Per-project pipeline overrides `{project: {pipeline: [], flat_provider: ..., pipeline_mode: ...}}` |
+| `phase_loop_limits_by_type` | `{}` | Per-task-type phase loop limits, e.g. `{"art_pass": {"work": 300}}`. Default: art_pass work=300, refactor work=200, everything else=150. |
 | `meta_mode_enabled` | `false` | Master gate for all meta-agent scheduling |
 | `gardener_enabled` | `false` | Enable Gardener meta-agent (project survey + task pruning) |
 | `gardener_max_tasks_per_run` | `10` | Max tasks Gardener may create per run |
@@ -534,7 +535,10 @@ Prompt YAML files live in `prompts/`. Each maps to a task type:
 - `GET /api/health` -- monitor alive, lag seconds, uptime
 - `POST /api/spawn` -- spawn for a specific project
 - `POST /api/spawn-batch` -- fill all slots (checks quota first)
-- `GET/POST /api/auto-mode` -- returns `{enabled, suspended_for_quota}`
+- `GET /api/auto-mode` -- returns `{enabled, suspended_for_quota}`
+- `POST /api/auto-mode {"enabled": true}` -- enable auto-mode (clears any suspension)
+- `POST /api/auto-mode {"enabled": false}` -- disable auto-mode (manual off; quota watcher won't auto-resume)
+- `POST /api/auto-mode {"enabled": true, "suspend": true}` -- manually engage quota suspension (auto-mode stays enabled but paused; watcher lifts it automatically when quota drops below threshold)
 - `GET /api/history`
 
 ### Projects

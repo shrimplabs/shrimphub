@@ -162,6 +162,10 @@ def run_probe(cfg: dict) -> dict:
         _json.dump(phase_config, _pc_file)
         _pc_file.flush()
         cmd += ["--phase-config", _pc_file.name]
+    phase_loop_limits = cfg.get("phase_loop_limits") or defaults.get("phase_loop_limits")
+    if phase_loop_limits:
+        import json as _json
+        cmd += ["--phase-loop-limits", _json.dumps(phase_loop_limits)]
 
     if args.dry_run:
         print(f"  [dry-run] {' '.join(cmd)}")
@@ -173,7 +177,7 @@ def run_probe(cfg: dict) -> dict:
         with open(log_out, "w") as lf:
             result = subprocess.run(
                 cmd, stdout=lf, stderr=subprocess.STDOUT,
-                timeout=1800,  # 30 min hard cap per probe
+                timeout=3600,  # 60 min hard cap per probe (art_pass can take 1000s+)
             )
         elapsed = time.time() - t0
         ok = result.returncode == 0

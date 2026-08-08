@@ -60,7 +60,6 @@ STRONG_TASK_TYPES = {
     "hybrid_qa",
     "scenario_qa",
     "bug",
-    "research",
 }
 
 

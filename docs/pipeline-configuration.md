@@ -38,13 +38,18 @@ If no override is set, these defaults apply:
 | Task type | Default pipeline |
 |-----------|-----------------|
 | `feature` | `diagnose → work → validate` |
-| `bug` | `work → validate` |
+| `bug` | `diagnose → work → validate` |
 | `polish` | `work → validate` |
-| `art_pass` | `work → validate` |
-| `refactor` | `diagnose → work → validate` |
+| `art_pass` | `diagnose → work → validate` |
+| `refactor` | `plan → scout → work → validate` |
 | everything else | `[]` (flat loop, no phases) |
 
-Defaults are based on pipeline probe research (batches 1–9, July 2026). Key results: `diagnose→work` beat `scout→work` on features (4m vs 12m, no hallucination); `work`-only is fastest for well-described bugs; `plan→scout→work` hallucinated 2/2 on features and is explicitly avoided. See [pipeline-probe-findings-2026-07.md](experiment-designs/pipeline-probe-findings-2026-07.md) for the full data.
+Defaults are based on pipeline probe research (batches 1–9, July–August 2026). Key results:
+- **Feature**: `plan→scout→diagnose→work` — the D-shape (`plan→scout→work`) hallucinated 2/2 without a diagnose phase; diagnose acts as a reality-check that prevents agents from assuming a feature is done. Batch-5 confirmed.
+- **Bug**: `diagnose→work` — fastest safe shape for well-described bugs (109s vs 196s for scout→work). Plan is only needed for ambiguous/unclear bugs; adding plan *after* diagnose overwrites correct context and caused the only failure in batch-5 stress test.
+- **Refactor**: `plan→scout→work` — no probe data yet; diagnose likely adds latency without benefit for well-scoped refactors. Tentative pending a clean refactor batch.
+
+See [pipeline-probe-findings-2026-07.md](experiment-designs/pipeline-probe-findings-2026-07.md) for the full data.
 
 As of run-12, **adaptive flat** is the system-wide default for all tasks
 (`ADAPTIVE_FLAT = True` in `swarm/agent_runtime.py`). The phase-based
@@ -231,10 +236,12 @@ Task-level metadata keys:
 
 | Situation | Recommended pipeline |
 |-----------|---------------------|
-| Simple bug fix, cause is known | `["work", "validate"]` |
-| Bug with unknown root cause | `["scout", "work", "validate"]` (default) |
-| Large feature, needs a plan | `["plan", "scout", "work", "validate"]` |
-| Large refactor | `["scout", "plan", "work", "validate"]` |
+| Bug, cause is clear | `["diagnose", "work", "validate"]` (default) |
+| Bug, cause is ambiguous | `["plan", "diagnose", "work", "validate"]` |
+| Feature (any size) | `["plan", "scout", "diagnose", "work", "validate"]` (default) — skipping diagnose causes hallucination |
+| Refactor, scope is clear | `["plan", "scout", "work", "validate"]` (default) |
+| Polish | `["work", "validate"]` (default) |
+| Art pass | `["diagnose", "work", "validate"]` (default) — diagnose primes visual verification (v3c probe) |
 | Cost-sensitive, mixed workload | `adaptive_flat` with `fast=athena`, `strong=minimax` |
 | Speed test / cheap provider only | `[]` (flat) + `_flat_provider: "athena"` |
 | A/B pipeline experiment | Use snapshot + clone with preset (see [snapshots-and-clones.md](snapshots-and-clones.md)) |
@@ -270,9 +277,9 @@ explicit phase pipelines instead:
 ```json
 {
   "pipelines": {
-    "bug":     ["scout", "work", "validate"],
-    "feature": ["scout", "work", "validate"],
-    "refactor": ["scout", "plan", "work", "validate"]
+    "bug":      ["diagnose", "work", "validate"],
+    "feature":  ["plan", "scout", "diagnose", "work", "validate"],
+    "refactor": ["plan", "scout", "work", "validate"]
   }
 }
 ```

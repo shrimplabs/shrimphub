@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+from swarm.constants import EVENT_BUS_ENABLED_DEFAULT
 from swarm.integrity import active_agent_matches_task, can_task_accept_agent, is_continuity_eligible_task
 from swarm.platform import popen_session_kwargs, kill_godot_children
 from swarm.agent_recovery import (  # noqa: F401
@@ -165,11 +166,7 @@ def configure(
     human_review_flag_enabled: bool = False,
     playthrough_auto_enabled: bool = False,
     # Sourced from swarm.constants.EVENT_BUS_ENABLED_DEFAULT so the default
-    # can be flipped in one place.  See VALIDATION_STATE.md for
-    # feature-897612801-0069 -- default is held at False until the 48h soak
-    # (data/13a-phase1-baseline.md) shows p50 ≤3s, zero double-/lost-finish
-    # incidents, and handler_errors==0.
-    event_bus_enabled: bool = False,  # TODO(soak-pending): default to EVENT_BUS_ENABLED_DEFAULT
+    event_bus_enabled: bool = EVENT_BUS_ENABLED_DEFAULT,
     **_kwargs,
 ):
     """Configure module-level settings for the agent lifecycle system.

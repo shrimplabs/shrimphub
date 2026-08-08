@@ -40,6 +40,7 @@ p.add_argument("--verbose",  action="store_true", help="Print model reasoning te
 p.add_argument("--json-out", default=None,        help="Write structured JSON summary to this path")
 p.add_argument("--phase-config", default=None,    help="Path to JSON file with extra phase config (e.g. diagnose_system_prompt)")
 p.add_argument("--scout-provider", default=None, help="Override provider for scout/diagnose phases only")
+p.add_argument("--phase-loop-limits", default=None, help="JSON dict of per-phase loop limits, e.g. '{\"work\":300}'")
 args = p.parse_args()
 
 project_path = Path(args.dir).expanduser().resolve()
@@ -83,6 +84,11 @@ import tempfile, atexit, shutil as _shutil
 _probe_data_dir = tempfile.mkdtemp(prefix="pipeline-probe-")
 atexit.register(_shutil.rmtree, _probe_data_dir, ignore_errors=True)
 _rt.DATA_DIR = _probe_data_dir
+_phase_loop_limits_parsed = {}
+if args.phase_loop_limits:
+    import json as _json_pll
+    _phase_loop_limits_parsed = _json_pll.loads(args.phase_loop_limits)
+    _rt.PHASE_LOOP_LIMITS = _phase_loop_limits_parsed
 
 # ── parse pipeline ────────────────────────────────────────────────────────────
 _SEP = {"→", "->", ">", ","}
@@ -142,6 +148,9 @@ provider_cfg = {
     "work_provider":       _provider,
     "synthesize_provider": _provider,
 }
+
+if _phase_loop_limits_parsed:
+    provider_cfg["phase_loop_limits"] = _phase_loop_limits_parsed
 
 # Merge any phase_config overrides (e.g. diagnose_system_prompt)
 if args.phase_config:

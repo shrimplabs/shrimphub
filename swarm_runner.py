@@ -973,7 +973,23 @@ def generate_task_script(task: dict) -> str:
     _project_pipeline_override = _project_pipeline_cfg.get(task_type) \
         or _project_pipeline_cfg.get("*")
     _project_phase_loop_limits = _project_pipeline_cfg.get("_phase_loop_limits", {})
-    phase_loop_limits = metadata.get("phase_loop_limits") or _project_phase_loop_limits or {}
+    # Global per-task-type phase loop limit defaults (e.g. art_pass work phase = 300)
+    _global_phase_loop_limits_by_type = _config.get("phase_loop_limits_by_type", {})
+    _type_phase_loop_limits = _global_phase_loop_limits_by_type.get(task_type, {})
+    _DEFAULT_PHASE_LOOP_LIMITS = {
+        "art_pass": {"work": 300},
+        # refactor: large structural splits need more loops than the 150 default;
+        # probe v1 showed plan→diagnose→work failing at 150 mid-split with a parse error
+        "refactor": {"work": 200},
+    }
+    _default_type_limits = _DEFAULT_PHASE_LOOP_LIMITS.get(task_type, {})
+    phase_loop_limits = (
+        metadata.get("phase_loop_limits")
+        or _project_phase_loop_limits
+        or _type_phase_loop_limits
+        or _default_type_limits
+        or {}
+    )
     _project_experiment_cfg = _project_pipeline_cfg.get("_experiment", {}) if isinstance(_project_pipeline_cfg.get("_experiment", {}), dict) else {}
     _metadata_pipeline_mode = str(metadata.get("pipeline_mode") or metadata.get("experiment_pipeline_mode") or "")
     _project_pipeline_mode = str(_project_experiment_cfg.get("pipeline_mode") or _project_pipeline_cfg.get("_pipeline_mode") or "")
@@ -998,7 +1014,22 @@ def generate_task_script(task: dict) -> str:
     _effective_llm_provider = LLM_PROVIDER  # may be overridden for variant F
     if adaptive_flat_enabled:
         pipeline = []
-        loop_model_routing = {**loop_model_routing, "enabled": True}
+        _cfg_fast = (
+            loop_model_routing.get("fast_provider", "")
+            or _config.get("fast_provider", "")
+            or _config.get("loop_model_routing", {}).get("fast_provider", "")
+        )
+        _cfg_strong = (
+            loop_model_routing.get("strong_provider", "")
+            or _config.get("strong_provider", "")
+            or _config.get("loop_model_routing", {}).get("strong_provider", "")
+        )
+        loop_model_routing = {
+            **loop_model_routing,
+            "enabled": True,
+            **( {"fast_provider": _cfg_fast} if _cfg_fast else {} ),
+            **( {"strong_provider": _cfg_strong} if _cfg_strong else {} ),
+        }
         _flat_provider = metadata.get("flat_provider", "") or \
             _project_pipeline_cfg.get("_flat_provider", "") or \
             _project_experiment_cfg.get("flat_provider", "")
@@ -1017,14 +1048,20 @@ def generate_task_script(task: dict) -> str:
         # - feature: diagnose→work beats scout→work (4m vs 12m, no hallucination risk)
         # - bug: work-only is fastest for well-described bugs; diagnose adds latency
         # - refactor: diagnose→work predicted to win (same structure as features)
-        # - polish/art_pass: work-only sufficient (narrow scope, codebase context not critical)
+        # - polish: work-only sufficient (narrow scope, codebase context not critical)
+        # - art_pass: diagnose→work wins (v3c probe: 8.5 vs 4 screenshots/run, more consistent loop usage, 9-call overhead)
         # - plan→scout→work (D-shape) hallucinated 2/2 on features — explicitly avoided
         _DEFAULT_PIPELINES: dict = {
+            # feature: diagnose→work wins (v2 probe 4/4, 58 avg calls vs 73 for full pipeline);
+            # v1 hallucination test was 2 runs — too small; v2 with 4 runs shows diagnose alone is sufficient
             "feature":  ["diagnose", "work", "validate"],
-            "bug":      ["work", "validate"],
+            # bug: diagnose→work is fastest safe shape for well-described bugs (109s vs 196s scout→work); plan only needed for ambiguous bugs
+            "bug":      ["diagnose", "work", "validate"],
             "polish":   ["work", "validate"],
-            "art_pass": ["work", "validate"],
-            "refactor": ["diagnose", "work", "validate"],
+            # art_pass: diagnose primes visual verification — more screenshots, more consistent (v3c probe 2026-08-04)
+            "art_pass": ["diagnose", "work", "validate"],
+            # refactor: no probe data yet; plan+scout tentative per findings doc
+            "refactor": ["plan", "scout", "work", "validate"],
         }
         pipeline = (_pipeline_from_metadata
                     or _project_pipeline_override

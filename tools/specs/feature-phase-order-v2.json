@@ -1,0 +1,71 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/tetris-neon",
+    "type": "feature",
+    "provider": "minimax",
+    "reset_cmd": "git checkout f6bc88ec20fb9cd4def1c6f99ad0cdcb6055ac34 -- ."
+  },
+
+  "runs": [
+    {
+      "name": "A1-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "A2-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "A3-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "A4-plan-scout-diagnose-work",
+      "pipeline": "plan->scout->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "B1-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "B2-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "B3-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "B4-plan-diagnose-work",
+      "pipeline": "plan->diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "C1-diagnose-work",
+      "pipeline": "diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "C2-diagnose-work",
+      "pipeline": "diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "C3-diagnose-work",
+      "pipeline": "diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    },
+    {
+      "name": "C4-diagnose-work",
+      "pipeline": "diagnose->work->validate",
+      "task": "Implement the ghost piece feature: a semi-transparent preview of where the current tetromino will land. The ghost piece should update every frame as the piece moves/rotates, use the same shape as the current piece but rendered at low opacity (around 0.3), and appear directly below the current piece at its landing row. Wire into the existing board/piece rendering in game_scene.gd."
+    }
+  ]
+}

@@ -77,9 +77,14 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
     def set_auto_mode():
         data = request.json or {}
         enabled = bool(data.get("enabled", False))
+        suspend = bool(data.get("suspend", False))
         with auto_mode_state["lock"]:
             auto_mode_state["enabled"] = enabled
-            auto_mode_state["suspended_for_quota"] = False  # user explicitly set it
+            if suspend:
+                # Manual quota suspension — watcher will lift it when quota drops below threshold
+                auto_mode_state["suspended_for_quota"] = True
+            else:
+                auto_mode_state["suspended_for_quota"] = False  # user explicitly set it
             auto_mode_state["user_disabled"] = not enabled  # prevent quota-resume from overriding manual off
         config["auto_mode_enabled"] = enabled
         with _config_write_lock:
@@ -93,6 +98,9 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             config_file.write_text(json.dumps(cfg, indent=2) + "\n")
         caller = request.remote_addr or "unknown"
         ua = request.headers.get("User-Agent", "")[:60]
+        if suspend:
+            print(f"[Auto] Manually suspended via HTTP | caller={caller} ua={ua}")
+            return jsonify({"enabled": enabled, "suspended_for_quota": True})
         if enabled and generate_task_script is not None:
             spawned_ids, _ = orchestrator.fill_slots(generate_task_script)
             print(f"[Auto] Mode enabled via HTTP — spawned {len(spawned_ids)} agent(s) | caller={caller} ua={ua}")
@@ -354,8 +362,13 @@ def register_routes(app, config, config_file, orchestrator, _runner_mod, data_di
             os.environ[env_var] = data["api_key"]
             _runner_mod.LLM_PROVIDERS.setdefault(provider, {})["api_key_env"] = env_var
             _runner_mod.LLM_PROVIDERS[provider]["api_key"] = data["api_key"]
-        # Override model if provided
-        if data.get("model") and hasattr(_runner_mod, "LLM_PROVIDERS"):
+        # Override model/base_url if provided for existing providers
+        if hasattr(_runner_mod, "LLM_PROVIDERS") and provider in _runner_mod.LLM_PROVIDERS:
+            if data.get("model"):
+                _runner_mod.LLM_PROVIDERS[provider]["model"] = data["model"]
+            if data.get("base_url"):
+                _runner_mod.LLM_PROVIDERS[provider]["base_url"] = data["base_url"]
+        elif data.get("model") and hasattr(_runner_mod, "LLM_PROVIDERS"):
             _runner_mod.LLM_PROVIDERS[provider]["model"] = data["model"]
         _runner_mod.LLM_PROVIDER = provider
         orchestrator.LLM_PROVIDER = provider

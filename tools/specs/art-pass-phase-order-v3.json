@@ -1,0 +1,31 @@
+{
+  "default": {
+    "dir": "/Users/costas/workspace/void-patrol-no-art-run12",
+    "type": "art_pass",
+    "provider": "minimax",
+    "reset_cmd": "git checkout def024f30a5f4846f3c76832fb92774d1e4507cc -- .",
+    "phase_loop_limits": {"work": 300}
+  },
+  "runs": [
+    {
+      "name": "A1-work-only",
+      "pipeline": "work",
+      "task": "Art pass: void-patrol is currently rendered entirely as flat colored rectangles with no sprites or textures. Add real pixel-art SVG assets for the player ship, enemy types, bullets, and background. The game has a space/sci-fi theme. Create distinct sprites for: player ship (sleek fighter silhouette), at least 2 enemy types (drone and heavy), player bullet, enemy bullet, and a tiling starfield background. All assets must be SVGs committed to an assets/sprites/ directory and wired into the relevant scene files. Do not change any game logic."
+    },
+    {
+      "name": "A2-work-only",
+      "pipeline": "work",
+      "task": "Art pass: void-patrol is currently rendered entirely as flat colored rectangles with no sprites or textures. Add real pixel-art SVG assets for the player ship, enemy types, bullets, and background. The game has a space/sci-fi theme. Create distinct sprites for: player ship (sleek fighter silhouette), at least 2 enemy types (drone and heavy), player bullet, enemy bullet, and a tiling starfield background. All assets must be SVGs committed to an assets/sprites/ directory and wired into the relevant scene files. Do not change any game logic."
+    },
+    {
+      "name": "B1-diagnose-work",
+      "pipeline": "diagnose->work",
+      "task": "Art pass: void-patrol is currently rendered entirely as flat colored rectangles with no sprites or textures. Add real pixel-art SVG assets for the player ship, enemy types, bullets, and background. The game has a space/sci-fi theme. Create distinct sprites for: player ship (sleek fighter silhouette), at least 2 enemy types (drone and heavy), player bullet, enemy bullet, and a tiling starfield background. All assets must be SVGs committed to an assets/sprites/ directory and wired into the relevant scene files. Do not change any game logic."
+    },
+    {
+      "name": "B2-diagnose-work",
+      "pipeline": "diagnose->work",
+      "task": "Art pass: void-patrol is currently rendered entirely as flat colored rectangles with no sprites or textures. Add real pixel-art SVG assets for the player ship, enemy types, bullets, and background. The game has a space/sci-fi theme. Create distinct sprites for: player ship (sleek fighter silhouette), at least 2 enemy types (drone and heavy), player bullet, enemy bullet, and a tiling starfield background. All assets must be SVGs committed to an assets/sprites/ directory and wired into the relevant scene files. Do not change any game logic."
+    }
+  ]
+}

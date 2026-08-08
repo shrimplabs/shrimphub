@@ -197,6 +197,36 @@ first.
 
 ---
 
+## Quota auto-pause
+
+When `used_percent` reaches `quota_limit_percent` (default 90%), the quota watcher
+thread automatically sets `suspended_for_quota=true`, stopping new agent spawns and
+SIGSTOPping active agents. It lifts the suspension automatically once usage drops
+back below the threshold.
+
+To manually trigger the same paused state without hitting the quota threshold:
+
+```bash
+curl -X POST http://localhost:5001/api/auto-mode \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "suspend": true}'
+```
+
+Auto-mode stays enabled but suspended. The quota watcher will resume it
+automatically. To fully disable auto-mode (watcher won't auto-resume):
+
+```bash
+curl -X POST http://localhost:5001/api/auto-mode \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+**Note:** `quota_limit_percent` applies to MiniMax usage regardless of which
+provider (`llm_provider`) is currently active. The quota check always reads
+directly from the MiniMax API using `MINIMAX_API_KEY`.
+
+---
+
 ## Local fallback on quota exhaustion
 
 When the quota limit is hit (`quota_limit_percent` threshold reached), you can

@@ -120,6 +120,10 @@ else
     echo "  Headroom or OPENCODE_API_KEY not found — skipping OpenCode proxy"
 fi
 
+# ── Headroom — Athena proxy (port 8889, disabled — swarm tool outputs not compressible) ──
+# Uncomment to re-enable when headroom supports OpenAI tool result compression
+# HEADROOM_ATHENA_PID_FILE=".headroom-athena.pid"
+
 # ── Shrimp router ────────────────────────────────────────────────────────────
 SHRIMP_PID_FILE=".shrimp.pid"
 SHRIMP_DIR="${SHRIMP_ROUTER_DIR:-$HOME/workspace/shrimp-router}"

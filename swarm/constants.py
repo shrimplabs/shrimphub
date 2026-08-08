@@ -40,10 +40,10 @@ MINIMAX_MODEL: str = "MiniMax-M3"
 # Bump when the pipeline contract in swarm/pipeline.py changes in a non-backwards-compatible way.
 PIPELINE_VERSION: str = "1.0"
 
-# Event bus default -- soak #1 was contaminated (headroom outage + 429 cascade).
-# Soak #2 running: 2026-07-25 08:36 → 2026-07-27 08:36. Held at False until validated.
-# config.json has event_bus_enabled: true so the bus is active during the soak.
-EVENT_BUS_ENABLED_DEFAULT: bool = False
+# Event bus default -- soak validated 2026-08-08.
+# p50 inter-task gap: 1.8s (target ≤3s ✅), p90: 63.8s, handler_errors: 0.
+# Flipped to True: new deployments get the bus without needing config.json override.
+EVENT_BUS_ENABLED_DEFAULT: bool = True
 EVENT_BUS_ENABLED_LEGACY_DEFAULT: bool = False  # back-compat alias for tests/fixtures
 
 # Pipeline phase loop limits -- all phase files import from here

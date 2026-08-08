@@ -196,8 +196,6 @@ def check_quota_limit() -> Tuple[bool, float, float, int, int]:
     now = _time.monotonic()
     if now - _quota_cache_ts < _QUOTA_CACHE_TTL:
         return _quota_cache
-    if LLM_PROVIDER != "minimax":
-        return False, 0.0, 100.0, 0, 4500
     if not MINIMAX_API_KEY:
         return False, 0.0, 100.0, 0, 4500
     try:
