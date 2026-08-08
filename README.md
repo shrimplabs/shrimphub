@@ -532,6 +532,23 @@ pytest tests/test_dashboard.py
 - [Legacy Project Migration Guide](docs/legacy_project_migration_guide.md) — normalising older projects
 - [RAG Integration](docs/rag.md) — optional vector search for agent code context
 
+## Contributing / Publishing to GitHub
+
+> **Do not run `git push github main` directly.**
+>
+> The git history contains internal documents (roadmaps, experiment analyses,
+> strategy notes) that were committed before being moved to `internal/` and
+> gitignored. Those commits are still in history and would be publicly visible
+> on GitHub.
+>
+> Use the provided script instead — it clones the repo, strips `internal/`
+> from all commits with `git filter-repo`, and prompts before pushing:
+>
+> ```bash
+> scripts/push-public.sh
+> # requires: pip install git-filter-repo
+> ```
+
 ## License
 
 See [docs/licenses.md](docs/licenses.md).
