@@ -72,6 +72,10 @@ data/audit_learnings_last_run.txt
 # Internal session artifacts
 docs/internal/
 
+# Internal-only docs (roadmaps, experiment analyses, Fable reviews, drafts)
+# Kept on Gitea (internal) but excluded from public GitHub pushes.
+internal/
+
 # Test project directories created by spawn tests
 spawn-test-proj/
 
