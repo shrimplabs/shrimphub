@@ -110,7 +110,7 @@ Registered in `project.godot` as `AnalyticsReporter`.
 ### Configuration (top of file)
 
 ```gdscript
-const TELEMETRY_URL = "http://telemetry.paraxenia.com/api/telemetry"
+const TELEMETRY_URL = "http://telemetry.example.com/api/telemetry"
 const TIER2_ENABLED = false          # set true per-game to enable position sampling
 const POSITION_SAMPLE_INTERVAL = 2.0 # seconds between position samples
 const GAME_NAME = "raccoon-city"     # set by project_create scaffold
