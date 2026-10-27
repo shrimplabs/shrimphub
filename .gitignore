@@ -1,0 +1,97 @@
+# Blog posts / external write-ups (translated and published elsewhere)
+reports/
+
+# QA screenshots (local test artifacts)
+qa_screenshots/
+
+# Environment
+.env
+.env.bak
+
+# Local config (copy from config.example.json)
+config.json
+config.json.bak-*
+
+# Media / screenshots from experiment runs
+*.gif
+
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Ruff linter cache
+.ruff_cache/
+
+# Pytest cache
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+_swarm_progress.md
+VALIDATION_STATE.md
+
+# Runtime data (all excluded; only .gitkeep is tracked)
+data/*
+!data/.gitkeep
+!data/scheduler_check.py
+!data/SCHEDULER_LOG.md
+!data/PROJECT_MAP.md
+!data/SWARM_SUMMARY.json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/
+
+# Claude Code session files
+.claude/
+
+# Local workspace symlinks
+workspace/
+
+# Vim swap files
+*.swp
+
+# Accidental shell artifact
+]
+data/AUDIT_LEARNINGS_REPORT.md
+data/audit_learnings_last_run.txt
+
+# Runtime PID files
+*.pid
+
+# Internal session artifacts
+docs/internal/
+
+# Internal-only docs (roadmaps, experiment analyses, Fable reviews, drafts)
+# Kept on Gitea (internal) but excluded from public GitHub pushes.
+internal/
+
+# Test project directories created by spawn tests
+spawn-test-proj/
+
+# One-off debug scripts
+longevity_check.py
+menu_check.py
+verify_fix.py
+watchdog.sh
+
+# IDE / local tooling config (internal paths and settings)
+.codex/
+.serena/
+*.bak
+
+# Agent coordination scratch (broadcast claims)
+.agent/

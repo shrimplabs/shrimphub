@@ -1,0 +1,30 @@
+; Test project.godot for the analytics_reporter autoload.
+;
+; This file exists ONLY so the swarm can verify that
+; `autoload/analytics_reporter.gd` loads as a registered autoload.
+; It does NOT define any actual game logic. The project includes the
+; templates/godot/autoload/ directory via the [autoload] entry below.
+;
+; To use this in a real Godot install:
+;   1. Copy templates/godot/{autoload,test}/project.godot, test_placeholder.gd,
+;      and any other assets into a Godot 4 project root.
+;   2. Open the project once in the editor so .godot/ cache is populated.
+;
+; A minimal project.godot that registers AnalyticsReporter as an autoload.
+; The "*" prefix tells Godot the script is an autoload singleton.
+
+config_version=5
+
+[application]
+
+config/name="analytics_reporter_test"
+config/description="Test project to verify AnalyticsReporter autoload registers correctly."
+config/features=PackedStringArray("4.2", "Forward Plus")
+
+[autoload]
+
+AnalyticsReporter="*res://autoload/analytics_reporter.gd"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

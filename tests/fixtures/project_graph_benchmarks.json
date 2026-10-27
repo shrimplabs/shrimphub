@@ -1,0 +1,51 @@
+[
+  {
+    "id": "vague_arcade_brief",
+    "difficulty": "vague",
+    "prompt": "Make a small Godot arcade game where the player dodges enemies, survives waves, and gets a score screen at the end.",
+    "expected_properties": {
+      "min_tasks": 6,
+      "max_tasks": 12,
+      "reject_star": true,
+      "reject_chain": true,
+      "require_parallel_branches": 2,
+      "require_convergences": 1
+    }
+  },
+  {
+    "id": "mid_scope_management_game",
+    "difficulty": "medium",
+    "prompt": "Create a Godot management game where the player runs a tiny potion shop, crafts potions from ingredients, serves customers, tracks gold, and upgrades the shop over time.",
+    "expected_properties": {
+      "min_tasks": 8,
+      "max_tasks": 14,
+      "reject_star": true,
+      "reject_chain": true,
+      "require_parallel_branches": 3,
+      "require_convergences": 2,
+      "semantic_expectations": [
+        "hud_depends_on_system_state",
+        "economy_or_progression_depends_on_core_loop"
+      ]
+    }
+  },
+  {
+    "id": "signal_cartel_detailed_brief",
+    "difficulty": "detailed",
+    "prompt": "Create a new Godot 4 project/repo named signal-cartel. Build a top-down tactical infiltration game with two operatives, guard patrols, guard detection, alert escalation, door/terminal interactions, mission objective flow for stealing a data core and extracting, HUD feedback, menu/restart flow, and final vertical-slice integration.",
+    "expected_properties": {
+      "min_tasks": 10,
+      "max_tasks": 14,
+      "reject_star": true,
+      "reject_chain": true,
+      "require_parallel_branches": 3,
+      "require_convergences": 2,
+      "semantic_expectations": [
+        "mission_flow_depends_on_state_layout_interactions",
+        "hud_depends_on_displayed_state",
+        "menu_depends_on_hud_and_mission_outcome",
+        "integration_depends_on_multiple_system_categories"
+      ]
+    }
+  }
+]

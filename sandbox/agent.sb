@@ -1,0 +1,424 @@
+;; Swarm agent containment profile (macOS seatbelt / sandbox-exec).
+;;
+;; Layer 2 of the containment sprint (beads swarm-controller-uwu0).  Layer 1 is
+;; the in-process guards (path_guard, shell_guard, env allowlist, egress
+;; allowlist, api_authz).  Those live inside the agent's Python process and can
+;; only stop tools the agent calls through the tool dispatcher.  This profile is
+;; the kernel-enforced backstop: it applies to the agent process AND every
+;; child it spawns, including anything that slips past the Python layer.
+;;
+;; Parameters are supplied by swarm.sandbox.build_profile() via -D:
+;;   HOME_DIR        operator home directory
+;;   WORKSPACE_DIR   project workspace root (projects + sibling worktrees)
+;;   CONTROLLER_DIR  swarm-controller checkout (read-only except DATA_DIR)
+;;   DATA_DIR        controller data dir (agent scripts, logs, token files)
+;;   TMP_DIR         resolved /tmp (realpath, usually /private/tmp)
+;;   VAR_FOLDERS     resolved per-user temp root (realpath of $TMPDIR)
+;;   PROJECT_DIR     realpath of THIS agent's project (else a sentinel)
+;;   WORKTREE_DIR    realpath of THIS agent's git worktree (else a sentinel)
+;;   REMOTE_DIR      WORKSPACE_DIR/_remotes/<project>.git, the project's local
+;;                   bare remote, if it uses one (else a sentinel)
+;;
+;; Design: deny by default, then allow the minimum.  Reads are broad (agents
+;; must read system libraries, Godot, Python stdlib, and the project); writes
+;; and network are tightly scoped.  The profile deliberately does NOT restrict
+;; process execution -- agents legitimately run git, godot, python, and pytest,
+;; and those are already command-filtered by shell_guard.
+
+(version 1)
+(deny default)
+
+;; ---------------------------------------------------------------------------
+;; Process basics
+;; ---------------------------------------------------------------------------
+(allow process-fork)
+(allow process-exec)
+(allow signal (target same-sandbox))
+(allow sysctl-read)
+
+
+;; NOTE on /bin/ps: it is setuid root (-rwsr-xr-x), and seatbelt refuses to
+;; exec setuid binaries -- `ps` returns 126 under this profile while non-setuid
+;; tools exec fine.  That is CORRECT and must not be "fixed" here: allowing
+;; setuid exec inside the sandbox would be a far larger hole than any caller
+;; is worth.  qa_tools' _reap_stale_godot_for_path() must use pgrep (not
+;; setuid, works under the profile) instead.  See swarm-controller issue for
+;; the reaper change.
+(allow mach-lookup)
+(allow mach-priv-host-port)
+(allow iokit-open)
+(allow ipc-posix-shm)
+(allow system-socket)
+
+;; ---------------------------------------------------------------------------
+;; Reads: broad.  Confidentiality of credentials is handled by explicit denies
+;; below plus the env allowlist in agent_lifecycle.build_agent_env().
+;; ---------------------------------------------------------------------------
+(allow file-read* file-read-metadata)
+
+;; ---------------------------------------------------------------------------
+;; Writes: only where an agent has legitimate business.
+;;
+;; NOT the whole workspace.  Until 2026-10-26 this allowed (subpath
+;; WORKSPACE_DIR), so any agent -- or any script it ran -- could delete every
+;; sibling project.  Now an agent writes only its own project, its own
+;; worktree and its project's local bare remote (PROJECT_DIR, WORKTREE_DIR,
+;; REMOTE_DIR, granted below).  Other projects and other agents' worktrees
+;; are read-only.
+;; ---------------------------------------------------------------------------
+(allow file-write*
+  ;; Controller data dir: agent_<id>.py, agent_<id>.log, token json, db.
+  (subpath (param "DATA_DIR"))
+  ;; Temp.  Both the public /tmp and the per-user $TMPDIR under /var/folders.
+  (subpath (param "TMP_DIR"))
+  (subpath (param "VAR_FOLDERS"))
+  (subpath "/private/var/tmp"))
+
+;; Godot, pip, and git each keep caches under ~/Library or ~/.cache.  Without
+;; these an agent cannot run the engine or install a dependency, and validation
+;; fails for reasons unrelated to the task.
+(allow file-write*
+  (subpath (string-append (param "HOME_DIR") "/Library/Caches"))
+  (subpath (string-append (param "HOME_DIR") "/Library/Application Support/Godot"))
+  (subpath (string-append (param "HOME_DIR") "/Library/Saved Application State"))
+  (subpath (string-append (param "HOME_DIR") "/.cache"))
+  (subpath (string-append (param "HOME_DIR") "/.godot")))
+
+;; Devices that are safe and required (/dev/null, /dev/urandom, ptys).
+(allow file-write-data
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (regex #"^/dev/tty"))
+(allow file-ioctl
+  (literal "/dev/null")
+  (regex #"^/dev/tty"))
+
+;; The controller checkout itself stays read-only.  allow_self_modification is
+;; a config flag, but the kernel is the one that enforces it here: an agent
+;; working on a game project can never rewrite its own guardrails.  DATA_DIR is
+;; re-allowed above and, being a subpath of CONTROLLER_DIR, wins by virtue of
+;; seatbelt's last-match-wins ordering -- so this deny is stated BEFORE it
+;; would matter only if DATA_DIR sits elsewhere.  Keep the re-allow after.
+
+;; The agent's own write roots.  All are RESOLVED paths: most managed
+;; projects are symlinks from WORKSPACE_DIR into another tree, and seatbelt
+;; matches the real path.  PROJECT_DIR is deliberately one project, never a
+;; shared parent (that parent also holds the controller checkout).  A root the
+;; agent does not have (no worktree, no bare remote) is a sentinel path that
+;; matches nothing, so its rule is inert rather than permissive.
+(allow file-write*
+  (subpath (param "PROJECT_DIR"))
+  (subpath (param "WORKTREE_DIR"))
+  (subpath (param "REMOTE_DIR")))
+(allow file-read* (subpath (param "PROJECT_DIR")))
+
+;; Stays AFTER the PROJECT_DIR allow so the controller checkout is denied even
+;; if it were ever passed as a project.
+(deny file-write* (subpath (param "CONTROLLER_DIR")))
+(allow file-write* (subpath (param "DATA_DIR")))
+
+;; Credential stores the agent must never read or write, even though reads are
+;; otherwise broad.  These are the paths that would let an agent authenticate
+;; as the operator to GitHub or any other remote.  (beads swarm-controller-hg9h
+;; keeps the rest of this list honest.)
+;;
+;; MUST stay after every allow above: seatbelt is last-match-wins, so a later
+;; write root that happens to cover HOME_DIR (a project symlinked to $HOME
+;; becomes PROJECT_DIR; a workspace set to $HOME) would otherwise re-open
+;; ~/.ssh for writing -- authorized_keys persistence -- and the PROJECT_DIR
+;; read-allow would re-open it for reading.  Hit in swarm-controller-q8o1;
+;; TestCredentialsAreUnreachable pins it with HOME_DIR inside the workspace.
+(deny file-read* file-write*
+  (subpath (string-append (param "HOME_DIR") "/.ssh"))
+  (subpath (string-append (param "HOME_DIR") "/.aws"))
+  (subpath (string-append (param "HOME_DIR") "/.gnupg"))
+  (subpath (string-append (param "HOME_DIR") "/.config/gh"))
+  (subpath (string-append (param "HOME_DIR") "/.docker"))
+  (subpath (string-append (param "HOME_DIR") "/Library/Keychains"))
+  (subpath (string-append (param "HOME_DIR") "/.local/share/keyrings"))
+  (literal (string-append (param "HOME_DIR") "/.netrc"))
+  (literal (string-append (param "HOME_DIR") "/.git-credentials"))
+  (subpath "/Library/Keychains")
+  (subpath "/Network"))
+
+;; ---------------------------------------------------------------------------
+;; Network: allowlist.  Everything else, including the open internet, is denied.
+;; ---------------------------------------------------------------------------
+;; Unix domain sockets stay open -- DNS resolution, the window server (Godot
+;; needs a GUI session for screenshots), and CoreFoundation all use them.
+(allow network-outbound (literal "/private/var/run/mDNSResponder"))
+(allow network-outbound (regex #"^/private/tmp/"))
+(allow network-outbound (regex #"^/private/var/"))
+(allow network-bind (regex #"^/private/var/"))
+
+;; Localhost services the agent legitimately talks to.  These are the ports
+;; launch.sh brings up, plus the Godot QA channel:
+;;   5001  swarm controller API (token-scoped by swarm.api_authz)
+;;   8035  model-router (also reached via the tailnet host below)
+;;   8080  mlx-vlm server (vision)
+;;   8081  local mlx LLM
+;;   8090  shrimp-router (MiniMax + local VLM round-robin)
+;;   8877  headroom, Codex token proxy
+;;   8886  headroom, OpenCode proxy
+;;   8888  headroom, MiniMax caching proxy
+;;   11009 Godot StateServer, for QA/art_pass/playthrough_bot
+;;
+;; Note the headroom proxies are what actually egress to api.minimax.io and
+;; opencode.ai.  That is deliberate: the agent reaches remote models only
+;; through a proxy the operator controls, never by opening its own connection
+;; to a vendor endpoint, and the vendor API keys live in the proxy's
+;; environment rather than the agent's.
+(allow network-outbound
+  (remote ip "localhost:5001")
+  (remote ip "localhost:8035")
+  (remote ip "localhost:8080")
+  (remote ip "localhost:8081")
+  (remote ip "localhost:8090")
+  (remote ip "localhost:8877")
+  (remote ip "localhost:8886")
+  (remote ip "localhost:8888"))
+
+;; Godot StateServer + test harness.  NOT a single port: launch_game() calls
+;; _find_free_port_pair(base=11009, max_range=200) and derives a per-project
+;; base inside that window, so concurrent agents on different projects get
+;; different pairs.  The profile originally allowed only 11009 -- the literal
+;; base -- so every agent whose project hashed elsewhere lost StateServer
+;; access and get_game_state()/click_element() failed with EPERM.  Measured
+;; 2026-09-20: raccoon-city allocated 11195/11196 and was denied.
+;; Seatbelt has no port-range syntax, so the window is enumerated.
+(allow network-outbound
+  (remote ip "localhost:11009")
+  (remote ip "localhost:11010")
+  (remote ip "localhost:11011")
+  (remote ip "localhost:11012")
+  (remote ip "localhost:11013")
+  (remote ip "localhost:11014")
+  (remote ip "localhost:11015")
+  (remote ip "localhost:11016")
+  (remote ip "localhost:11017")
+  (remote ip "localhost:11018")
+  (remote ip "localhost:11019")
+  (remote ip "localhost:11020")
+  (remote ip "localhost:11021")
+  (remote ip "localhost:11022")
+  (remote ip "localhost:11023")
+  (remote ip "localhost:11024")
+  (remote ip "localhost:11025")
+  (remote ip "localhost:11026")
+  (remote ip "localhost:11027")
+  (remote ip "localhost:11028")
+  (remote ip "localhost:11029")
+  (remote ip "localhost:11030")
+  (remote ip "localhost:11031")
+  (remote ip "localhost:11032")
+  (remote ip "localhost:11033")
+  (remote ip "localhost:11034")
+  (remote ip "localhost:11035")
+  (remote ip "localhost:11036")
+  (remote ip "localhost:11037")
+  (remote ip "localhost:11038")
+  (remote ip "localhost:11039")
+  (remote ip "localhost:11040")
+  (remote ip "localhost:11041")
+  (remote ip "localhost:11042")
+  (remote ip "localhost:11043")
+  (remote ip "localhost:11044")
+  (remote ip "localhost:11045")
+  (remote ip "localhost:11046")
+  (remote ip "localhost:11047")
+  (remote ip "localhost:11048")
+  (remote ip "localhost:11049")
+  (remote ip "localhost:11050")
+  (remote ip "localhost:11051")
+  (remote ip "localhost:11052")
+  (remote ip "localhost:11053")
+  (remote ip "localhost:11054")
+  (remote ip "localhost:11055")
+  (remote ip "localhost:11056")
+  (remote ip "localhost:11057")
+  (remote ip "localhost:11058")
+  (remote ip "localhost:11059")
+  (remote ip "localhost:11060")
+  (remote ip "localhost:11061")
+  (remote ip "localhost:11062")
+  (remote ip "localhost:11063")
+  (remote ip "localhost:11064")
+  (remote ip "localhost:11065")
+  (remote ip "localhost:11066")
+  (remote ip "localhost:11067")
+  (remote ip "localhost:11068")
+  (remote ip "localhost:11069")
+  (remote ip "localhost:11070")
+  (remote ip "localhost:11071")
+  (remote ip "localhost:11072")
+  (remote ip "localhost:11073")
+  (remote ip "localhost:11074")
+  (remote ip "localhost:11075")
+  (remote ip "localhost:11076")
+  (remote ip "localhost:11077")
+  (remote ip "localhost:11078")
+  (remote ip "localhost:11079")
+  (remote ip "localhost:11080")
+  (remote ip "localhost:11081")
+  (remote ip "localhost:11082")
+  (remote ip "localhost:11083")
+  (remote ip "localhost:11084")
+  (remote ip "localhost:11085")
+  (remote ip "localhost:11086")
+  (remote ip "localhost:11087")
+  (remote ip "localhost:11088")
+  (remote ip "localhost:11089")
+  (remote ip "localhost:11090")
+  (remote ip "localhost:11091")
+  (remote ip "localhost:11092")
+  (remote ip "localhost:11093")
+  (remote ip "localhost:11094")
+  (remote ip "localhost:11095")
+  (remote ip "localhost:11096")
+  (remote ip "localhost:11097")
+  (remote ip "localhost:11098")
+  (remote ip "localhost:11099")
+  (remote ip "localhost:11100")
+  (remote ip "localhost:11101")
+  (remote ip "localhost:11102")
+  (remote ip "localhost:11103")
+  (remote ip "localhost:11104")
+  (remote ip "localhost:11105")
+  (remote ip "localhost:11106")
+  (remote ip "localhost:11107")
+  (remote ip "localhost:11108")
+  (remote ip "localhost:11109")
+  (remote ip "localhost:11110")
+  (remote ip "localhost:11111")
+  (remote ip "localhost:11112")
+  (remote ip "localhost:11113")
+  (remote ip "localhost:11114")
+  (remote ip "localhost:11115")
+  (remote ip "localhost:11116")
+  (remote ip "localhost:11117")
+  (remote ip "localhost:11118")
+  (remote ip "localhost:11119")
+  (remote ip "localhost:11120")
+  (remote ip "localhost:11121")
+  (remote ip "localhost:11122")
+  (remote ip "localhost:11123")
+  (remote ip "localhost:11124")
+  (remote ip "localhost:11125")
+  (remote ip "localhost:11126")
+  (remote ip "localhost:11127")
+  (remote ip "localhost:11128")
+  (remote ip "localhost:11129")
+  (remote ip "localhost:11130")
+  (remote ip "localhost:11131")
+  (remote ip "localhost:11132")
+  (remote ip "localhost:11133")
+  (remote ip "localhost:11134")
+  (remote ip "localhost:11135")
+  (remote ip "localhost:11136")
+  (remote ip "localhost:11137")
+  (remote ip "localhost:11138")
+  (remote ip "localhost:11139")
+  (remote ip "localhost:11140")
+  (remote ip "localhost:11141")
+  (remote ip "localhost:11142")
+  (remote ip "localhost:11143")
+  (remote ip "localhost:11144")
+  (remote ip "localhost:11145")
+  (remote ip "localhost:11146")
+  (remote ip "localhost:11147")
+  (remote ip "localhost:11148")
+  (remote ip "localhost:11149")
+  (remote ip "localhost:11150")
+  (remote ip "localhost:11151")
+  (remote ip "localhost:11152")
+  (remote ip "localhost:11153")
+  (remote ip "localhost:11154")
+  (remote ip "localhost:11155")
+  (remote ip "localhost:11156")
+  (remote ip "localhost:11157")
+  (remote ip "localhost:11158")
+  (remote ip "localhost:11159")
+  (remote ip "localhost:11160")
+  (remote ip "localhost:11161")
+  (remote ip "localhost:11162")
+  (remote ip "localhost:11163")
+  (remote ip "localhost:11164")
+  (remote ip "localhost:11165")
+  (remote ip "localhost:11166")
+  (remote ip "localhost:11167")
+  (remote ip "localhost:11168")
+  (remote ip "localhost:11169")
+  (remote ip "localhost:11170")
+  (remote ip "localhost:11171")
+  (remote ip "localhost:11172")
+  (remote ip "localhost:11173")
+  (remote ip "localhost:11174")
+  (remote ip "localhost:11175")
+  (remote ip "localhost:11176")
+  (remote ip "localhost:11177")
+  (remote ip "localhost:11178")
+  (remote ip "localhost:11179")
+  (remote ip "localhost:11180")
+  (remote ip "localhost:11181")
+  (remote ip "localhost:11182")
+  (remote ip "localhost:11183")
+  (remote ip "localhost:11184")
+  (remote ip "localhost:11185")
+  (remote ip "localhost:11186")
+  (remote ip "localhost:11187")
+  (remote ip "localhost:11188")
+  (remote ip "localhost:11189")
+  (remote ip "localhost:11190")
+  (remote ip "localhost:11191")
+  (remote ip "localhost:11192")
+  (remote ip "localhost:11193")
+  (remote ip "localhost:11194")
+  (remote ip "localhost:11195")
+  (remote ip "localhost:11196")
+  (remote ip "localhost:11197")
+  (remote ip "localhost:11198")
+  (remote ip "localhost:11199")
+  (remote ip "localhost:11200")
+  (remote ip "localhost:11201")
+  (remote ip "localhost:11202")
+  (remote ip "localhost:11203")
+  (remote ip "localhost:11204")
+  (remote ip "localhost:11205")
+  (remote ip "localhost:11206")
+  (remote ip "localhost:11207")
+  (remote ip "localhost:11208")
+  (remote ip "localhost:11209"))
+
+;; The agent's own StateServer listener and any ephemeral local bind (pytest
+;; fixtures, Godot's debug port) must be able to come up on loopback.
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+
+;; LAN + tailnet hosts.
+;;
+;; IMPORTANT LIMITATION, measured rather than assumed: seatbelt's `remote ip`
+;; accepts only "localhost:<port>" or "*:<port>".  It rejects both hostnames
+;; and literal IPv4 addresses at profile-compile time, so there is no way to
+;; say "this host, this port" here.  Pinning IPs is not an option and would be
+;; fragile anyway -- the LAN hosts are DHCP leases.
+;;
+;; So these three rules are port-scoped, not host-scoped: any host answering on
+;; 8083, 3000 or 8035 is reachable.  That is a real gap and is stated here so
+;; nobody later mistakes this profile for a host allowlist.  What makes it an
+;; acceptable one:
+;;   - Ports 80 and 443 stay denied.  Verified: under a profile allowing *:80,
+;;     curl to an arbitrary internet host on 80 returns 200, while 443 fails.
+;;     Nearly every exfiltration destination and package index speaks 443, so
+;;     denying it removes the broad path even though a narrow one remains.
+;;   - 8083/3000/8035 are uncommon ports; a host reachable on them is far more
+;;     likely to be on this LAN than to be an attacker-chosen endpoint.
+;;   - The name-level check still exists in-process: fetch_url in
+;;     swarm/tools/core.py enforces a host allowlist with per-hop redirect
+;;     validation, and shell_guard blocks curl/wget with upload flags.
+;; The kernel layer here is the backstop for those, not a replacement.
+(allow network-outbound
+  (remote ip "*:8083")   ;; LAN inference box
+  (remote ip "*:3000")   ;; LAN Gitea, the git push target
+  (remote ip "*:8035"))  ;; model-router on the tailnet

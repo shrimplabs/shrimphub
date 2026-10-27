@@ -1,0 +1,1301 @@
+"""
+swarm.agent_finish -- agent completion pipeline.
+
+Extracted from agent_lifecycle.py. Contains _finish_agent() and all helpers
+that support it: exit-code resolution, log reading, worktree phase, diff
+capture, token usage, and cleanup.
+
+All functions access agent_lifecycle state at call-time via _al() to avoid
+circular imports and stale values.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Lazy accessor
+# ---------------------------------------------------------------------------
+
+def _al():
+    import swarm.agent_lifecycle as _mod
+    return _mod
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class _AgentLogSnapshot:
+    full_output: str
+    tail_output: str
+
+
+@dataclass(frozen=True)
+class _WorktreeFinishResult:
+    success: bool
+    validation_failed: bool = False
+    validation_error: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _resolve_agent_exit_code(script_path: Optional[str], exit_code: int) -> int:
+    """Prefer the explicit exit file written by the agent runtime when present."""
+    if not script_path:
+        return exit_code
+    exit_file = Path(script_path).with_suffix(".exit")
+    if not exit_file.exists():
+        return exit_code
+    try:
+        resolved = int(exit_file.read_text().strip())
+        exit_file.unlink()
+        return resolved
+    except Exception:
+        return exit_code
+
+
+def _read_agent_log(log_path: Optional[str]) -> _AgentLogSnapshot:
+    if not log_path or not Path(log_path).exists():
+        return _AgentLogSnapshot(full_output="", tail_output="")
+    try:
+        full_output = Path(log_path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return _AgentLogSnapshot(full_output="", tail_output="")
+    return _AgentLogSnapshot(full_output=full_output, tail_output=full_output[-2000:])
+
+
+def _extract_and_store_signals(agent_id: str, task_id: Optional[str],
+                               project: Optional[str], log_path: str) -> dict:
+    """Extract analytics signals from an agent log and persist them.
+
+    Extracted from the inline Phase 6c block in _finish_agent so it can be
+    unit-tested directly — a missing import here previously failed silently
+    for every agent (only visible as a [Signals] warning in the server log).
+    Returns the stored signals dict.
+    """
+    from swarm.log_rotation import extract_signals as _extract_signals
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    signals = _extract_signals(log_path)
+    task_type = None
+    if task_id:
+        t = db.task_get(task_id)
+        task_type = t.get("type") if t else None
+    signals.update({
+        "agent_id":       agent_id,
+        "task_id":        task_id or "",
+        "project":        project or "",
+        "task_type":      task_type or "",
+        "extracted_at":   datetime.now(timezone.utc).isoformat(),
+        "log_size_bytes": os.path.getsize(log_path) if os.path.exists(log_path) else 0,
+        "log_path":       log_path,
+    })
+    db.agent_signals_upsert(signals)
+    return signals
+
+
+def _classify_agent_success(agent_id: str, exit_code: int, full_output: str) -> bool:
+    if exit_code == 0:
+        return True
+    # TASK_COMPLETE may appear before the final tail in long-running agents,
+    # but negative runtime messages also mention it, e.g.
+    # "Task ended without TASK_COMPLETE". Require a standalone completion
+    # marker or the explicit positive runtime completion log.
+    has_standalone_complete = bool(re.search(r"(?m)^\s*TASK_COMPLETE\s*$", full_output or ""))
+    has_runtime_complete = "[Agent] Task complete!" in (full_output or "")
+    if has_standalone_complete or has_runtime_complete:
+        print(f"[Swarm] Agent {agent_id[:8]} exited {exit_code} but success marker found -- treating as success")
+        return True
+    return False
+
+
+def _active_worktree_handle(agent_id: str) -> tuple[Optional[str], Optional[str]]:
+    al = _al()
+    with al._handle_lock:
+        handle = al._active_handles.get(agent_id, {})
+        return handle.get("worktree_path"), handle.get("worktree_branch")
+
+
+def _finish_worktree_phase(agent_id: str, success: bool, project: Optional[str],
+                           task_id: Optional[str], wt_path_str: Optional[str],
+                           wt_branch: Optional[str]) -> _WorktreeFinishResult:
+    """Validate/merge/cleanup the agent worktree and return the adjusted result."""
+    if not (wt_path_str and wt_branch and project):
+        return _WorktreeFinishResult(success=success)
+
+    al = _al()
+    al._lazy_imports()
+    worktree = al.worktree
+    _validation = al._validation
+    db = al.db
+
+    worktree_path = Path(wt_path_str)
+    project_path = al.WORKSPACE / project
+    if success:
+        _skip_types = {"manager", "project_create", "qa", "research", "harness_qa", "hybrid_qa",
+                       "project_plan", "audit", "triage", "art_pass"}
+        _task_for_val_early = db.task_get(task_id) if task_id else None
+        _task_type_early = _task_for_val_early.get("type", "") if _task_for_val_early else ""
+        if _task_for_val_early and _task_type_early not in _skip_types:
+            _val_failed, _val_err = _validation._post_task_validation_in_worktree(project, task_id, worktree_path)
+            if _val_failed:
+                # Baseline diff: only fail if NEW errors were introduced by this agent.
+                # Pre-existing errors (captured at spawn time) are inherited blockers,
+                # not charged to the current agent's work.
+                _baseline = (_task_for_val_early.get("metadata") or {}).get("validation_baseline")
+                if _baseline is not None:
+                    _project_path = al.WORKSPACE / project
+                    from swarm import project_kind as _project_kind
+                    _ptype = ("godot" if _project_kind.is_godot(_project_path)
+                              else "python" if _project_kind.is_python(_project_path) else "unknown")
+                    _new_errs, _inherited = _validation.filter_new_errors(_val_err, _baseline, _ptype)
+                    if not _new_errs:
+                        # All errors are pre-existing -- agent did not make things worse.
+                        # Report inherited blockers but do NOT block the merge.
+                        if _inherited:
+                            print(
+                                f"[Swarm] Pre-merge validation: {len(_inherited)} inherited pre-existing error(s) "
+                                f"for agent {agent_id[:8]} -- not charged to this agent, proceeding with merge"
+                            )
+                        else:
+                            print(f"[Swarm] Pre-merge validation: no new errors for agent {agent_id[:8]} -- proceeding with merge")
+                        _val_failed = False  # treat as pass
+                    else:
+                        print(
+                            f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]}: "
+                            f"{len(_new_errs)} NEW error(s) introduced "
+                            f"({len(_inherited)} inherited/pre-existing) -- skipping merge, preserving worktree"
+                        )
+                        _val_err = (
+                            f"NEW errors introduced by this agent ({len(_new_errs)}):\n"
+                            + "\n".join(_new_errs)
+                            + (f"\n\nPre-existing errors NOT charged to this agent ({len(_inherited)}):\n"
+                               + "\n".join(_inherited) if _inherited else "")
+                        )
+                else:
+                    print(f"[Swarm] Pre-merge validation FAILED for agent {agent_id[:8]} -- no baseline available, treating all errors as new")
+
+            if _val_failed:
+                return _WorktreeFinishResult(
+                    success=False,
+                    validation_failed=True,
+                    validation_error=_val_err,
+                )
+
+        merged = worktree._merge_worktree_branch(
+            project_path,
+            wt_branch,
+            agent_id,
+            task_id,
+            worktree_path=worktree_path,
+        )
+        if not merged:
+            return _WorktreeFinishResult(success=False)
+        worktree._cleanup_worktree(project_path, worktree_path, wt_branch)
+        _push_after_merge(project_path)
+        return _WorktreeFinishResult(success=True)
+
+    # Agent failed before declaring completion; discard its isolated worktree.
+    worktree._cleanup_worktree(project_path, worktree_path, wt_branch)
+    return _WorktreeFinishResult(success=False)
+
+
+def _push_after_merge(project_path) -> None:
+    """Push the merged work to origin (config push_after_merge, default on).
+
+    Agents run sandboxed without network or credentials for GitHub, so the
+    controller pushes for them.  Failure is logged, never fatal: the commit is
+    safe locally and the next successful merge pushes it too."""
+    al = _al()
+    if not (getattr(al, "_CONFIG", None) or {}).get("push_after_merge", True):
+        return
+    from swarm.git_push import is_rejected_push, push_project
+    result = push_project(project_path)
+    if result.get("ok"):
+        print(f"[Swarm] Pushed {Path(project_path).name} ({result.get('branch')}) to origin")
+    elif not result.get("skipped"):
+        print(f"[Swarm] WARNING: push of {Path(project_path).name} failed: {result.get('error', '')[:300]}")
+        if is_rejected_push(result):
+            _spawn_origin_sync_task(Path(project_path).name, result.get("error", ""))
+
+
+def _spawn_origin_sync_task(project: str, push_error: str) -> str | None:
+    """origin has commits we don't: hand reconciliation to an agent.
+
+    The agent does what agents always did before the sandbox -- fetch,
+    merge origin into its branch, resolve conflicts, validate, commit -- and
+    the normal finish path merges that into the project and pushes.  One open
+    sync task per project."""
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    for t in db.task_get_by_project(project):
+        if t.get("status") in ("pending", "in_progress") and \
+                (t.get("metadata") or {}).get("created_by") == "origin_sync":
+            return None
+    import time as _time
+    task_id = f"sync-origin-{project}-{int(_time.time())}"
+    db.task_upsert({
+        "id": task_id, "project": project, "type": "bug", "priority": 90, "status": "pending",
+        "description": (
+            f"Reconcile {project} with origin: the controller's push was rejected because origin "
+            "has commits this project does not.\n\n"
+            "1. Call git_sync (fetches origin through the controller and merges origin's default "
+            "branch into your branch).\n"
+            "2. If it reports conflicts, open each conflicted file, keep the intent of BOTH sides, "
+            "remove the conflict markers, and run the project's validation/tests.\n"
+            "3. git_commit the merge.  The controller merges your branch and pushes when you finish.\n"
+            "Never force-push and never discard either side's commits.\n\n"
+            f"Push error was:\n{push_error[-800:]}"
+        ),
+        "dependencies": [], "attempts": 0, "max_attempts": 3,
+        "metadata": {"created_by": "origin_sync"},
+        "created": __import__("datetime").datetime.now().isoformat(),
+    })
+    print(f"[Swarm] Push to origin rejected for {project}: created {task_id}")
+    return task_id
+
+
+def _capture_project_diff_stat(project: Optional[str]) -> str:
+    if not project:
+        return ""
+    al = _al()
+    project_path = al.WORKSPACE / project
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--stat", "HEAD~1"],
+            cwd=str(project_path), capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _log_external_sigkill_evidence(agent_id: str, project: Optional[str],
+                                   task_id: Optional[str], log_path: Optional[str]) -> None:
+    """Emit lightweight forensic context for agent processes that exited by SIGKILL.
+
+    Controller-originated kills log a ``[SwarmKill]`` reason before the signal is
+    sent.  If an agent reaches finish with exit code -9 and no such provenance
+    line exists in the agent log/server log, the important fact is that the
+    process died outside the normal controller timeout/dep-violation paths.
+    """
+    print(
+        f"[SwarmKill] observed_external_sigkill agent={agent_id[:8]} "
+        f"project={project or ''} task={task_id or ''} log={log_path or ''}"
+    )
+    try:
+        snapshot = subprocess.run(
+            [
+                "ps", "-axo",
+                "pid,ppid,stat,etime,rss,%mem,%cpu,command",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if snapshot.returncode == 0:
+            interesting = []
+            for line in snapshot.stdout.splitlines():
+                lowered = line.lower()
+                if (
+                    "godot" in lowered
+                    or "swarm_runner.py api" in lowered
+                    or "data/agent_" in lowered
+                    or "headroom" in lowered
+                ):
+                    interesting.append(line)
+            if interesting:
+                print("[SwarmKill] process_snapshot_begin")
+                for line in interesting[:40]:
+                    print(f"[SwarmKill] {line}")
+                print("[SwarmKill] process_snapshot_end")
+    except Exception as exc:
+        print(f"[SwarmKill] process_snapshot_failed agent={agent_id[:8]} error={exc}")
+
+
+def _build_completion_evidence(project: Optional[str], head_at_spawn: Optional[str],
+                               validation_passed: bool, exit_code: int,
+                               log_marker_present: bool) -> dict:
+    """Corroborating evidence that a task's work actually happened.
+
+    When head_at_spawn is known, attribute commits/diff to THIS agent
+    (head_at_spawn..HEAD) rather than the misleading HEAD~1 diff, which shows
+    the latest commit regardless of who made it. A write-type task completing
+    with new_commits == 0 is the signal the truth layer flags.
+    """
+    evidence = {
+        "new_commits": 0,
+        "commit_hash": None,
+        "diff_stat": "",
+        "validation_passed": bool(validation_passed),
+        "exit_code": exit_code,
+        "log_marker_present": bool(log_marker_present),
+        "attributed": False,
+    }
+    if not (project and head_at_spawn):
+        return evidence
+    al = _al()
+    project_path = al.WORKSPACE / project
+    try:
+        rl = subprocess.run(
+            ["git", "rev-list", "--count", f"{head_at_spawn}..HEAD"],
+            cwd=str(project_path), capture_output=True, text=True, timeout=10,
+        )
+        if rl.returncode == 0 and rl.stdout.strip().isdigit():
+            evidence["new_commits"] = int(rl.stdout.strip())
+            evidence["attributed"] = True
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(project_path), capture_output=True, text=True, timeout=5,
+        )
+        if head.returncode == 0:
+            evidence["commit_hash"] = head.stdout.strip()
+        if evidence["new_commits"] > 0:
+            ds = subprocess.run(
+                ["git", "diff", "--stat", f"{head_at_spawn}..HEAD"],
+                cwd=str(project_path), capture_output=True, text=True, timeout=10,
+            )
+            if ds.returncode == 0:
+                evidence["diff_stat"] = ds.stdout.strip()
+    except Exception:
+        pass
+    return evidence
+
+
+def _read_agent_tier_stats(task_id: Optional[str], agent_id: str) -> dict:
+    """Roadmap #8 (M5): peek at the adaptive_flat tier-stats dict inside the
+    token file, without consuming it -- _read_agent_token_usage() reads (and
+    deletes) the same file separately, so this must run first. Returns {} if
+    absent or on any error; never raises.
+    """
+    try:
+        token_key = task_id or agent_id
+        token_file = Path(str(_al().DATA_DIR)) / f"agent_{token_key}_tokens.json"
+        if not token_file.exists():
+            return {}
+        tok = json.loads(token_file.read_text())
+        return tok.get("adaptive_flat") or {}
+    except Exception:
+        return {}
+
+
+def _read_agent_token_usage(task_id: Optional[str], agent_id: str) -> tuple[int, int, int, int, int, str, str]:
+    """Returns (input, output, cache_read, cache_write, loop_count, provider, model)."""
+    input_tokens = 0
+    output_tokens = 0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
+    loop_count = 0
+    provider = ""
+    model = ""
+    token_key = task_id or agent_id
+    token_file = Path(str(_al().DATA_DIR)) / f"agent_{token_key}_tokens.json"
+    if token_file.exists():
+        try:
+            tok = json.loads(token_file.read_text())
+            input_tokens = tok.get("input", 0)
+            output_tokens = tok.get("output", 0)
+            cache_read_tokens = tok.get("cache_read", 0)
+            cache_write_tokens = tok.get("cache_write", 0)
+            loop_count = tok.get("loop_count", 0)
+            provider = tok.get("provider", "")
+            model = tok.get("model", "")
+            token_file.unlink()
+        except Exception:
+            pass
+    return input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model
+
+
+def _mark_agent_finished(agent_id: str, success: bool, exit_code: int,
+                         output: str, diff_stat: str, input_tokens: int,
+                         output_tokens: int, loop_count: int = 0,
+                         cache_read_tokens: int = 0, cache_write_tokens: int = 0,
+                         provider: str = "", model: str = "",
+                         estimated_cost_usd: float = 0.0):  # noqa: PLR0913
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    agent_meta = {"diff_stat": diff_stat} if diff_stat else {}
+    db.agent_update_status(
+        agent_id,
+        "completed" if success else "failed",
+        completed_at=datetime.now().isoformat(),
+        exit_code=exit_code,
+        output=output[-1000:],
+        metadata=json.dumps(agent_meta),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        loop_count=loop_count,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        provider=provider,
+        model=model,
+        estimated_cost_usd=estimated_cost_usd,
+    )
+
+
+def _cleanup_agent_script(script_path: Optional[str]):
+    if script_path and Path(script_path).exists():
+        try:
+            Path(script_path).unlink()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Phase functions (called by _finish_agent in order)
+# ---------------------------------------------------------------------------
+
+def _phase_release_file_locks(agent_id: str, project: Optional[str]) -> None:
+    """Phase 1: release any file locks held by this agent (safety net for killed/crashed agents)."""
+    al = _al()
+    _project_registry = al._project_registry
+    if project and _project_registry is not None:
+        try:
+            freed = _project_registry.unlock_all_for_agent(project, agent_id)
+            if freed:
+                print(f"[Swarm] Released {len(freed)} file lock(s) for agent {agent_id[:8]}: {freed}")
+        except Exception as _ul_err:
+            print(f"[Swarm] WARNING: could not release file locks for agent {agent_id[:8]}: {_ul_err}")
+
+
+def _phase_reparent_continuation(task_id: str, full_output: str) -> bool:
+    """Phase 2: reparent dependents when the agent spawned a continuation task.
+
+    Returns True if a continuation was detected (caller should skip normal completion steps).
+    The agent logs "Continuation task created: <id>" -- we swap the original task ID out of
+    all downstream dependencies so the chain doesn't unblock prematurely.
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    cont_id_match = re.search(r"Continuation task created: ([^\s(]+)", full_output)
+    if not cont_id_match:
+        return False
+    cont_id = cont_id_match.group(1)
+    reparented = 0
+    for t in db.task_get_all():
+        # The continuation itself is expected to depend on the original task.
+        # That preserves branch order: original handoff completes, then the
+        # continuation becomes schedulable. Rewriting the continuation's own
+        # dependency to itself creates a self-cycle; rewriting older
+        # continuations onto newer continuations can also strand the chain.
+        if t.get("id") == cont_id:
+            continue
+        deps = t.get("dependencies") or []
+        if task_id in deps:
+            new_deps = [cont_id if d == task_id else d for d in deps]
+            db.task_update(t["id"], {"dependencies": new_deps})
+            reparented += 1
+    if reparented:
+        print(f"[Swarm] Reparented {reparented} dependent(s) from {task_id} \u2192 continuation {cont_id}")
+    return True
+
+
+def _extract_playthrough_receipt(full_output: str) -> Optional[dict]:
+    """Return the last structured PLAYTHROUGH_RESULT receipt in an agent log."""
+    receipt = None
+    for match in re.finditer(r"PLAYTHROUGH_RESULT:\s*(\{[^\n]{0,2000}\})", full_output or ""):
+        try:
+            parsed = json.loads(match.group(1))
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            receipt = parsed
+    return receipt
+
+
+def _playthrough_receipt_is_complete(receipt: Optional[dict]) -> bool:
+    """Validate the production completion receipt for a playthrough bot run."""
+    if not isinstance(receipt, dict):
+        return False
+    progress = receipt.get("progress")
+    if not isinstance(progress, dict):
+        return False
+    agency = progress.get("agency_evidence")
+    return (
+        receipt.get("status") == "success"
+        and receipt.get("outcome") == "complete"
+        and progress.get("completed") is True
+        and isinstance(agency, dict)
+        and bool(agency)
+    )
+
+
+def _phase_capture_playthrough_artifacts(task_id: str, agent_id: str, full_output: str) -> Optional[dict]:
+    """Persist playthrough trace/receipt artifacts and attach compact metadata.
+
+    Project bots intentionally write traces to caller-controlled output
+    directories, often under /tmp. The controller owns durable evidence, so copy
+    the trace and receipt into DATA_DIR/playthrough_artifacts/<task>/<agent>/.
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+
+    task = db.task_get(task_id)
+    if not task or task.get("type") != "playthrough_bot":
+        return None
+
+    receipt = _extract_playthrough_receipt(full_output)
+    if not receipt:
+        return None
+
+    artifact_dir = al.DATA_DIR / "playthrough_artifacts" / task_id / agent_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    receipt_path = artifact_dir / "receipt.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8")
+
+    original_trace = receipt.get("trace")
+    trace_artifact_path = None
+    trace_copy_error = None
+    if isinstance(original_trace, str) and original_trace:
+        try:
+            src = Path(original_trace)
+            if src.exists() and src.is_file():
+                dst = artifact_dir / "playthrough_trace.jsonl"
+                shutil.copyfile(src, dst)
+                trace_artifact_path = str(dst)
+            else:
+                trace_copy_error = "trace file not found"
+        except Exception as exc:
+            trace_copy_error = str(exc)
+
+    artifact_meta = {
+        "agent_id": agent_id,
+        "receipt_path": str(receipt_path),
+        "trace_path": trace_artifact_path,
+        "original_trace_path": original_trace,
+        "status": receipt.get("status"),
+        "outcome": receipt.get("outcome"),
+        "reason": receipt.get("reason"),
+        "progress": receipt.get("progress") if isinstance(receipt.get("progress"), dict) else {},
+    }
+    if trace_copy_error:
+        artifact_meta["trace_copy_error"] = trace_copy_error
+
+    meta = dict(task.get("metadata") or {})
+    meta["playthrough_result"] = artifact_meta
+    history = list(meta.get("playthrough_results") or [])
+    history.append(artifact_meta)
+    meta["playthrough_results"] = history[-10:]
+    db.task_update(task_id, {"metadata": meta})
+    print(
+        f"[Swarm] Captured playthrough artifacts for {task_id[:8]} "
+        f"outcome={artifact_meta.get('outcome')} trace={trace_artifact_path or original_trace or ''}"
+    )
+    return artifact_meta
+
+
+def _phase_complete_task(task_id: str, project: Optional[str], diff_stat: str) -> Optional[dict]:
+    """Phase 3: mark task completed in DB; cancel stale recovery tasks; create plan record;
+    fire webhook; refresh regression state.
+
+    Returns the task snapshot taken just before marking complete (used by subsequent phases).
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    _plan_cleanup = al._plan_cleanup
+    _task_chains = al._task_chains
+    _regressions = al._regressions
+
+    from swarm.agent_recovery import _project_plan_subtasks
+
+    task_snapshot_pre_complete = db.task_get(task_id)
+    db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
+    db.task_record_completed(task_id, project or "")
+
+    # Cancel stale recovery/feeder tasks for this task (it succeeded so they're redundant).
+    for rt in db.task_get_all():
+        meta = rt.get("metadata") or {}
+        is_stale_recovery = (
+            meta.get("is_recovery_task") and
+            meta.get("failed_task_id") == task_id and
+            rt.get("status") == "pending"
+        )
+        is_stale_feeder = (
+            meta.get("is_research_feeder") and
+            meta.get("feeds_into_task_id") == task_id and
+            rt.get("status") in ("pending", "in_progress")
+        )
+        if is_stale_recovery or is_stale_feeder:
+            db.task_update_status(rt["id"], "cancelled")
+            print(f"[Swarm] Cancelled stale {'feeder' if is_stale_feeder else 'recovery'} task {rt['id'][:8]} "
+                  f"(original {task_id[:8]} completed successfully)")
+
+    task = db.task_get(task_id)
+    if task:
+        # Create plan record when a project_plan task completes successfully.
+        if task.get("type") == "project_plan":
+            plan_id = f"plan-{project}-{int(time.time())}"
+            now_iso = datetime.now().isoformat()
+            tasks = _project_plan_subtasks(project, task_id)
+            _plan_cleanup.delete_plans_for_planner(db, project, task_id)
+            _plan_cleanup.delete_matching_plans(db, project, [t["id"] for t in tasks])
+            estimated_tokens = None
+            try:
+                from swarm import analytics
+                task_types = [t.get("type", "unknown") for t in tasks]
+                estimate = analytics.estimate_plan_tokens(db, Path(str(_al().DATA_DIR)), project, task_types)
+                estimated_tokens = estimate["estimated_total_tokens"]
+            except Exception as est_err:
+                print(f"[Swarm] WARNING: plan token estimate failed for {plan_id}: {est_err}")
+            db.plan_upsert({
+                "id": plan_id,
+                "project": project,
+                "planner_task_id": task_id,
+                "created_at": now_iso,
+                "task_ids": [t["id"] for t in tasks],
+                "task_graph": tasks,
+                "estimated_tokens": estimated_tokens,
+            })
+            for t in tasks:
+                db.task_update(t["id"], {"plan_id": plan_id})
+            from swarm.integrity import is_continuity_eligible_task
+            continuity_tasks = [t for t in tasks if is_continuity_eligible_task(t)]
+            if continuity_tasks:
+                continuity_tasks.sort(
+                    key=lambda t: (
+                        t.get("completed") or t.get("created") or t.get("started") or "",
+                        t.get("id") or "",
+                    )
+                )
+                try:
+                    _task_chains.set_project_head(db, project, continuity_tasks[-1]["id"])
+                except Exception as head_err:
+                    print(f"[Swarm] WARNING: could not advance project head after planner {task_id}: {head_err}")
+            print(f"[Swarm] Created plan {plan_id} for {project} ({len(tasks)} task(s) assigned)")
+
+        al._fire_task_webhook(
+            "task_completed",
+            project=project or "",
+            task_id=task_id,
+            task_type=task.get("type", ""),
+            description=task.get("description", "").split("\n")[0][:100],
+            diff_stat=diff_stat,
+        )
+
+    # Refresh regression state after any successful completion.
+    if project and _regressions is not None:
+        try:
+            proj_row = db.project_get(project)
+            if proj_row and (proj_row.get("open_regression_count") or 0) > 0:
+                task_type_for_reg = (task_snapshot_pre_complete or {}).get("type", "")
+                snap_meta = (task_snapshot_pre_complete or {}).get("metadata") or {}
+                if task_type_for_reg in {"bug", "triage"} or (
+                    snap_meta.get("is_recovery_task") or snap_meta.get("is_closure_repair_task")
+                ):
+                    resolved = _regressions.resolve_regressions_for_linked_task(task_id, project)
+                    if resolved:
+                        print(f"[Swarm] Auto-resolved {len(resolved)} regression(s) for {project} after task {task_id[:8]} completed")
+                _regressions.refresh_project_recurrence_state(project)
+                refreshed_row = db.project_get(project)
+                new_count = (refreshed_row or {}).get("open_regression_count", 0)
+                new_status = (refreshed_row or {}).get("closure_status", "")
+                print(f"[Swarm] Refreshed regression state for {project}: open_regression_count={new_count} closure_status={new_status}")
+        except Exception as reg_err:
+            print(f"[Swarm] WARNING: regression state refresh failed for {project}: {reg_err}")
+
+    return task_snapshot_pre_complete
+
+
+def _phase_handle_worktree_validation_failure(
+    agent_id: str, task_id: str, project: str,
+    wt_path_str: str, wt_branch: str,
+    validation_error_output: str, task_snapshot_early: Optional[dict],
+) -> None:
+    """Phase 4 (failure path): handle a pre-merge validation failure.
+
+    Cross-checks main to distinguish real regressions from stale worktree errors.
+    Spawns a bug task for real regressions; marks complete for stale errors.
+    Early-returns after calling _handle_task_failure for config blockers.
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    _validation = al._validation
+
+    from swarm.agent_recovery import _handle_task_failure
+
+    main_failed, main_err = _validation._post_task_validation_in_worktree(
+        project, task_id, worktree_path=None
+    )
+    if _validation.is_controller_config_blocker(main_err):
+        print(f"[Swarm] Validation blocked by controller configuration for {project}: {main_err}")
+        _handle_task_failure(task_id, project, main_err, _task_snapshot=task_snapshot_early)
+        return
+
+    if not main_failed:
+        print(f"[Swarm] Worktree validation failed for {task_id} but main is clean "
+              f"-- skipping bug task (stale worktree error)")
+        db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
+        db.task_record_completed(task_id, project or "")
+        return
+
+    # Main also has errors -- real regression, spawn the bug task.
+    current_task = db.task_get(task_id)
+    task_meta = (current_task.get("metadata") or {}) if current_task else {}
+    existing_notes = task_meta.get("fix_notes", [])
+    error_before = task_meta.get("error_log", "")
+    summary = _validation._llm_summarise_fix_attempt(
+        error_before, validation_error_output, Path(wt_path_str)
+    )
+    fix_notes = existing_notes + ([summary] if summary else [])
+    _validation._spawn_validation_bug_task(
+        project, task_id, validation_error_output,
+        worktree_path=Path(wt_path_str),
+        worktree_branch=wt_branch,
+        fix_notes=fix_notes,
+        original_task=current_task,
+    )
+    # The bug task now owns the remaining work -- mark the original completed.
+    db.task_update_status(task_id, "completed", completed=datetime.now().isoformat())
+    db.task_record_completed(task_id, project or "")
+    print(f"[Swarm] Marked {task_id} completed (validation bug task takes over)")
+
+
+def _phase_post_completion_pipeline(
+    agent_id: str, task_id: str, project: str,
+    full_output: str, diff_stat: str,
+    task_snapshot_pre_complete: Optional[dict],
+    wt_path_str: Optional[str],
+    spawned_continuation: bool,
+    task_snapshot_early: Optional[dict],
+    exit_code: int,
+    log_path: Optional[str],
+) -> None:
+    """Phase 5 (success path): plan validation, post-validation, auto-integration,
+    sprint QA, auto-QA, auto-audit, and learnings extraction.
+
+    All of these run *after* the task is marked completed and the agent is recorded.
+    Ordering matters: plan validation may flip success→failure, which suppresses auto-tasks.
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+    _validation = al._validation
+    _learnings = al._learnings
+    _plan_cleanup = al._plan_cleanup
+
+    from swarm.agent_recovery import (
+        _handle_task_failure,
+        _validate_project_plan_subtasks,
+        _project_plan_subtasks,
+    )
+    from swarm.agent_auto_tasks import (
+        auto_spawn_integration_task,
+        auto_handle_sprint_qa,
+        auto_spawn_qa_task,
+        auto_spawn_playthrough_task,
+    )
+
+    # Learnings extraction: fire-and-forget, doesn't block reaping.
+    task_for_learnings = db.task_get(task_id) if task_id else None
+    task_type_for_learnings = task_for_learnings.get("type", "") if task_for_learnings else ""
+    if log_path and project and task_type_for_learnings:
+        _learnings.extract_learnings_async(
+            task_id, task_type_for_learnings, project, log_path, exit_code, str(al.DATA_DIR)
+        )
+
+    success = True  # Will be set False if plan validation fails.
+
+    # Plan validation: project_plan tasks must create tagged subtasks with real dep IDs.
+    task_for_san = db.task_get(task_id)
+    if task_for_san and task_for_san.get("type") == "project_plan":
+        plan_errors = _validate_project_plan_subtasks(project, task_id)
+        if plan_errors:
+            print(f"[Swarm] project_plan {task_id} invalid \u2014 treating as failure")
+            for err in plan_errors[:10]:
+                print(f"[Swarm]   plan error: {err}")
+            subs = _project_plan_subtasks(project, task_id)
+            for sub in subs:
+                if sub.get("status") == "pending":
+                    db.task_update_status(sub["id"], "cancelled")
+            deleted_for_planner = _plan_cleanup.delete_plans_for_planner(db, project, task_id)
+            deleted = _plan_cleanup.delete_matching_plans(db, project, [t["id"] for t in subs])
+            all_deleted = list(dict.fromkeys(deleted_for_planner + deleted))
+            if all_deleted:
+                print(f"[Swarm] Deleted stale plan snapshot(s): {all_deleted}")
+            attempts = (task_for_san.get("attempts") or 0) + 1
+            max_att = task_for_san.get("max_attempts", 3)
+            # Mirror _handle_task_failure: always record last_failure so the API
+            # shows a meaningful error message instead of empty last_failure.
+            meta = dict(task_for_san.get("metadata") or {})
+            meta["last_failure"] = "\n".join(plan_errors[:5])
+            meta["failure_attempt"] = attempts
+            db.task_update_status(task_id, "pending" if attempts < max_att else "failed", attempts=attempts, metadata=meta)
+            success = False
+
+    if not success:
+        return  # Plan validation failed -- no auto-tasks.
+
+    # Post-validation for non-worktree tasks (worktree tasks validated pre-merge above).
+    _skip_types = {"manager", "project_create", "qa", "research", "harness_qa", "hybrid_qa",
+                   "project_plan", "audit", "art_pass"}
+    # Re-fetch the task but fall back to pre-completion snapshot if monitor pruned it.
+    task_for_val = db.task_get(task_id) or task_snapshot_pre_complete
+    task_type_finished = task_for_val.get("type", "") if task_for_val else ""
+    validation_failed_after_completion = False
+
+    if not (task_for_val and task_type_finished in _skip_types) and not spawned_continuation:
+        if not wt_path_str:
+            task_snapshot_for_validation = dict(task_for_val) if task_for_val else None
+            main_failed, main_err = _validation._post_task_validation_in_worktree(
+                project, task_id, worktree_path=None,
+            )
+            if main_failed and main_err:
+                validation_failed_after_completion = True
+                if _validation.is_controller_config_blocker(main_err):
+                    print(f"[Swarm] Post-validation blocked by controller configuration for {project}; not spawning validation bug")
+                    _handle_task_failure(task_id, project, main_err, _task_snapshot=task_snapshot_early)
+                else:
+                    print(f"[Swarm] Post-validation FAILED for {project} {task_id} -- spawning validation bug before follow-on work")
+                    _validation._spawn_validation_bug_task(
+                        project, task_id, main_err,
+                        original_task=task_snapshot_for_validation,
+                    )
+            else:
+                try:
+                    _validation.run_closure_verification(project, task_id)
+                except Exception as closure_err:
+                    print(f"[Swarm] Closure verification trigger failed for {project} {task_id}: {closure_err}")
+
+    task_metadata_for_qa = (task_for_val or {}).get("metadata") or {}
+    is_recovery_task = task_metadata_for_qa.get("is_recovery_task", False)
+
+    auto_spawn_integration_task(
+        project=project,
+        task_id=task_id,
+        task_type_finished=task_type_finished,
+        task_for_val=task_for_val,
+        diff_stat=diff_stat,
+        workspace=al.WORKSPACE,
+        validation_failed=validation_failed_after_completion,
+    )
+
+    auto_handle_sprint_qa(
+        project=project,
+        task_type_finished=task_type_finished,
+        auto_replan_projects=al.AUTO_REPLAN_PROJECTS,
+        projects_sprint_qa_done=al._projects_sprint_qa_done,
+        validation_failed=validation_failed_after_completion,
+    )
+
+    auto_spawn_qa_task(
+        project=project,
+        task_id=task_id,
+        task_type_finished=task_type_finished,
+        task_for_val=task_for_val,
+        workspace=al.WORKSPACE,
+        auto_replan_projects=al.AUTO_REPLAN_PROJECTS,
+        qa_completion_counter=al._qa_completion_counter,
+        qa_auto_threshold=al.QA_AUTO_THRESHOLD,
+        validation_failed=validation_failed_after_completion,
+        spawned_continuation=spawned_continuation,
+        is_recovery_task=is_recovery_task,
+    )
+
+    auto_spawn_playthrough_task(
+        project=project,
+        task_id=task_id,
+        task_type_finished=task_type_finished,
+        workspace=al.WORKSPACE,
+        validation_failed=validation_failed_after_completion,
+        spawned_continuation=spawned_continuation,
+        is_recovery_task=is_recovery_task,
+        enabled=al.PLAYTHROUGH_AUTO_ENABLED,
+    )
+
+    # Librarian completion counter: increment after every successful non-meta task.
+    # The orchestrator monitors LIBRARIAN_COMPLETION_COUNTER and fires the librarian
+    # when the threshold is reached and the system is idle.
+    # Skip librarian tasks themselves to avoid triggering a chain reaction.
+    _skip_meta = {
+        "gardener", "cartographer", "librarian", "archaeologist",
+        "auditor", "scheduler", "audit_learnings",
+    }
+    if task_type_finished not in _skip_meta:
+        try:
+            from swarm import orchestrator as _orch
+            _orch.LIBRARIAN_COMPLETION_COUNTER += 1
+            # Also sync to the state file so the API can read it
+            from swarm import api_librarian as _librarian
+            _librarian.increment_librarian_counter(al.DATA_DIR)
+        except Exception as _lb_err:
+            print(f"[Swarm] WARNING: librarian counter increment failed: {_lb_err}")
+
+
+# ---------------------------------------------------------------------------
+# Experiment metrics
+# ---------------------------------------------------------------------------
+
+def _write_experiment_metrics(
+    task_id: str,
+    project: str,
+    task_snapshot: Optional[dict],
+    success: bool,
+    loop_count: int,
+    diff_stat: str,
+) -> None:
+    """Append one line to data/experiment_metrics.jsonl for A/B pipeline analysis.
+
+    Only writes when a pipeline_variant is present in task metadata -- i.e. only
+    for tasks that ran under an explicit pipeline configuration. Tasks without a
+    pipeline_variant are skipped to keep the metrics file clean.
+    """
+    al = _al()
+    if not task_snapshot:
+        return
+    metadata = task_snapshot.get("metadata") or {}
+    pipeline_variant = metadata.get("pipeline_variant")
+    experiment_variant = metadata.get("experiment_variant", "")
+    if pipeline_variant is None and not experiment_variant:
+        return  # not an experiment task
+
+    pipeline_state = {}
+    pipeline_state_path = al.DATA_DIR / f"agent_{task_id}_pipeline.json"
+    if pipeline_state_path.exists():
+        try:
+            pipeline_state = json.loads(pipeline_state_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            pipeline_state = {}
+
+    # Parse diff stat for insertions/deletions.
+    insertions = 0
+    deletions = 0
+    if diff_stat:
+        ins_m = re.search(r"(\d+) insertion", diff_stat)
+        del_m = re.search(r"(\d+) deletion", diff_stat)
+        if ins_m:
+            insertions = int(ins_m.group(1))
+        if del_m:
+            deletions = int(del_m.group(1))
+
+    # Detect whether a validation bug task was spawned (written into log by _spawn_validation_bug_task).
+    bug_spawned = False
+    try:
+        log_path_candidate = al.DATA_DIR / f"agent_{task_id}.log"
+        if log_path_candidate.exists():
+            log_text = log_path_candidate.read_text(encoding="utf-8", errors="replace")
+            bug_spawned = "[Swarm] Spawning validation bug task" in log_text
+    except Exception:
+        pass
+
+    completed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    record = {
+        "timestamp": completed_at,
+        "experiment_id": metadata.get("experiment_id", ""),
+        "experiment_arm": metadata.get("experiment_arm", ""),
+        "task_id": task_id,
+        "source_task_id": metadata.get("source_task_id", ""),
+        "source_project": metadata.get("source_project", ""),
+        "project": project,
+        "task_type": task_snapshot.get("type", ""),
+        "experiment_variant": experiment_variant,
+        "pipeline_variant": pipeline_variant,
+        "phase_order": metadata.get("phase_order") or (pipeline_variant if isinstance(pipeline_variant, list) else None),
+        "is_valid_order": metadata.get("is_valid_order"),
+        "invalidity_reason": metadata.get("invalidity_reason", ""),
+        "phase_random_seed": metadata.get("phase_random_seed"),
+        "phases_completed": pipeline_state.get("phases_completed", []),
+        "phase_timings": pipeline_state.get("phase_timings", {}),
+        "phase_loops": pipeline_state.get("phase_loops", {}),
+        "total_phase_loops": pipeline_state.get("total_phase_loops")
+            or sum(int(v or 0) for v in (pipeline_state.get("phase_loops") or {}).values()),
+        "work_loops": loop_count,
+        "validation_passed": success,
+        "pipeline_validation_passed": (pipeline_state.get("validation") or {}).get("passed"),
+        "bug_spawned": bug_spawned,
+        "attempts": task_snapshot.get("attempts", 1),
+        "diff_insertions": insertions,
+        "diff_deletions": deletions,
+        "started_at": task_snapshot.get("started"),
+        "completed_at": completed_at,
+        "pipeline_state_path": str(pipeline_state_path) if pipeline_state else "",
+        # Terminal task status -- needed by source-task aggregator to detect failed source tasks
+        "status": task_snapshot.get("status", ""),
+        # WS4/WS6: failure classification and repair tracking
+        "failure_kind": pipeline_state.get("failure_kind", ""),
+        "failure_phase": pipeline_state.get("failure_phase", ""),
+        "repair_attempts": pipeline_state.get("repair_attempts", 0),
+        "infrastructure_failure": pipeline_state.get("failure_kind") == "infrastructure_exception",
+        # WS6: research feeder cycle and recovery task counts (from task metadata)
+        "research_feeder_cycles": int(metadata.get("research_feeder_cycles") or 0),
+        "is_recovery_task": bool(metadata.get("is_recovery_task")),
+        "is_research_feeder": bool(metadata.get("feeds_into_task_id")),
+    }
+
+    try:
+        metrics_path = al.DATA_DIR / "experiment_metrics.jsonl"
+        with open(metrics_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        experiment_id = record.get("experiment_id") or "unlabeled"
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", experiment_id)
+        event_dir = al.DATA_DIR / "experiments" / safe_id
+        event_dir.mkdir(parents=True, exist_ok=True)
+        with open(event_dir / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"event": "task_completed", **record}) + "\n")
+    except Exception as e:
+        print(f"[Swarm] WARNING: failed to write experiment metrics: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Main completion handler
+# ---------------------------------------------------------------------------
+
+def _finish_agent(agent_id: str, exit_code: int, project: Optional[str],
+                  task_id: Optional[str], script_path: Optional[str],
+                  log_path: Optional[str]):
+    """Teardown for a finished agent.
+
+    Runs the completion pipeline in strict phase order:
+      1. Release file locks (safety net for crashed agents)
+      2. Resolve exit code, read log, classify success
+      3. Worktree phase (validate/merge/cleanup)
+      4. Capture diff stat + token usage; mark agent finished in DB
+      5. Task outcome path:
+         a. Success: reparent continuation dependents → complete task in DB
+         b. Failure: handle worktree validation failure or normal failure
+      6. Release project lock; clean up script file
+      7. Post-completion pipeline (plan validation, post-validation, auto-tasks, learnings)
+    """
+    al = _al()
+    al._lazy_imports()
+    db = al.db
+
+    from swarm.agent_recovery import _handle_task_failure
+
+    # Phase 1 -- release file locks.
+    _phase_release_file_locks(agent_id, project)
+
+    # Phase 2 -- resolve exit code, read log, classify success.
+    exit_code = _resolve_agent_exit_code(script_path, exit_code)
+    log_snapshot = _read_agent_log(log_path)
+    full_output = log_snapshot.full_output
+    output = log_snapshot.tail_output
+    success = _classify_agent_success(agent_id, exit_code, full_output)
+    continuation_spawned_in_output = bool(
+        re.search(r"Continuation task created: ([^\s(]+)", full_output or "")
+    )
+    if not success and continuation_spawned_in_output:
+        print(
+            f"[Swarm] Agent {agent_id[:8]} exited {exit_code} but spawned a continuation "
+            "-- treating original task as successful handoff"
+        )
+        success = True
+    if exit_code == -9:
+        _log_external_sigkill_evidence(agent_id, project, task_id, log_path)
+    task_snapshot_for_completion = db.task_get(task_id) if task_id else None
+    if (
+        success
+        and task_snapshot_for_completion
+        and task_snapshot_for_completion.get("type") == "playthrough_bot"
+        and not _playthrough_receipt_is_complete(_extract_playthrough_receipt(full_output))
+    ):
+        print(
+            f"[Swarm] Rejecting playthrough_bot completion for agent {agent_id[:8]}: "
+            "no complete PLAYTHROUGH_RESULT receipt with agency evidence was recorded"
+        )
+        success = False
+
+    # Phase 3 -- worktree phase (validate pre-merge, merge, cleanup).
+    wt_path_str, wt_branch = _active_worktree_handle(agent_id)
+    worktree_result = _finish_worktree_phase(
+        agent_id, success, project, task_id, wt_path_str, wt_branch,
+    )
+    success = worktree_result.success
+    validation_failed_in_worktree = worktree_result.validation_failed
+    validation_error_output = worktree_result.validation_error
+
+    # Phase 4 -- diff, tokens, mark agent finished.
+    # Only terminal-success agents should report a project HEAD diff here.
+    # Failed agents often die before their worktree merges; using HEAD~1 for
+    # those failures attributes unrelated prior commits to the dead agent and
+    # creates deeply misleading forensic evidence.
+    diff_stat = _capture_project_diff_stat(project) if success else ""
+    # Roadmap #8 (M5): peek at tier stats before _read_agent_token_usage()
+    # deletes the token file.
+    _tier_stats = _read_agent_tier_stats(task_id, agent_id)
+    # Defensive unpacking: handle both the full 7-tuple (input, output, cache_read,
+    _tok_result = _read_agent_token_usage(task_id, agent_id)
+    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, loop_count, provider, model = _tok_result
+    from swarm.provider_utils import estimate_cost_usd
+    cost = estimate_cost_usd(model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+    _mark_agent_finished(
+        agent_id, success, exit_code, output, diff_stat,
+        input_tokens, output_tokens, loop_count,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        provider=provider,
+        model=model,
+        estimated_cost_usd=cost,
+    )
+    if project and _tier_stats:
+        try:
+            from datetime import datetime, timezone
+            _today = datetime.now(timezone.utc).date().isoformat()
+            db.project_tier_usage_increment(
+                project, _today,
+                cheap=int(_tier_stats.get("cheap_loops", 0) or 0),
+                strong=int(_tier_stats.get("strong_loops", 0) or 0),
+                default=int(_tier_stats.get("default_loops", 0) or 0),
+            )
+        except Exception as _tier_err:
+            print(f"[Swarm] WARNING: failed to persist tier usage for {agent_id[:8]}: {_tier_err}")
+
+    # Phase 5 -- task outcome.
+    task_snapshot_pre_complete: Optional[dict] = None
+    spawned_continuation = False
+
+    if task_id:
+        # Snapshot the task now, before status mutations or prune_history() races.
+        task_snapshot_early = db.task_get(task_id)
+
+        if task_snapshot_early and task_snapshot_early.get("type") == "playthrough_bot":
+            try:
+                _phase_capture_playthrough_artifacts(task_id, agent_id, full_output)
+            except Exception as _pta_err:
+                print(f"[Swarm] WARNING: playthrough artifact capture failed for {task_id[:8]}: {_pta_err}")
+
+        # Phase 5a -- reparent any continuation task the agent spawned, regardless of
+        # success or failure. If this runs only on success, a failed task leaves the
+        # continuation depending on the failed task itself -- permanent deadlock.
+        spawned_continuation = _phase_reparent_continuation(task_id, full_output)
+
+        if success or spawned_continuation:
+            # Phase 5b -- success path.
+            # A spawned continuation is a successful handoff even if the
+            # process exit was classified as failure (for example loop-limit
+            # agents that emitted "Continuation task created: <id>" but never
+            # reached TASK_COMPLETE). Do not run normal retry/failure handling
+            # on the original task, or the continuation remains blocked behind
+            # a reset-to-pending original.
+            success = True
+            # Completion truth layer: attach corroborating evidence, and SOFT-flag
+            # write-type tasks that completed with zero new commits since spawn
+            # (record + warn now; enforcement flip to hard is a one-line change
+            # once the false-positive rate is understood from the data).
+            try:
+                from swarm.constants import WRITE_TASK_TYPES
+                _t_meta = (task_snapshot_early or {}).get("metadata") or {}
+                _t_type = (task_snapshot_early or {}).get("type") or ""
+                _evidence = _build_completion_evidence(
+                    project,
+                    _t_meta.get("head_at_spawn"),
+                    validation_passed=not validation_failed_in_worktree,
+                    exit_code=exit_code,
+                    log_marker_present="[Agent] Task complete!" in (full_output or ""),
+                )
+                if (_t_type in WRITE_TASK_TYPES and _evidence.get("attributed")
+                        and _evidence.get("new_commits", 0) == 0):
+                    _evidence["unverified"] = True
+                    print(f"[Evidence] WARNING: write-type task {task_id[:8]} ({_t_type}) "
+                          f"completed with zero commits since spawn -- flagged unverified")
+                _new_meta = dict(_t_meta)
+                _new_meta["completion_evidence"] = _evidence
+                db.task_update(task_id, {"metadata": _new_meta})
+            except Exception as _ev_err:
+                print(f"[Evidence] evidence capture failed for {task_id[:8]}: {_ev_err}")
+
+            task_snapshot_pre_complete = _phase_complete_task(task_id, project, diff_stat)
+
+            # Terminal recovery continuation: when a bug-recovery-* task completes,
+            # mark the original recovery-* task completed so late-added dependents unblock.
+            if task_snapshot_early:
+                original_failed_id = (task_snapshot_early.get("metadata") or {}).get("continuation_for_failed_task")
+                if original_failed_id:
+                    original = db.task_get(original_failed_id)
+                    if original and original.get("status") == "failed":
+                        db.task_update_status(original_failed_id, "completed",
+                                              completed=datetime.now(timezone.utc).isoformat())
+                        db.task_record_completed(original_failed_id, project or "")
+                        print(f"[Swarm] Marked original failed task {original_failed_id[:16]} completed "
+                              f"(continuation {task_id[:16]} succeeded)")
+
+            # Research feeder completion: if this task was a research feeder,
+            # inject its findings into the original task and reset it to pending.
+            if task_snapshot_early and (task_snapshot_early.get("metadata") or {}).get("is_research_feeder"):
+                try:
+                    from swarm.agent_recovery import _apply_research_feeder_result
+                    _apply_research_feeder_result(task_id, full_output or output)
+                except Exception as _rfe:
+                    print(f"[Swarm] WARNING: research feeder result injection failed for {task_id[:8]}: {_rfe}")
+        else:
+            # Phase 5c -- failure path.
+            if validation_failed_in_worktree and project and wt_path_str and wt_branch:
+                _phase_handle_worktree_validation_failure(
+                    agent_id, task_id, project,
+                    wt_path_str, wt_branch,
+                    validation_error_output, task_snapshot_early,
+                )
+            else:
+                _handle_task_failure(task_id, project, full_output or output,
+                                     _task_snapshot=task_snapshot_early)
+    else:
+        task_snapshot_early = None
+
+    # Phase 6 -- release project lock; clean up script.
+    if project and al.LOCK_PROJECT:
+        db.project_set_locked(project, False)
+
+    _cleanup_agent_script(script_path)
+
+    print(f"[Swarm] Agent {agent_id[:8]} finished (exit {exit_code})"
+          + (f" diff: {diff_stat.splitlines()[-1]}" if diff_stat else ""))
+
+    # Phase 6b -- experiment metrics collection.
+    if task_id and project:
+        task_snapshot_for_metrics = db.task_get(task_id) or task_snapshot_early
+        _write_experiment_metrics(
+            task_id=task_id,
+            project=project,
+            task_snapshot=task_snapshot_for_metrics,
+            success=success,
+            loop_count=loop_count,
+            diff_stat=diff_stat,
+        )
+
+    # Phase 6c -- signal extraction (non-blocking, never fails the pipeline).
+    if log_path and agent_id:
+        try:
+            import swarm.orchestrator as _orc
+            if getattr(_orc, "LOG_EXTRACT_SIGNALS", False):
+                _extract_and_store_signals(agent_id, task_id, project, log_path)
+        except Exception as _sig_err:
+            print(f"[Signals] extraction failed for {agent_id[:8]}: {_sig_err}")
+
+    # Phase 7 -- post-completion pipeline (only for successful tasks).
+    if success and task_id and project:
+        _phase_post_completion_pipeline(
+            agent_id=agent_id,
+            task_id=task_id,
+            project=project,
+            full_output=full_output,
+            diff_stat=diff_stat,
+            task_snapshot_pre_complete=task_snapshot_pre_complete,
+            wt_path_str=wt_path_str,
+            spawned_continuation=spawned_continuation,
+            task_snapshot_early=task_snapshot_early,
+            exit_code=exit_code,
+            log_path=log_path,
+        )

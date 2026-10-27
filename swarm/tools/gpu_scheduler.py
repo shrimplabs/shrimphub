@@ -1,0 +1,183 @@
+"""
+Tools for submitting jobs to a GPU image scheduler.
+
+Provides two agent-callable functions:
+  generate_image(prompt, width, height, steps, cfg, slug)   -> {"ok": True, "path": "/abs/path.png", ...}
+  generate_3d_asset(image_path, quality, slug)              -> {"ok": True, "path": "/abs/path.glb", ...}
+
+Both block until the job reaches succeeded/failed status, then copy the result into
+the calling agent's data directory (data/generated/<job_id>/) so it's accessible
+to subsequent tool calls without knowing the scheduler's results path.
+
+Configure the scheduler URL via the ATHENA_SCHEDULER_URL environment variable.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+import requests
+
+_BASE_URL = os.environ.get("ATHENA_SCHEDULER_URL", "http://localhost:8767")
+_POLL_INTERVAL = 5   # seconds between status polls
+_TIMEOUT = 1200      # 20 min hard cap per job
+
+
+def _submit(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{_BASE_URL}/jobs"
+    resp = requests.post(url, json={"type": job_type, "payload": payload}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _poll_job(job_id: str) -> dict[str, Any]:
+    url = f"{_BASE_URL}/jobs/{job_id}"
+    deadline = time.monotonic() + _TIMEOUT
+    while time.monotonic() < deadline:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        job = resp.json()
+        status = job.get("status", "")
+        if status in ("succeeded", "failed", "canceled"):
+            return job
+        time.sleep(_POLL_INTERVAL)
+    raise TimeoutError(f"GPU scheduler job {job_id} did not complete within {_TIMEOUT}s")
+
+
+def _copy_result_files(job: dict[str, Any], dest_dir: Path) -> list[str]:
+    """Download result files from the scheduler into dest_dir.
+
+    Athena stores results on its own filesystem — fetch them via HTTP.
+    Prefers result.files[].absolute_url (added in Athena v2), falls back to
+    constructing the URL from job_id + filename, then local path as last resort.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    job_id = job.get("id", "")
+    result = job.get("result") or {}
+    files_meta = result.get("files") or []
+    copied = []
+    for f in files_meta:
+        filename = f.get("filename") or Path(f.get("path", "")).name
+        if not filename:
+            continue
+        dst = dest_dir / filename
+        # Prefer absolute_url provided by scheduler; fall back to constructed URL
+        download_url = f.get("absolute_url") or f"{_BASE_URL}/files/{job_id}/{filename}"
+        try:
+            resp = requests.get(download_url, timeout=60, stream=True)
+            if resp.status_code == 200:
+                with open(dst, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        fh.write(chunk)
+                copied.append(str(dst))
+                continue
+        except Exception:
+            pass
+        # Fallback: local path (works when scheduler runs on same machine)
+        src = Path(f.get("path", ""))
+        if src.exists():
+            shutil.copy2(src, dst)
+            copied.append(str(dst))
+    return copied
+
+
+def generate_image(
+    prompt: str,
+    width: int = 512,
+    height: int = 512,
+    steps: int = 20,
+    cfg: float = 0.0,
+    slug: str = "",
+    transparent: bool = False,
+) -> dict[str, Any]:
+    """
+    Generate a 2D image via the Athena GPU Scheduler (Stable Diffusion).
+
+    transparent=True removes the background and returns a second PNG with alpha channel
+    (role="transparent" in the files list); path points to the transparent version if present.
+
+    Returns {"ok": True, "job_id": "...", "path": "/abs/path/to/image.png", "files": [...]}
+    or      {"ok": False, "error": "...", "job_id": "..."}
+    """
+    payload: dict[str, Any] = {
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "cfg": cfg,
+    }
+    if slug:
+        payload["slug"] = slug
+    if transparent:
+        payload["remove_background"] = True
+
+    job = _submit("image.generate", payload)
+    job_id = job["id"]
+
+    try:
+        completed = _poll_job(job_id)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "job_id": job_id}
+
+    if completed.get("status") != "succeeded":
+        return {"ok": False, "error": f"Job {job_id} ended with status {completed.get('status')}", "job_id": job_id}
+
+    dest = Path("data/generated") / job_id
+    copied = _copy_result_files(completed, dest)
+    # Prefer transparent PNG if present (role="transparent")
+    files_meta = (completed.get("result") or {}).get("files") or []
+    transparent_files = [f for f in files_meta if f.get("role") == "transparent"]
+    if transparent_files:
+        tf_name = transparent_files[0].get("filename") or Path(transparent_files[0].get("path", "")).name
+        tf_path = str(dest / tf_name) if tf_name else ""
+        first = tf_path if tf_path in copied else (copied[0] if copied else "")
+    else:
+        first = copied[0] if copied else ""
+    return {"ok": True, "job_id": job_id, "path": first, "files": copied}
+
+
+def generate_3d_asset(
+    image_path: str,
+    quality: str = "draft",
+    slug: str = "",
+) -> dict[str, Any]:
+    """
+    Convert an image into a 3D asset (.glb) via Trellis2 on the Athena GPU Scheduler.
+
+    quality: "draft" (faster, 2k texture) or "high" (32 steps, 4k texture).
+    image_path must be an absolute path readable by the scheduler host.
+
+    Returns {"ok": True, "job_id": "...", "path": "/abs/path/to/model.glb", "files": [...]}
+    or      {"ok": False, "error": "...", "job_id": "..."}
+    """
+    src = Path(image_path)
+    if not src.exists():
+        return {"ok": False, "error": f"image_path does not exist: {image_path}", "job_id": ""}
+
+    payload: dict[str, Any] = {
+        "image_path": str(src.resolve()),
+        "quality": quality,
+    }
+    if slug:
+        payload["slug"] = slug
+    elif src.stem:
+        payload["slug"] = src.stem
+
+    job = _submit("model.generate", payload)
+    job_id = job["id"]
+
+    try:
+        completed = _poll_job(job_id)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "job_id": job_id}
+
+    if completed.get("status") != "succeeded":
+        return {"ok": False, "error": f"Job {job_id} ended with status {completed.get('status')}", "job_id": job_id}
+
+    dest = Path("data/generated") / job_id
+    copied = _copy_result_files(completed, dest)
+    first = copied[0] if copied else ""
+    return {"ok": True, "job_id": job_id, "path": first, "files": copied}

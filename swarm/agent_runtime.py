@@ -1,0 +1,1896 @@
+"""
+Agent Runtime
+
+All executable logic for swarm agent processes.  This module is imported by
+thin wrapper scripts that the orchestrator generates per-task.
+
+The wrapper sets module-level config variables, then calls main().
+
+Example wrapper:
+    import sys; sys.path.insert(0, "/path/to/swarm-controller")
+    import swarm.agent_runtime as rt
+    rt.WORKSPACE = "/path/to/workspace"
+    rt.PROJECT   = "my-project"
+    ...
+    sys.exit(rt.main())
+"""
+
+import json
+import time
+import atexit
+import collections as _collections
+import os
+import re
+import urllib.request as _ur
+from swarm.agent_token import agent_auth_headers
+from pathlib import Path
+from swarm import constants
+from swarm.agent_loop_helpers import StallDetector, compact_conversation, build_wrap_up_message, spawn_continuation_task  # noqa: E402
+from swarm.llm_utils import call_llm, parse_tool_calls, MCPClient  # noqa: E402
+from swarm import qa_tools  # noqa: E402
+
+# Import tool functions from submodules
+from swarm.tools.core import (  # noqa: F401
+    log, _project_root, _safe_cwd, run,
+    run_command, git_commit, git_push,
+    mcp_call_tool, mcp_list_tools,
+    rag_query, web_search, fetch_url,
+    broadcast_read, broadcast_write, delegate_helper,
+)
+
+from swarm.tools.files import (  # noqa: F401, E402
+    read_file, list_files, search_code, get_file_stats, get_file_outline,
+    read_file_range, patch_file, write_file, append_file,
+)
+
+from swarm.tools.tasks import (  # noqa: F401
+    create_subtask,
+    create_task, create_tasks_file_aware, create_tasks, delegate_task_batch,
+    list_tasks, list_subtasks,
+    annotate_downstream_tasks, split_task, prune_task, insert_dependency, set_task_complexity,
+)
+from swarm.tools.knowledge import (  # noqa: F401
+    scratchpad_write, scratchpad_read,
+    read_agent_knowledge, update_knowledge,
+    get_task_context, read_shared_knowledge, update_shared_knowledge,
+)
+from swarm.runtime_config import (  # noqa: F401
+    _get_provider_runtime_limits,
+    _get_compaction_threshold,
+    _project_supports_harness,
+    _parse_extra_args,
+    _resolve_harness_action,
+)
+from swarm.runtime_helpers import (  # noqa: F401
+    _normalized_report_path,
+    _normalized_project_file_path,
+    _load_project_activity_context,
+    _has_active_sibling_tasks,
+    _lock_project_file,
+    _unlock_claimed_files,
+    _api_get_json,
+    _api_patch_json,
+    _api_post_json,
+    _is_archived,
+    _spawn_lock_conflict_handoff,
+)
+from swarm.meta_investigation import _run_meta_investigation  # noqa: F401
+from swarm.tool_dispatch import (  # noqa: F401
+    _TOOL_REQUIRED_ARGS,
+    validate_tool_call,
+    execute_tool,
+    _task_tool_authority_error,
+    _tool_authority_denial,
+)
+
+
+def _extract_playthrough_receipt_text(output: str) -> dict | None:
+    """Return the last PLAYTHROUGH_RESULT JSON object in command output."""
+    receipt = None
+    for line in (output or "").splitlines():
+        if line.startswith("PLAYTHROUGH_RESULT: "):
+            try:
+                parsed = json.loads(line.split(": ", 1)[1])
+            except (json.JSONDecodeError, IndexError):
+                continue
+            if isinstance(parsed, dict):
+                receipt = parsed
+    return receipt
+
+
+def _playthrough_receipt_is_complete(receipt: dict | None) -> bool:
+    """Validate the production completion receipt for a playthrough bot run."""
+    if not isinstance(receipt, dict):
+        return False
+    progress = receipt.get("progress")
+    if not isinstance(progress, dict):
+        return False
+    agency = progress.get("agency_evidence")
+    return (
+        receipt.get("status") == "success"
+        and receipt.get("outcome") == "complete"
+        and progress.get("completed") is True
+        and isinstance(agency, dict)
+        and bool(agency)
+    )
+
+
+_ENV_ASSIGN_RE = r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|\S+)"
+_PLAYTHROUGH_COMMAND_RE = re.compile(
+    r"(?:^|[;&|]\s*)"
+    rf"(?:(?:timeout\s+\d+(?:\.\d+)?|env|{_ENV_ASSIGN_RE})\s+)*"
+    r"(?:python3?|\.venv/bin/python|/usr/bin/env\s+python3?)\s+"
+    r"(?:\S+\s+)*?"
+    r"tests/playthrough_bot\.py(?:\s|$)"
+)
+
+
+def _looks_like_playthrough_bot_command(command: str) -> bool:
+    return bool(_PLAYTHROUGH_COMMAND_RE.search(command or ""))
+
+
+# ---------------------------------------------------------------------------
+# Config variables -- set by the wrapper before calling main()
+# ---------------------------------------------------------------------------
+
+WORKSPACE: Path = Path(".")
+DATA_DIR: str = "data"   # path to the swarm data directory; set by wrapper
+PROJECT: str = ""
+PROJECT_PATH_OVERRIDE: str = ""  # when set, overrides WORKSPACE/PROJECT (used with git worktrees)
+WORKTREE_BRANCH: str = ""        # git branch name inside the worktree (empty when not in worktree)
+TASK_TYPE: str = "feature"
+TASK_DESC: str = ""
+TASK_ID: str = "unknown"
+TASK_PRIORITY: int = 50
+MAX_LINES: int = 5000
+IGNORE_DIRS: set = {"addons", ".git", ".godot"}
+# These are overridden by the wrapper script; constants provide fallback defaults
+MAX_TOOL_LOOPS: int = constants.MAX_TOOL_LOOPS
+API_PORT: int = constants.API_PORT
+QA_MAX_CYCLES: int = constants.QA_MAX_CYCLES
+IGNORE_EXTENSIONS: set = constants.IGNORE_EXTENSIONS
+
+MCP_SERVERS: dict = {}
+MANAGED_PROJECTS: list = []  # set by wrapper; empty = all projects allowed
+READONLY: bool = False  # when True, git_commit / git_push / write_file are disabled
+QA_CONFIG: dict = {}    # vision provider config for QA agents (set by wrapper)
+QA_CYCLE: int = 0       # which requeue cycle this QA task is on (0 = first run)
+TASK_METADATA: dict = {}
+RUN_BROADCAST_WRITE_COUNT: int = 0
+CLAIMED_FILE_PATHS: set[str] = set()
+LOCK_CONFLICT_HANDOFF: dict | None = None
+
+
+def _should_pull_latest() -> bool:
+    """Return whether this agent should fast-forward the project before work."""
+    if PROJECT_PATH_OVERRIDE:
+        return False
+    if TASK_METADATA.get("experiment_id"):
+        return False
+    _skip_pull_types = {
+        "manager",
+        "project_create",
+        "qa",
+        "audit",
+        "triage",
+        "project_plan",
+        "python_plan",
+        "plan",
+        "research",
+        "harness_qa",
+        "hybrid_qa",
+        "scenario_qa",
+    }
+    return TASK_TYPE not in _skip_pull_types
+
+# Task-type prompts -- set by the wrapper
+FEATURE_SYSTEM: str = ""
+FEATURE_USER: str = ""
+BUG_SYSTEM: str = ""
+BUG_USER: str = ""
+POLISH_SYSTEM: str = ""
+POLISH_USER: str = ""
+PYTHON_FEATURE_SYSTEM: str = ""
+PYTHON_FEATURE_USER: str = ""
+PYTHON_BUG_SYSTEM: str = ""
+PYTHON_BUG_USER: str = ""
+PYTHON_REFACTOR_SYSTEM: str = ""
+PYTHON_REFACTOR_USER: str = ""
+PYTHON_PLAN_SYSTEM: str = ""
+PYTHON_PLAN_USER: str = ""
+PLAN_SYSTEM: str = ""
+PLAN_USER: str = ""
+MANAGER_SYSTEM: str = ""
+MANAGER_USER: str = ""
+PROJECT_CREATE_SYSTEM: str = ""
+PROJECT_CREATE_USER: str = ""
+QA_SYSTEM: str = ""
+QA_USER: str = ""
+AUDIT_SYSTEM: str = ""
+AUDIT_USER: str = ""
+AUDIT_LEARNINGS_SYSTEM: str = ""
+AUDIT_LEARNINGS_USER: str = ""
+TRIAGE_SYSTEM: str = ""
+TRIAGE_USER: str = ""
+PROJECT_PLAN_SYSTEM: str = ""
+PROJECT_PLAN_USER: str = ""
+ART_PASS_SYSTEM: str = ""
+ART_PASS_USER: str = ""
+PLAYTHROUGH_BOT_SYSTEM: str = ""
+PLAYTHROUGH_BOT_USER: str = ""
+RESEARCH_SYSTEM: str = ""
+RESEARCH_USER: str = ""
+GARDENER_SYSTEM: str = ""
+GARDENER_USER: str = ""
+HARNESS_QA_SYSTEM: str = ""
+HARNESS_QA_USER: str = ""
+HYBRID_QA_SYSTEM: str = ""
+HYBRID_QA_USER: str = ""
+SCENARIO_QA_SYSTEM: str = ""
+SCENARIO_QA_USER: str = ""
+LIBRARIAN_SYSTEM: str = ""
+LIBRARIAN_USER: str = ""
+AUDITOR_SYSTEM: str = ""
+AUDITOR_USER: str = ""
+ARCHAEOLOGIST_SYSTEM: str = ""
+ARCHAEOLOGIST_USER: str = ""
+PRUNER_SYSTEM: str = ""
+PRUNER_USER: str = ""
+SCHEDULER_SYSTEM: str = ""
+SCHEDULER_USER: str = ""
+CARTOGRAPHER_SYSTEM: str = ""
+CARTOGRAPHER_USER: str = ""
+# Plugin prompt -- set by the wrapper when a plugin is registered for this task_type.
+# Non-empty PLUGIN_SYSTEM takes priority over all built-in prompt routing below.
+PLUGIN_SYSTEM: str = ""
+PLUGIN_USER: str = ""
+
+# LLM provider config -- set by the wrapper
+LLM_PROVIDER: str = "minimax"
+LLM_PROVIDERS: dict = {}  # populated by wrapper with all known providers (including custom ones)
+
+# Routing hints -- updated each loop so llm_utils can inject them as headers
+_ROUTING_LOOP: int = 0        # current tool loop count
+_ROUTING_COMMITS: int = 0     # number of git_commit calls so far
+
+# EXPERIMENT: meta-investigation -- a short out-of-band LLM call that fires when
+# the same error string repeats 3+ times in run_command output across non-consecutive
+# loops. It reads relevant files, probes the environment, then injects a hint into
+# the main conversation. Disable via config.json: "meta_investigation": false
+META_INVESTIGATION_ENABLED: bool = True
+# Provider used for meta-investigation calls -- defaults to the same provider as the
+# main agent. Override via config.json: "meta_investigation_provider": "claude"
+META_INVESTIGATION_PROVIDER: str = ""
+
+# Multi-model phase config -- set by wrapper from config.json
+# Scout phase: cheap provider handles read-only recon for N loops before handing
+# off to the main provider for implementation.
+# If SCOUT_PROVIDER is empty or same as LLM_PROVIDER, the phase is a no-op.
+SCOUT_PROVIDER: str = ""       # e.g. "claude-haiku"; empty = disabled
+SCOUT_LOOPS: dict = {}         # task_type -> loop count, e.g. {"bug": 15, "feature": 25}
+
+# Compaction provider: cheap provider for context summarisation calls.
+# If empty or same as LLM_PROVIDER, uses the main provider (existing behaviour).
+COMPACTION_PROVIDER: str = ""  # e.g. "claude-haiku"; empty = disabled
+
+# Pipeline phase config -- set by wrapper from config.json "pipelines" key.
+# If non-empty, main() runs the phase pipeline instead of the legacy tool loop.
+# Example: ["plan", "scout", "work", "validate"]
+PIPELINE: list = []
+_ROUTING_PHASE: str = ""  # set by pipeline phases so shrimp-router picks the right backend
+PLAN_PROVIDER: str = ""        # provider for plan phase; empty = use LLM_PROVIDER
+WORK_PROVIDER: str = ""        # provider for work phase; empty = use LLM_PROVIDER
+SYNTHESIZE_PROVIDER: str = ""  # provider for synthesize phase (research pipeline); empty = use LLM_PROVIDER
+PHASE_LOOP_LIMITS: dict = {}   # optional per-phase loop overrides, e.g. {"plan": 20}
+
+# EXPERIMENT: adaptive_flat keeps the legacy continuous transcript but routes
+# individual loops between fast and strong providers based on recent tool use.
+ADAPTIVE_FLAT: bool = False  # overridden per-task by wrapper script; set via config.json "adaptive_flat"
+LOOP_MODEL_ROUTING: dict = {}
+
+# Roadmap #8 strategic routing policy (task_type x phase x complexity -> tier).
+# Set by wrapper from task.metadata["complexity"] and config.json "model_policy".
+TASK_COMPLEXITY: str = "normal"
+MODEL_POLICY: dict = {}
+PROJECT_QUOTA_CAPS: dict = {}
+
+# Write-blocked tools during scout phase -- enforced at dispatch level.
+_SCOUT_BLOCKED_TOOLS: frozenset = frozenset({
+    "write_file", "patch_file", "append_file",
+    "git_commit", "git_push",
+    "create_task", "create_tasks", "create_subtask",
+    "create_tasks_file_aware", "delegate_task_batch",
+})
+
+# Runtime state
+system_prompt: str = ""
+user_prompt: str = ""
+mcp_client = None
+
+
+SCRATCHPAD: list = []  # NOTE: actual scratchpad lives in swarm.tools.knowledge.SCRATCHPAD
+
+
+# ---------------------------------------------------------------------------
+# H1-H8 Metrics Instrumentation
+# ---------------------------------------------------------------------------
+
+def _h7_detect_reread(written_files: set, read_files: set) -> int:
+    """Count re-read-after-write events (H7: Iterative Refinement).
+
+    A re-read event is when a file written in this session is read again
+    after the write - the signal that an iterative refine cycle completed.
+    """
+    return len(written_files & read_files)
+
+
+def _append_history_record(
+    data_dir: str,
+    task_id: str,
+    project: str,
+    task_type: str,
+    loop_count: int,
+    tool_call_counts: dict,
+    h7_reread_count: int,
+    task_completed: bool,
+    exit_reason: str,
+) -> None:
+    """Append structured H1-H8 metrics to data/agent-history.jsonl."""
+    import datetime
+    import json
+
+    record = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "task_id": task_id,
+        "project": project,
+        "task_type": task_type,
+        "loop_count": loop_count,
+        "tool_call_counts": dict(tool_call_counts),
+        "h7_reread_count": h7_reread_count,
+        "task_completed": task_completed,
+        "exit_reason": exit_reason,
+    }
+
+    history_path = Path(data_dir) / "agent-history.jsonl"
+    try:
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with history_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as e:
+        log(f"WARNING: failed to write history record: {e}")
+
+
+def _load_task_metadata() -> dict:
+    try:
+        with _ur.urlopen(f"http://localhost:{API_PORT}/api/tasks", timeout=10) as resp:
+            all_tasks = json.loads(resp.read()).get("tasks", [])
+        task = next((t for t in all_tasks if t.get("id") == TASK_ID), None)
+        return dict(task.get("metadata") or {}) if task else {}
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Module sync helpers -- propagate wrapper-set config to tool submodules
+# (same pattern as _sync_qa_tools_globals)
+# ---------------------------------------------------------------------------
+
+def _build_tool_context():
+    """Build a ToolContext snapshot from the current agent_runtime module globals."""
+    from swarm.tools._shared import ToolContext
+    return ToolContext(
+        workspace=WORKSPACE,
+        data_dir=DATA_DIR,
+        project=PROJECT,
+        project_path_override=PROJECT_PATH_OVERRIDE,
+        worktree_branch=WORKTREE_BRANCH,
+        task_id=TASK_ID,
+        task_type=TASK_TYPE,
+        task_priority=TASK_PRIORITY,
+        max_lines=MAX_LINES,
+        ignore_dirs=IGNORE_DIRS,
+        ignore_extensions=IGNORE_EXTENSIONS,
+        max_tool_loops=MAX_TOOL_LOOPS,
+        api_port=API_PORT,
+        mcp_servers=MCP_SERVERS,
+        managed_projects=MANAGED_PROJECTS,
+        readonly=READONLY,
+        qa_config=QA_CONFIG,
+        qa_cycle=QA_CYCLE,
+        qa_max_cycles=QA_MAX_CYCLES,
+        mcp_client=mcp_client,
+    )
+
+
+def _sync_all_tool_globals():
+    """Sync config from agent_runtime.py to all tool modules via a single ToolContext.
+
+    Replaces the former _sync_core_globals(), _sync_knowledge_globals(), and
+    _sync_qa_tools_globals() calls. All tool module globals are set through
+    swarm.tools._shared.sync_tool_context() so there is one entry point.
+    """
+    from swarm.tools._shared import sync_tool_context
+    sync_tool_context(_build_tool_context())
+
+
+# Backward-compat aliases kept for any external callers that imported these by name.
+def _sync_core_globals(): _sync_all_tool_globals()  # noqa: E704
+def _sync_knowledge_globals(): _sync_all_tool_globals()  # noqa: E704
+def _sync_qa_tools_globals(): _sync_all_tool_globals()  # noqa: E704
+
+
+# ---------------------------------------------------------------------------
+# Main agent loop
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    global system_prompt, user_prompt, mcp_client, TASK_METADATA, RUN_BROADCAST_WRITE_COUNT, CLAIMED_FILE_PATHS, LOCK_CONFLICT_HANDOFF
+
+    # Stamp X-Swarm-Agent-Token on every urllib request to the local API
+    # (covers raw urlopen() callers that do not go through _api_request).
+    from swarm.agent_token import install_urllib_opener as _install_agent_opener
+    _install_agent_opener()
+
+    TASK_METADATA = _load_task_metadata()
+    RUN_BROADCAST_WRITE_COUNT = 0
+    CLAIMED_FILE_PATHS = set()
+    LOCK_CONFLICT_HANDOFF = None
+
+    # Sync config to all tool modules via a single ToolContext
+    _sync_all_tool_globals()
+
+    # Ensure any Godot process launched by this agent is killed when we exit,
+    # regardless of which return path is taken (TASK_COMPLETE, loop limit, crash).
+    atexit.register(qa_tools.kill_game)
+    atexit.register(qa_tools.harness_kill_game)
+
+
+    # Guard: if a worktree path was specified but doesn't exist, fail immediately.
+    # Without this, agents resolve relative paths against the dead override path,
+    # silently create phantom directories, and produce untracked work.
+    if PROJECT_PATH_OVERRIDE and not Path(PROJECT_PATH_OVERRIDE).exists():
+        log(f"FATAL: worktree path does not exist: {PROJECT_PATH_OVERRIDE}")
+        log("The worktree was likely cleaned up before this agent started. Failing fast.")
+        return 1
+
+    project_path = _project_root()
+
+    # --- Pipeline branch ---
+    # If a pipeline is configured for this task type, run it instead of the
+    # legacy tool loop. Falls back to legacy if pipeline is empty or fails to
+    # import (so existing tasks are unaffected).
+    if PIPELINE:
+        try:
+            from swarm.pipeline import TaskState, run_pipeline
+            _pipeline_state = TaskState(
+                task_id=TASK_ID,
+                task_type=TASK_TYPE,
+                project=PROJECT,
+                description=TASK_DESC,
+                project_path=str(project_path),
+                workspace=str(WORKSPACE),
+            )
+            _pipeline_config = {
+                "plan_provider": PLAN_PROVIDER or LLM_PROVIDER,
+                "scout_provider": SCOUT_PROVIDER or LLM_PROVIDER,
+                "work_provider": WORK_PROVIDER or LLM_PROVIDER,
+                "synthesize_provider": SYNTHESIZE_PROVIDER or LLM_PROVIDER,
+                "phase_loop_limits": dict(PHASE_LOOP_LIMITS or {}),
+                "validation_timeout": 120,
+                "pipeline": PIPELINE,
+                "data_dir": DATA_DIR,
+                "max_repair_attempts": int(os.environ.get("PIPELINE_MAX_REPAIR_ATTEMPTS", 1)),
+                # Roadmap #8: strategic routing policy inputs (consumed by work.py, M4).
+                "complexity": TASK_COMPLEXITY,
+                "model_policy": MODEL_POLICY,
+                "loop_model_routing": LOOP_MODEL_ROUTING,
+                "project_quota_caps": PROJECT_QUOTA_CAPS,
+            }
+            _pipeline_state.max_repair_attempts = _pipeline_config["max_repair_attempts"]
+            _final_state = run_pipeline(PIPELINE, _pipeline_state, config=_pipeline_config, log_fn=log)
+            _pipeline_completed = not _final_state.failed
+            _pipeline_work_loops = int((_final_state.work_report or {}).get("loops_used", 0) or 0)
+            _append_history_record(
+                DATA_DIR, TASK_ID, PROJECT, TASK_TYPE,
+                _pipeline_work_loops, {},
+                0, _pipeline_completed, "pipeline_complete" if _pipeline_completed else "pipeline_failed",
+            )
+            try:
+                _state_record = {
+                    "task_id": TASK_ID,
+                    "project": PROJECT,
+                    "task_type": TASK_TYPE,
+                    "pipeline": list(PIPELINE),
+                    "phases_completed": list(_final_state.phases_completed),
+                    "phase_timings": dict(_final_state.phase_timings),
+                    "phase_loops": dict(_final_state.phase_loops),
+                    "total_phase_loops": sum(int(v or 0) for v in _final_state.phase_loops.values()),
+                    "plan": _final_state.plan,
+                    "scout_report": _final_state.scout_report,
+                    "synthesis": _final_state.synthesis,
+                    "work_report": _final_state.work_report,
+                    "validation": _final_state.validation,
+                    "errors": list(_final_state.errors),
+                    "failed": bool(_final_state.failed),
+                    # WS4/WS5 fields -- must be present for experiment metrics to read them
+                    "failure_kind": _final_state.failure_kind,
+                    "failure_phase": _final_state.failure_phase,
+                    "failure_exception_class": _final_state.failure_exception_class,
+                    "failure_traceback": _final_state.failure_traceback,
+                    "repair_attempts": _final_state.repair_attempts,
+                    "max_repair_attempts": _final_state.max_repair_attempts,
+                    "handoff": dict(_final_state.handoff),
+                }
+                _pipeline_file = Path(DATA_DIR) / f"agent_{TASK_ID}_pipeline.json"
+                _pipeline_file.write_text(json.dumps(_state_record), encoding="utf-8")
+                _token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
+                _token_file.write_text(json.dumps({
+                    "input": 0,
+                    "output": 0,
+                    "cache_read": 0,
+                    "cache_write": 0,
+                    "total": 0,
+                    "loop_count": _pipeline_work_loops,
+                    "provider": WORK_PROVIDER or LLM_PROVIDER,
+                    "model": "",
+                    "pipeline_state_path": str(_pipeline_file),
+                    # Roadmap #8 (M5): work-phase per-loop tier stats, if the
+                    # work phase had adaptive routing enabled (M4). {} otherwise.
+                    "adaptive_flat": (_final_state.work_report or {}).get("tier_stats") or {},
+                }), encoding="utf-8")
+            except Exception as _pipe_write_exc:
+                log(f"WARNING: failed to write pipeline metrics files: {_pipe_write_exc}")
+            return 1 if _final_state.failed else 0
+        except Exception as _pipe_exc:
+            log(f"[Pipeline] ERROR: {_pipe_exc} -- falling back to legacy loop")
+            import traceback
+            log(traceback.format_exc())
+            # Fall through to legacy loop below
+
+    # If this is a continuation task, load the progress file into context
+    _progress_context = ""
+    if TASK_DESC.startswith("CONTINUATION of task"):
+        _prog_file = Path(project_path) / "_swarm_progress.md"
+        if _prog_file.exists():
+            try:
+                _progress_context = _prog_file.read_text()[:3000]
+                log("Loaded progress context from _swarm_progress.md")
+            except Exception:
+                pass
+
+    # NOTE: the agent no longer reads swarm-controller/.env.  The controller
+    # passes an allowlisted environment (agent_lifecycle.build_agent_env) that
+    # contains only the provider keys this task can route to.
+
+    # Init MCP if configured
+    if MCP_SERVERS:
+        mcp_client = MCPClient(MCP_SERVERS, cwd=project_path)
+        log(f"MCP configured with servers: {list(MCP_SERVERS.keys())}")
+        # Re-sync after mcp_client is set
+        _sync_all_tool_globals()
+
+    # Select prompts based on project type
+    from swarm import project_kind as _project_kind
+    is_python = _project_kind.is_python(project_path)
+    is_typescript = _project_kind.is_typescript(project_path)
+
+    # Plugin prompt takes priority over all built-in routing.
+    if PLUGIN_SYSTEM:
+        system_prompt, user_prompt = PLUGIN_SYSTEM, PLUGIN_USER
+    elif TASK_TYPE == "plan":
+        system_prompt, user_prompt = PLAN_SYSTEM, PLAN_USER
+    elif TASK_TYPE == "python_plan":
+        system_prompt, user_prompt = PYTHON_PLAN_SYSTEM, PYTHON_PLAN_USER
+    elif is_python:
+        if TASK_TYPE == "feature":
+            system_prompt, user_prompt = PYTHON_FEATURE_SYSTEM, PYTHON_FEATURE_USER
+        elif TASK_TYPE == "bug":
+            system_prompt, user_prompt = PYTHON_BUG_SYSTEM, PYTHON_BUG_USER
+        elif TASK_TYPE == "refactor" and PYTHON_REFACTOR_SYSTEM:
+            system_prompt, user_prompt = PYTHON_REFACTOR_SYSTEM, PYTHON_REFACTOR_USER
+        else:
+            # polish / any other type on a Python project: treat as feature
+            system_prompt, user_prompt = PYTHON_FEATURE_SYSTEM, PYTHON_FEATURE_USER
+    else:
+        if TASK_TYPE == "manager":
+            system_prompt, user_prompt = MANAGER_SYSTEM, MANAGER_USER
+        elif TASK_TYPE == "project_create":
+            system_prompt, user_prompt = PROJECT_CREATE_SYSTEM, PROJECT_CREATE_USER
+        elif TASK_TYPE == "qa":
+            system_prompt, user_prompt = QA_SYSTEM, QA_USER
+        elif TASK_TYPE == "art_pass":
+            system_prompt, user_prompt = ART_PASS_SYSTEM, ART_PASS_USER
+        elif TASK_TYPE == "playthrough_bot":
+            system_prompt, user_prompt = PLAYTHROUGH_BOT_SYSTEM, PLAYTHROUGH_BOT_USER
+        elif TASK_TYPE == "audit":
+            system_prompt, user_prompt = AUDIT_SYSTEM, AUDIT_USER
+        elif TASK_TYPE == "audit_learnings":
+            system_prompt, user_prompt = AUDIT_LEARNINGS_SYSTEM, AUDIT_LEARNINGS_USER
+        elif TASK_TYPE == "triage":
+            system_prompt, user_prompt = TRIAGE_SYSTEM, TRIAGE_USER
+        elif TASK_TYPE == "project_plan":
+            system_prompt, user_prompt = PROJECT_PLAN_SYSTEM, PROJECT_PLAN_USER
+        elif TASK_TYPE == "research":
+            system_prompt, user_prompt = RESEARCH_SYSTEM, RESEARCH_USER
+        elif TASK_TYPE == "gardener":
+            system_prompt, user_prompt = GARDENER_SYSTEM, GARDENER_USER
+        elif TASK_TYPE == "librarian":
+            system_prompt, user_prompt = LIBRARIAN_SYSTEM, LIBRARIAN_USER
+        elif TASK_TYPE == "meta_auditor":
+            system_prompt, user_prompt = AUDITOR_SYSTEM, AUDITOR_USER
+        elif TASK_TYPE == "cartographer":
+            system_prompt, user_prompt = CARTOGRAPHER_SYSTEM, CARTOGRAPHER_USER
+        elif TASK_TYPE == "archaeologist":
+            system_prompt, user_prompt = ARCHAEOLOGIST_SYSTEM, ARCHAEOLOGIST_USER
+        elif TASK_TYPE == "pruner":
+            system_prompt, user_prompt = PRUNER_SYSTEM, PRUNER_USER
+        elif TASK_TYPE == "meta_scheduler":
+            system_prompt, user_prompt = SCHEDULER_SYSTEM, SCHEDULER_USER
+        elif TASK_TYPE == "harness_qa":
+            system_prompt, user_prompt = HARNESS_QA_SYSTEM, HARNESS_QA_USER
+        elif TASK_TYPE == "scenario_qa":
+            system_prompt, user_prompt = SCENARIO_QA_SYSTEM, SCENARIO_QA_USER
+        elif TASK_TYPE == "hybrid_qa":
+            system_prompt, user_prompt = HYBRID_QA_SYSTEM, HYBRID_QA_USER
+        elif TASK_TYPE == "feature":
+            system_prompt, user_prompt = FEATURE_SYSTEM, FEATURE_USER
+        elif TASK_TYPE == "bug":
+            system_prompt, user_prompt = BUG_SYSTEM, BUG_USER
+        elif TASK_TYPE == "polish":
+            system_prompt, user_prompt = POLISH_SYSTEM, POLISH_USER
+        else:
+            system_prompt, user_prompt = FEATURE_SYSTEM, FEATURE_USER
+
+    # Append progress context to system prompt for continuation tasks
+    if _progress_context:
+        system_prompt = system_prompt + f"\n\n## Previous Agent Progress\n{_progress_context}"
+
+    # Sibling-coordination context: only for tasks that write shared files and can collide
+    _COLLIDABLE_TASK_TYPES = {"feature", "bug", "polish", "art_pass", "refactor"}
+    if TASK_TYPE in _COLLIDABLE_TASK_TYPES:
+        _project_activity_context = _load_project_activity_context()
+        if _project_activity_context:
+            system_prompt = system_prompt + f"\n\n{_project_activity_context}"
+
+    _delegation_hint_lines = []
+    _desc_lower = (TASK_DESC or "").lower()
+    if "delegate_helper" in _desc_lower:
+        _delegation_hint_lines.append(
+            "This task explicitly requires the normal swarm tool `delegate_helper(...)`. "
+            "Call `delegate_helper` directly as a tool call. Do not use mcp_list_tools or mcp_call_tool to look for it."
+        )
+    if "delegate_task_batch" in _desc_lower:
+        _delegation_hint_lines.append(
+            "This task explicitly requires the normal swarm tool `delegate_task_batch(...)`. "
+            "Call `delegate_task_batch` directly as a tool call. Do not treat it like an MCP server."
+        )
+    if _delegation_hint_lines:
+        system_prompt = system_prompt + "\n\n## Delegation Tool Reminder\n" + "\n".join(
+            f"- {line}" for line in _delegation_hint_lines
+        )
+
+    log(f"Starting task: {PROJECT} ({TASK_TYPE})")
+    # Log provider+model so model_stats.py can identify which model ran this agent
+    from swarm.provider_utils import resolve_provider as _resolve_provider
+    _pconf = _resolve_provider(LLM_PROVIDER, LLM_PROVIDERS)
+    log(f"Provider: {LLM_PROVIDER} model={_pconf.get('model', 'unknown')}")
+    log(f"Description: {TASK_DESC}")
+
+    # Pull latest for normal project work, but keep experiment clones pinned to
+    # their sampled baseline so old run state cannot leak across arms.
+    if _should_pull_latest():
+        log("Pulling latest...")
+        # Fetch goes through the controller for sandboxed agents (no network
+        # or git credentials here); the merge is local.  A conflicting merge
+        # is backed out at startup so the task starts from a clean tree --
+        # the agent is told, and git_sync redoes it with conflicts left in
+        # place for the agent to resolve.
+        from swarm.tools.shell import git_sync as _git_sync
+        _synced = _git_sync("merge")
+        if _synced.get("ok"):
+            log(f"Git sync: {_synced.get('message', 'ok')}")
+        elif _synced.get("conflicts"):
+            run("git merge --abort")
+            log(f"Git sync: origin has diverged with conflicts in {_synced['conflicts']} -- "
+                "call git_sync, resolve the conflicts and git_commit before finishing")
+        else:
+            log(f"Git sync: {str(_synced.get('error', ''))[:200]}")
+
+    # Find largest .gd file (refactor context only)
+    main_file = None
+    max_file_lines = 0
+    if TASK_TYPE == "refactor" and not is_python and not is_typescript:
+        for root, dirs, files in os.walk(project_path):
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+            for f in files:
+                if f.endswith(".gd"):
+                    fp = os.path.join(root, f)
+                    try:
+                        lines = len(open(fp).readlines())
+                        if lines > max_file_lines:
+                            max_file_lines = lines
+                            main_file = os.path.relpath(fp, project_path)
+                    except Exception:
+                        pass
+
+        if main_file:
+            log(f"Largest file: {main_file} ({max_file_lines} lines)")
+            content = read_file(main_file)
+            if content.get("ok"):
+                log(f"Read {len(content.get('content', ''))} chars from {main_file}")
+
+    # Build the legacy Godot refactor prompt only for Godot projects.
+    if TASK_TYPE == "refactor" and not is_python and not is_typescript:
+        system_prompt = f"""You are an expert Godot game developer. Use tool calls to modify the codebase -- do not just describe changes.
+
+Available tools (use [TOOL_CALL]{{"tool": "name", "args": {{...}}}}[/TOOL_CALL] format):
+- list_files(path): List files and directories
+- read_file(path, offset=0, limit=0): Read file contents (full file; use offset/limit in lines for large files)
+- search_code(query): Search for a pattern across .gd files
+- get_file_stats(path): Get line count and size
+- write_file(path, content): Write content to a file
+- run_command(command): Run a shell command
+- git_commit(message): Stage all changes and commit
+- git_push(): Push commits to remote
+
+REFACTOR RULES -- follow these exactly:
+
+PHASE 1 -- PLAN (if refactor.md does not exist, or all items are done):
+1. Use grep -n and sed to read all oversized files and identify logical sections to extract (systems, managers, UI, constants, etc.). Note the approximate start/end line numbers for each section.
+2. Write (or overwrite) refactor.md at the project root with a fresh checklist including line ranges:
+   # Refactor Plan: Sprint <N>
+   ## Files to reduce
+   - [ ] scripts/foo_system.gd -- lines 450-620 of source.gd (festival + event logic)
+   - [ ] scripts/bar_manager.gd -- lines 621-790 of source.gd (guild management)
+   ...
+3. git_commit("Refactor: create sprint <N> plan") then git_push().
+
+PHASE 2 -- EXECUTE (read refactor.md to find next unchecked item):
+4. Read refactor.md to find the next unchecked `- [ ]` item.
+5. Find the exact line numbers of the section to extract.
+6. Write the new extracted file using write_file.
+7. Delete those lines from the source file using sed in-place -- do NOT rewrite the whole file:
+   run_command: sed -i '<start>,<end>d' /path/to/source.gd
+   This is mandatory. The source file MUST have fewer lines after every extraction.
+8. Verify the source shrank: run_command: wc -l /path/to/source.gd
+9. In refactor.md, change `- [ ]` to `- [x]` for the completed item.
+10. git_commit with a message stating what was extracted and the before/after line count, then git_push().
+11. Repeat from step 4 until ALL files are under {MAX_LINES} lines.
+
+CRITICAL: Step 7 (sed -i delete) is not optional.
+NEVER touch files in: {', '.join(sorted(IGNORE_DIRS))}.
+NEVER modify files with extensions: {', '.join(sorted(IGNORE_EXTENSIONS))}.
+
+Say TASK_COMPLETE only when every .gd file outside ignored dirs is under {MAX_LINES} lines and all commits are pushed."""
+
+        # Check for existing refactor.md
+        refactor_md_path = os.path.join(project_path, "refactor.md")
+        if os.path.exists(refactor_md_path):
+            with open(refactor_md_path) as f:
+                refactor_md_content = f.read()
+            if "- [ ]" in refactor_md_content:
+                resume_context = (
+                    f"\nrefactor.md exists with pending items -- resume it:\n```\n{refactor_md_content[:3000]}\n```\n"
+                    f"Find the next unchecked `- [ ]` item and execute it. Skip straight to Phase 2."
+                )
+            else:
+                oversized = []
+                for root, dirs, files in os.walk(project_path):
+                    dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+                    for f in files:
+                        if f.endswith(".gd"):
+                            try:
+                                lc = len(open(os.path.join(root, f)).readlines())
+                                if lc > MAX_LINES:
+                                    oversized.append((os.path.relpath(os.path.join(root, f), project_path), lc))
+                            except Exception:
+                                pass
+                if oversized:
+                    oversized_list = "\n".join(f"  - {p} ({l_cnt} lines)" for p, l_cnt in sorted(oversized, key=lambda x: -x[1]))
+                    resume_context = (
+                        f"\nrefactor.md exists but all items are checked off. However these files are still over {MAX_LINES} lines:\n{oversized_list}\n"
+                        f"Previous plan for reference:\n```\n{refactor_md_content[:1500]}\n```\n"
+                        f"Start Phase 1: write a new sprint plan in refactor.md covering these files, then execute it."
+                    )
+                else:
+                    resume_context = (
+                        f"\nrefactor.md exists and all items are checked off, and all files are under {MAX_LINES} lines.\n"
+                        f"Say TASK_COMPLETE immediately."
+                    )
+        else:
+            resume_context = "\nNo refactor.md found -- start with Phase 1: analyse oversized files and write the plan."
+
+        user_prompt = (
+            f"Project: {PROJECT}\n"
+            f"Task: reduce all .gd files to under {MAX_LINES} lines.\n"
+            f"Project path: {project_path}\n"
+            f"Largest file right now: {main_file} ({max_file_lines} lines)\n"
+            f"{resume_context}\n\n"
+            f"Work through the phases. After every extraction: shrink the source file, update refactor.md, commit, push."
+        )
+
+    # Tool loop
+    conversation = [{"role": "user", "content": user_prompt}]
+    tool_loop_count = 0
+    _adaptive_flat_enabled = bool(
+        ADAPTIVE_FLAT
+        or (LOOP_MODEL_ROUTING or {}).get("enabled")
+        or TASK_METADATA.get("pipeline_mode") == "adaptive_flat"
+    )
+    _last_tools_for_routing: list[str] = []
+    _next_tools_for_routing: list[str] = []  # lookahead: tools requested in current loop
+    _adaptive_flat_stats = {
+        "enabled": _adaptive_flat_enabled,
+        "cheap_loops": 0,
+        "strong_loops": 0,
+        "default_loops": 0,
+        "model_switches": 0,
+        "cheap_completion_blocks": 0,
+        "last_provider": "",
+        "decisions": [],
+    }
+    _consecutive_cheap_loops = 0
+
+    # Scout phase: determine threshold for this task type (0 = no scout phase)
+    _scout_threshold = (
+        SCOUT_LOOPS.get(TASK_TYPE, 0)
+        if SCOUT_PROVIDER and SCOUT_PROVIDER != LLM_PROVIDER and not _adaptive_flat_enabled
+        else 0
+    )
+    _scout_active = _scout_threshold > 0
+    _scout_handed_off = False  # True once we've switched to the main provider
+
+    # H1-H8 metrics: per-task counters (initialized before loop so they always exist)
+    _tool_call_counts: dict = {}
+    _session_written_files: set = set()   # H7: files written in this session
+    _session_read_files: set = set()       # H7: files read in this session
+
+    # Track output from the last batch of run_command tool calls so we can
+    # intercept TASK_COMPLETE when validation errors are still present.
+    _last_run_outputs: list = []
+
+    # Patterns in run_command stdout/stderr that indicate the task is NOT done
+    _FAILURE_PATTERNS = [
+        "SCRIPT ERROR:",
+        "SCENE ERROR:",
+        "Missing autoload:",
+        " FAILED",       # GUT: "  2 FAILED"
+        "tests failed",  # GUT summary line
+        "ERROR: Parse Error",
+        "error: ",       # generic compiler errors
+    ]
+
+    def _has_validation_failures(outputs: list) -> list[str]:
+        """Return any failure lines found in recent run_command outputs."""
+        hits = []
+        for out in outputs:
+            for line in out.splitlines():
+                if any(pat in line for pat in _FAILURE_PATTERNS):
+                    hits.append(line.strip())
+        return hits
+
+    context_limit_hit = False
+    loop_limit_hit = False
+    task_complete_hit = False
+    lock_handoff_hit: dict | None = None
+    _wrap_up_injected = False
+    _no_tool_call_nudged = False
+    _malformed_retries: dict = {}  # loop_count → retry attempts for malformed tool calls
+    _consecutive_truncated_responses = 0
+    # Total (non-consecutive) budget for LLM parse-failure retries across the
+    # whole run. The consecutive counter resets on any parseable response
+    # (:1227), so an alternating truncated/valid pattern never trips the
+    # consecutive cap -- this observed failure mode burned ~15 loops. The total
+    # counter never resets, so it bounds the aggregate waste.
+    _parse_retry_total = 0
+    _PARSE_RETRY_TOTAL_BUDGET = 8
+    # Recovery-mechanism fire counts for analytics (mirrored into the agent log
+    # so extract_signals() can aggregate; see swarm/log_rotation.py).
+    _mechanism_fires: dict = {}
+    _playthrough_validation_passed = False
+
+    # Token tracking
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_write_tokens = 0
+
+    stall_detector = StallDetector()
+
+    # Vision cap: art_pass agents must make a file change every 3 vision/screenshot calls.
+    # Resets after any write_file, patch_file, or git_commit call.
+    _VISION_CAP_TYPES = {"art_pass"}
+    _vision_calls_since_write: int = 0
+    _VISION_CAP_LIMIT: int = 3
+
+    # EXPERIMENT: meta-investigation -- track recurring error strings across loops
+    _error_counts: _collections.Counter = _collections.Counter()
+    _error_loop_history: dict[str, list[str]] = {}  # error_key → list of loop summaries
+    _meta_investigated: set[str] = set()  # errors already investigated (don't repeat)
+
+    while tool_loop_count < MAX_TOOL_LOOPS:
+        log(f"Calling LLM... (loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS})")
+        compact_token_threshold = _get_compaction_threshold()
+
+        # Check for operator hint injected via POST /api/agents/<id>/hint
+        _hint_path = Path(DATA_DIR) / f"agent_{TASK_ID}.hint"
+        if _hint_path.exists():
+            try:
+                _hint_content = _hint_path.read_text(encoding="utf-8", errors="replace").strip()
+                if _hint_content:
+                    conversation.append({"role": "user", "content": f"[OPERATOR HINT]\n{_hint_content}\n\nTake this into account before your next action."})
+                    log(f"[Hint] Injected operator hint ({len(_hint_content)} chars)")
+                _hint_path.unlink(missing_ok=True)
+            except Exception as _hint_err:
+                log(f"[Hint] Failed to read hint file: {_hint_err}")
+
+        if stall_detector.check() and not _wrap_up_injected:
+            _mechanism_fires["stall"] = _mechanism_fires.get("stall", 0) + 1
+            log(f"[Mechanism] stall fired ({_mechanism_fires['stall']})")
+            log("WARNING: stall detected -- same tool called 3 times with identical args")
+            conversation.append({"role": "user", "content": StallDetector.injected_message()})
+        # EXPERIMENT: meta-investigation -- fire when same error seen 3+ times
+        if META_INVESTIGATION_ENABLED and not _wrap_up_injected:
+            for err_key, count in _error_counts.items():
+                if count >= 3 and err_key not in _meta_investigated:
+                    _meta_investigated.add(err_key)
+                    _mechanism_fires["meta_investigation"] = _mechanism_fires.get("meta_investigation", 0) + 1
+                    log(f"[Meta] Repeated error ({count}x): {err_key[:80]} -- launching investigation")
+                    history = _error_loop_history.get(err_key, [])
+                    try:
+                        hint = _run_meta_investigation(err_key, history, TASK_DESC)
+                        log("[Meta] Investigation complete")
+                        conversation.append({"role": "user", "content": (
+                            f"[INVESTIGATOR NOTE -- out-of-band analysis of your repeated error]\n\n"
+                            f"{hint}\n\n"
+                            "Take this into account before your next tool call."
+                        )})
+                    except Exception as e:
+                        log(f"[Meta] Investigation failed: {e}")
+                    break  # one investigation per loop tick
+
+        # Research budget enforcement for plan tasks
+        # plan: 10 loops (targeted task creation -- doesn't need full codebase survey)
+        # project_plan: 15 loops (full sprint planning -- needs broader codebase breadth)
+        _plan_budget = 15 if TASK_TYPE == "project_plan" else 10
+        if (TASK_TYPE in ("plan", "project_plan")
+                and not _wrap_up_injected
+                and tool_loop_count >= _plan_budget):
+            conversation.append({"role": "user", "content": (
+                "RESEARCH BUDGET EXHAUSTED. You have completed enough research. "
+                "Your next tool call MUST be create_tasks() with the tasks you have identified. "
+                "Do not read any more files. Do not run any more commands. "
+                "Call create_tasks() now, then TASK_COMPLETE. "
+                "If you need deeper investigation of something specific, create a research task for it."
+            )})
+            _mechanism_fires["plan_budget"] = _mechanism_fires.get("plan_budget", 0) + 1
+            log(f"[Mechanism] plan_budget fired at loop {tool_loop_count}")
+            _wrap_up_injected = True
+
+        # Wrap-up nudge at loop 110 for QA and bug tasks
+        if (TASK_TYPE in ("qa", "bug")
+                and not _wrap_up_injected
+                and tool_loop_count >= MAX_TOOL_LOOPS - 10):
+            loops_left = MAX_TOOL_LOOPS - tool_loop_count
+            wrap_up_msg = build_wrap_up_message(TASK_TYPE, loops_left, has_mutations=True)
+            conversation.append({"role": "user", "content": wrap_up_msg})
+            _mechanism_fires["wrap_up"] = _mechanism_fires.get("wrap_up", 0) + 1
+            log(f"[Mechanism] wrap_up fired at loop {tool_loop_count}")
+            _wrap_up_injected = True
+
+        # Scout phase: switch to main provider at threshold, compacting scout history
+        if _scout_active and not _scout_handed_off and tool_loop_count >= _scout_threshold:
+            log(f"[Scout] Recon phase complete ({tool_loop_count} loops). Handing off to {LLM_PROVIDER}.")
+            # Compact the scout conversation into a single stable prefix message.
+            # This gives the main provider a cacheable prefix from its very first call
+            # rather than a novel multi-turn history it has never seen.
+            _scout_summary_prompt = (
+                "You are summarising a read-only recon phase performed by a scout AI agent.\n"
+                "The scout explored the codebase to understand the problem. Produce a concise\n"
+                "but complete summary covering:\n"
+                "- The task goal\n"
+                "- Files read and their key contents relevant to the task\n"
+                "- The root cause or problem location identified\n"
+                "- Specific functions, classes, variables, and line numbers found\n"
+                "- Any errors or patterns observed\n"
+                "- A clear recommended implementation approach\n"
+                "Be specific and actionable. This summary is the implementation agent's only\n"
+                "memory of the scout's findings."
+            )
+            _scout_history = "\n\n".join(
+                f"[{m['role'].upper()}]: {m['content'] if isinstance(m['content'], str) else str(m['content'])}"
+                for m in conversation[1:]  # skip initial user prompt
+            )
+            try:
+                _scout_summary, _, _ = call_llm(_scout_summary_prompt, [{"role": "user", "content": _scout_history}], provider=SCOUT_PROVIDER)
+                # Replace conversation with: original prompt + compacted scout findings
+                conversation = [
+                    conversation[0],  # original user prompt
+                    {"role": "user", "content": (
+                        f"[SCOUT RECON SUMMARY -- {tool_loop_count} loops of read-only exploration]\n\n"
+                        f"{_scout_summary}\n\n"
+                        "You are now in the implementation phase. Proceed with the changes."
+                    )},
+                    {"role": "assistant", "content": "Understood. I have reviewed the scout's findings and will now implement the solution."},
+                ]
+                log(f"[Scout] Handoff summary: {len(_scout_summary)} chars. Conversation reset to 3 messages.")
+            except Exception as _scout_err:
+                log(f"[Scout] Handoff summary failed ({_scout_err}), continuing with full history.")
+            _scout_handed_off = True
+            _scout_active = False
+
+        # Determine active provider for this loop
+        _active_provider = SCOUT_PROVIDER if (_scout_active and not _scout_handed_off) else None
+        _provider_tier = "default"
+        _provider_reason = "default_provider"
+        if _adaptive_flat_enabled and not _active_provider:
+            try:
+                from swarm.model_routing import choose_adaptive_flat_provider, STRONG_TOOLS
+                from swarm.model_policy import resolve_policy
+                _policy = resolve_policy(
+                    {
+                        "model_policy": MODEL_POLICY,
+                        "loop_model_routing": LOOP_MODEL_ROUTING,
+                        "project_quota_caps": PROJECT_QUOTA_CAPS,
+                    },
+                    project=PROJECT,
+                    task_type=TASK_TYPE,
+                    phase="flat",
+                    complexity=TASK_COMPLEXITY,
+                    default_provider=LLM_PROVIDER,
+                )
+                _strong_bias = (
+                    True if _policy.tier_ceiling == "strong"
+                    else False if _policy.tier_ceiling == "fast"
+                    else None
+                )
+                _decision = choose_adaptive_flat_provider(
+                    LOOP_MODEL_ROUTING,
+                    default_provider=LLM_PROVIDER,
+                    fast_provider=str((LOOP_MODEL_ROUTING or {}).get("fast_provider", "")),
+                    strong_provider=str((LOOP_MODEL_ROUTING or {}).get("strong_provider", "")),
+                    task_type=TASK_TYPE,
+                    loop_index=tool_loop_count,
+                    last_tools=_last_tools_for_routing,
+                    next_tools=_next_tools_for_routing,
+                    consecutive_cheap_loops=_consecutive_cheap_loops,
+                    strong_bias=_strong_bias,
+                    tier_ceiling=_policy.tier_ceiling,
+                )
+                _active_provider = _decision.provider
+                _provider_tier = _decision.tier
+                _provider_reason = _decision.reason
+            except Exception as _route_err:
+                log(f"[AdaptiveFlat] routing failed, using default provider: {_route_err}")
+                _active_provider = None
+                _provider_tier = "default"
+                _provider_reason = "routing_error"
+            _provider_name = _active_provider or LLM_PROVIDER
+            _last_provider = _adaptive_flat_stats.get("last_provider", "")
+            if _last_provider and _last_provider != _provider_name:
+                _adaptive_flat_stats["model_switches"] += 1
+            _adaptive_flat_stats["last_provider"] = _provider_name
+            if _provider_tier == "cheap":
+                _adaptive_flat_stats["cheap_loops"] += 1
+                _consecutive_cheap_loops += 1
+            elif _provider_tier == "strong":
+                _adaptive_flat_stats["strong_loops"] += 1
+                _consecutive_cheap_loops = 0
+            else:
+                _adaptive_flat_stats["default_loops"] += 1
+                _consecutive_cheap_loops = 0
+            _adaptive_flat_stats["decisions"].append({
+                "loop": tool_loop_count + 1,
+                "provider": _provider_name,
+                "tier": _provider_tier,
+                "reason": _provider_reason,
+                "last_tools": list(_last_tools_for_routing),
+                "next_tools": list(_next_tools_for_routing),
+            })
+            if len(_adaptive_flat_stats["decisions"]) > 40:
+                _adaptive_flat_stats["decisions"] = _adaptive_flat_stats["decisions"][-40:]
+            log(
+                f"[AdaptiveFlat] provider={_provider_name} tier={_provider_tier} "
+                f"reason={_provider_reason} next_tools={_next_tools_for_routing} last_tools={_last_tools_for_routing}"
+            )
+            try:
+                import swarm.agent_runtime as _self_mod
+                if _provider_tier == "cheap":
+                    _self_mod._ROUTING_PHASE = str(LOOP_MODEL_ROUTING.get("cheap_phase") or "")
+                else:
+                    _self_mod._ROUTING_PHASE = str(LOOP_MODEL_ROUTING.get("strong_phase") or "")
+            except Exception:
+                pass
+
+        # Keep system prompt stable for prompt-cache hits — inject loop counter into
+        # the last user message instead so the system prompt hash never changes.
+        system_with_budget = system_prompt
+        if _scout_active and not _scout_handed_off:
+            system_with_budget += "\n\n[SCOUT MODE -- read-only recon. Do NOT write files or commit. Explore and understand the codebase only.]"
+        loop_prefix = f"[Loop {tool_loop_count + 1}/{MAX_TOOL_LOOPS}] "
+        conv_with_prefix = list(conversation)
+        if conv_with_prefix and conv_with_prefix[-1].get("role") == "user":
+            last = conv_with_prefix[-1]
+            content = last.get("content", "")
+            if isinstance(content, str):
+                conv_with_prefix[-1] = {**last, "content": loop_prefix + content}
+            elif isinstance(content, list) and content and isinstance(content[0], dict):
+                first = content[0]
+                if first.get("type") == "text":
+                    new_content = [{**first, "text": loop_prefix + first["text"]}, *content[1:]]
+                    conv_with_prefix[-1] = {**last, "content": new_content}
+        _llm_t0 = time.time()
+        response, tokens, thinking_blocks = call_llm(system_with_budget, conv_with_prefix, provider=_active_provider)
+        _llm_elapsed = time.time() - _llm_t0
+        if _adaptive_flat_enabled:
+            try:
+                import swarm.agent_runtime as _self_mod
+                _self_mod._ROUTING_PHASE = ""
+            except Exception:
+                pass
+        total_input_tokens += tokens.get("input", 0)
+        total_output_tokens += tokens.get("output", 0)
+        total_cache_read_tokens += tokens.get("cache_read", 0)
+        total_cache_write_tokens += tokens.get("cache_write", 0)
+        _cr = tokens.get("cache_read", 0)
+        _cw = tokens.get("cache_write", 0)
+        _cache_str = f" cache_read={_cr} cache_write={_cw}" if (_cr or _cw) else ""
+        log(f"[LLM] in={tokens['input']} out={tokens['output']}{_cache_str} t={_llm_elapsed:.1f}s")
+        # Write live token counts so dashboard can display them without waiting for agent exit
+        try:
+            _tok_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
+            _conv_est = sum(
+                len(m["content"]) if isinstance(m["content"], str) else len(str(m["content"]))
+                for m in conversation
+            ) // 2
+            _tok_file.write_text(json.dumps({
+                "input": total_input_tokens,
+                "output": total_output_tokens,
+                "cache_read": total_cache_read_tokens,
+                "cache_write": total_cache_write_tokens,
+                "total": total_input_tokens + total_output_tokens,
+                "conv_estimate": _conv_est,
+                "compact_threshold": compact_token_threshold,
+                "adaptive_flat": _adaptive_flat_stats,
+            }))
+        except Exception:
+            pass
+
+        # Detect context window exceeded -- spawn continuation task and exit cleanly
+        if "context window exceeds limit" in response or (
+            "invalid_request_error" in response and "context" in response.lower()
+        ):
+            log("WARNING: context window limit hit -- spawning continuation task")
+            context_limit_hit = True
+            break
+
+        log(f"LLM response: {response[:3000]}{'...' if len(response) > 3000 else ''}")
+        # Preserve thinking blocks in history so the model retains its reasoning across turns.
+        # Thinking blocks must precede the text block in the content list.
+        if thinking_blocks:
+            assistant_content = thinking_blocks + [{"type": "text", "text": response}]
+            conversation.append({"role": "assistant", "content": assistant_content})
+        else:
+            conversation.append({"role": "assistant", "content": response})
+
+        # Strip tool call blocks before checking for TASK_COMPLETE so that
+        # tool arguments containing "TASK_COMPLETE" don't trigger a false early exit.
+        _response_sans_tools = re.sub(
+            r'\[TOOL_CALL\].*?\[/TOOL_CALL\]', '', response, flags=re.DOTALL
+        )
+        _response_sans_tools = re.sub(
+            r'<tool_call>.*?</tool_call>', '', _response_sans_tools, flags=re.DOTALL
+        )
+        _has_task_complete = "TASK_COMPLETE" in _response_sans_tools
+
+        tool_calls = parse_tool_calls(response)
+        _next_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
+
+        # Escalate-and-retry: if the cheap provider emitted a strong tool, discard its
+        # response and re-run the same conversation on the strong provider immediately.
+        # This leaves no synthetic messages in history (no poisoning) and costs one extra
+        # LLM call instead of a wasted loop.
+        if (
+            _adaptive_flat_enabled
+            and _provider_tier == "cheap"
+            and any(t in STRONG_TOOLS for t in _next_tools_for_routing)
+        ):
+            _strong_prov = str((LOOP_MODEL_ROUTING or {}).get("strong_provider", "") or LLM_PROVIDER)
+            log(f"[AdaptiveFlat] Cheap provider emitted strong tool(s) {_next_tools_for_routing} -- escalating to {_strong_prov}")
+            response, _esc_tokens, thinking_blocks = call_llm(system_with_budget, conv_with_prefix, provider=_strong_prov)
+            total_input_tokens += _esc_tokens.get("input", 0)
+            total_output_tokens += _esc_tokens.get("output", 0)
+            tool_calls = parse_tool_calls(response)
+            _next_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
+            _provider_tier = "strong"
+            _adaptive_flat_stats["model_switches"] = _adaptive_flat_stats.get("model_switches", 0) + 1
+        if _adaptive_flat_enabled and _provider_tier == "cheap" and _has_task_complete:
+            _adaptive_flat_stats["cheap_completion_blocks"] += 1
+            _has_task_complete = False
+            log("[AdaptiveFlat] Cheap provider attempted TASK_COMPLETE; requiring strong confirmation")
+            conversation.append({"role": "user", "content": (
+                "[ADAPTIVE-FLAT GUARD]\n"
+                "A cheap/read-only routed loop attempted TASK_COMPLETE. Completion must be confirmed "
+                "by the strong provider. Continue with any needed tool calls, or let the strong model "
+                "confirm completion on the next loop."
+            )})
+            _last_tools_for_routing = []
+            _next_tools_for_routing = []
+            _consecutive_cheap_loops = int(LOOP_MODEL_ROUTING.get("max_consecutive_cheap_loops", LOOP_MODEL_ROUTING.get("max_cheap_loops", 3)) or 3)
+            tool_loop_count += 1
+            continue
+
+        # Validate tool calls before executing -- catch missing required args
+        # and inject a targeted correction WITHOUT burning a loop counter slot.
+        # Capped at 2 retries per loop position to prevent infinite correction loops.
+        if tool_calls:
+            _errors = [validate_tool_call(tc) for tc in tool_calls]
+            _bad = [(tc, err) for tc, err in zip(tool_calls, _errors) if err]
+            if _bad:
+                _retries = _malformed_retries.get(tool_loop_count, 0)
+                if _retries < 2:
+                    _malformed_retries[tool_loop_count] = _retries + 1
+                    _corrections = "\n".join(f"- {err}" for _, err in _bad)
+                    log("WARNING: malformed tool call(s), injecting correction (retry {_retries + 1}/2)")
+                    conversation.append({"role": "user", "content": (
+                        f"Fix these tool call errors and try again:\n{_corrections}"
+                    )})
+                    # Don't increment tool_loop_count -- this retry is free
+                    continue
+                else:
+                    log("WARNING: malformed tool call(s) after 2 retries -- executing anyway")
+
+        if not tool_calls:
+            _last_tools_for_routing = []
+            has_open = "[TOOL_CALL]" in response or "<tool_call>" in response
+            has_close = "[/TOOL_CALL]" in response or "</tool_call>" in response
+            if has_open and not has_close:
+                _consecutive_truncated_responses += 1
+                _parse_retry_total += 1
+                _mechanism_fires["truncation_retry"] = _mechanism_fires.get("truncation_retry", 0) + 1
+                log(f"[Mechanism] truncation_retry fired ({_mechanism_fires['truncation_retry']})")
+                if _consecutive_truncated_responses >= 3:
+                    log("ERROR: response truncated 3 consecutive times -- failing closed")
+                    break
+                if _parse_retry_total >= _PARSE_RETRY_TOTAL_BUDGET:
+                    log(f"ERROR: llm parse-retry budget exhausted ({_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET}) -- failing closed")
+                    break
+                log(
+                    "WARNING: response truncated -- injecting targeted retry "
+                    f"(consecutive {_consecutive_truncated_responses}/3, total {_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET})"
+                )
+                conversation.append({"role": "user", "content": (
+                    "Your response was cut off before the tool call closed. "
+                    "Write a shorter tool call -- avoid large write_file blocks. "
+                    "Try again with a concise tool call."
+                )})
+                tool_loop_count += 1
+                continue
+            if has_open and has_close:
+                _parse_retry_total += 1
+                _mechanism_fires["invalid_json_retry"] = _mechanism_fires.get("invalid_json_retry", 0) + 1
+                log(f"[Mechanism] invalid_json_retry fired ({_mechanism_fires['invalid_json_retry']})")
+                if _parse_retry_total >= _PARSE_RETRY_TOTAL_BUDGET:
+                    log(f"ERROR: llm parse-retry budget exhausted ({_parse_retry_total}/{_PARSE_RETRY_TOTAL_BUDGET}) -- failing closed")
+                    break
+                log("WARNING: tool call tags present but JSON invalid -- asking to retry")
+                conversation.append({"role": "user", "content": (
+                    "Your tool call could not be parsed. "
+                    "Use exactly this format with valid JSON:\n"
+                    '[TOOL_CALL]{"tool": "tool_name", "args": {"key": "value"}}[/TOOL_CALL]'
+                )})
+                tool_loop_count += 1
+                continue
+            # No tool calls -- check for TASK_COMPLETE before nudging
+            if _has_task_complete:
+                if TASK_TYPE == "playthrough_bot" and not _playthrough_validation_passed:
+                    log("TASK_COMPLETE blocked -- playthrough bot has no successful exit-0 self-test")
+                    conversation.append({"role": "user", "content": (
+                        "TASK_COMPLETE rejected. Run tests/playthrough_bot.py through run_command "
+                        "and obtain exit code 0 before completing this task. A committed file or a "
+                        "bare completion claim is not execution evidence."
+                    )})
+                    tool_loop_count += 1
+                    continue
+                failures = _has_validation_failures(_last_run_outputs)
+                if failures:
+                    log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
+                    feedback = (
+                        "TASK_COMPLETE rejected. Your most recent command output still contains errors "
+                        "that must be fixed before the task can be marked complete:\n\n"
+                        + "\n".join(f"  {line}" for line in failures[:10])
+                        + "\n\nFix all errors, re-run validation, and only say TASK_COMPLETE "
+                        "when every check passes cleanly. Use the smallest targeted validation first, "
+                        "then broader validation. Do not rely on grep/tail-only output as final proof."
+                    )
+                    conversation.append({"role": "user", "content": feedback})
+                    # Do NOT clear _last_run_outputs here. Clearing it on
+                    # rejection meant a second bare TASK_COMPLETE (which runs no
+                    # tools, so the loop-1251 reset never fires) saw empty
+                    # evidence and passed. The failure evidence must persist
+                    # until the agent actually re-runs a command -- line 1251
+                    # clears it then, and only clean output replaces it.
+                    tool_loop_count += 1
+                    continue
+                log("Task marked complete by LLM")
+                task_complete_hit = True
+                break
+            if "write_file" in response.lower():
+                log("write_file mentioned but not parsed -- asking to retry")
+                conversation.append({"role": "user", "content": "Please write smaller files (under 40 lines) one at a time."})
+                tool_loop_count += 1
+                continue
+            # No tool calls and no TASK_COMPLETE -- give it one nudge.
+            if not _no_tool_call_nudged:
+                _no_tool_call_nudged = True
+                log("WARNING: no tool calls and no TASK_COMPLETE -- nudging model to finish")
+                conversation.append({"role": "user", "content": (
+                    "Your response contained no tool calls and no TASK_COMPLETE. "
+                    "If you have finished your work, output TASK_COMPLETE on its own line now. "
+                    "If you still have work to do, use a tool call to continue. "
+                    "For bug tasks, prefer: reproduce -> smallest fix -> targeted verification -> broader verification."
+                )})
+                tool_loop_count += 1
+                continue
+            log("No valid tool calls found after nudge -- marking task failed")
+            break
+
+        tool_results = []
+        _consecutive_truncated_responses = 0
+        _last_tools_for_routing = [str(tc.get("tool", "")) for tc in tool_calls if tc.get("tool")]
+        _last_run_outputs = []   # reset each loop; only keep the latest batch
+        _no_tool_call_nudged = False  # reset -- model is back to using tools
+
+
+        for tc in tool_calls:
+            log(f"Tool call: {tc}")
+            _tool_name = tc.get("tool", "")
+
+            # Vision cap enforcement for art_pass: block vision/screenshot if cap exceeded
+            if TASK_TYPE in _VISION_CAP_TYPES and _tool_name in ("vision_query", "take_screenshot", "screenshot_burst"):
+                if _vision_calls_since_write >= _VISION_CAP_LIMIT:
+                    _cap_msg = (
+                        f"[VISION CAP] vision_query/take_screenshot blocked -- you have made "
+                        f"{_vision_calls_since_write} visual assessment calls without a file change. "
+                        "You must now make a concrete change: use write_file, patch_file, or run_command "
+                        "to copy/modify an asset or scene file. After committing a change, your "
+                        "screenshot budget resets. Do NOT take more screenshots -- act on what you already know."
+                    )
+                    _mechanism_fires["vision_cap"] = _mechanism_fires.get("vision_cap", 0) + 1
+                    log(f"[VisionCap] Blocked {_tool_name} after {_vision_calls_since_write} calls without write")
+                    result = {"ok": False, "error": _cap_msg}
+                    tool_results.append(f"Tool {_tool_name}: {json.dumps(result)}")
+                    continue
+                _vision_calls_since_write += 1
+
+            # Reset vision cap counter on any file write, commit, or run_command (cp/mv/convert)
+            if _tool_name in ("write_file", "patch_file", "append_file", "git_commit"):
+                _vision_calls_since_write = 0
+            elif _tool_name == "run_command":
+                _cmd = tc.get("args", {}).get("command", "")
+                if any(op in _cmd for op in ("cp ", "mv ", "rsvg-convert", "inkscape", "ffmpeg", "convert ")):
+                    _vision_calls_since_write = 0
+
+            # Scout phase: block write tools at dispatch level, not just via prompt
+            if _scout_active and not _scout_handed_off and _tool_name in _SCOUT_BLOCKED_TOOLS:
+                result = {"error": f"Tool '{_tool_name}' is not available during the scout recon phase. Complete your read-only exploration first."}
+                log(f"[Scout] Blocked write tool: {_tool_name}")
+            else:
+                result = execute_tool(tc)
+            log(f"Result: {str(result)[:200]}")
+            tool_results.append(f"Tool {tc.get('tool', '?')}: {json.dumps(result)}")
+
+            # H1-H3: increment tool call counter
+            tool_name = tc.get("tool", "?")
+            _tool_call_counts[tool_name] = _tool_call_counts.get(tool_name, 0) + 1
+
+            # Update routing hints for llm_utils header injection
+            import swarm.agent_runtime as _self_mod
+            _self_mod._ROUTING_LOOP = tool_loop_count
+            _self_mod._ROUTING_COMMITS = _tool_call_counts.get("git_commit", 0)
+
+            # H7: track written and read files
+            args = tc.get("args", {})
+            if tool_name in ("write_file", "patch_file", "append_file"):
+                path_val = args.get("path") or args.get("file") or ""
+                if path_val:
+                    _session_written_files.add(path_val)
+            if tool_name in ("read_file", "read_file_range"):
+                path_val = args.get("path") or args.get("file") or ""
+                if path_val:
+                    _session_read_files.add(path_val)
+            if isinstance(result, dict) and result.get("lock_conflict_handoff_created"):
+                lock_handoff_hit = result
+                break
+            # Accumulate run_command outputs for the TASK_COMPLETE guard
+            if tc.get("tool") == "run_command" and isinstance(result, dict):
+                command = str((tc.get("args") or {}).get("command", ""))
+                combined = (result.get("stdout") or "") + (result.get("stderr") or "")
+                _playthrough_receipt = _extract_playthrough_receipt_text(combined)
+                if (
+                    TASK_TYPE == "playthrough_bot"
+                    and _looks_like_playthrough_bot_command(command)
+                    and result.get("ok") is True
+                    and "✓ PASSED:" in combined
+                    and _playthrough_receipt_is_complete(_playthrough_receipt)
+                ):
+                    _playthrough_validation_passed = True
+                    log("Playthrough bot validation passed (exit 0)")
+                if combined.strip():
+                    _last_run_outputs.append(combined)
+                    # EXPERIMENT: track recurring errors for meta-investigation
+                    if META_INVESTIGATION_ENABLED:
+                        for line in combined.splitlines():
+                            line = line.strip()
+                            if any(pat in line for pat in _FAILURE_PATTERNS) and len(line) > 10:
+                                # Normalise: strip file paths so same error from diff files merges
+                                err_key = re.sub(r'res://\S+|C:\\\\[^\s]+|/[\w/.]+\.gd', '<file>', line)[:120]
+                                _error_counts[err_key] += 1
+                                summary = f"loop {tool_loop_count + 1}: {tc.get('args', {}).get('command', '')[:60]} → {line[:80]}"
+                                _error_loop_history.setdefault(err_key, []).append(summary)
+
+        # Stall detection: record single tool call for stall tracking
+        if len(tool_calls) == 1:
+            tc = tool_calls[0]
+            stall_detector.append((tc.get("tool", ""), json.dumps(tc.get("args", {}), sort_keys=True)))
+
+        conversation.append({"role": "user", "content": "\n".join(tool_results)})
+
+        if lock_handoff_hit:
+            log(
+                "Lock conflict handoff created -- stopping current task after sequencing "
+                f"follow-up {lock_handoff_hit.get('followup_task_id')} behind "
+                f"{lock_handoff_hit.get('blocked_by_task_id')}"
+            )
+            task_complete_hit = True
+            break
+
+        # Check TASK_COMPLETE after executing tools (not before), so tool calls
+        # that appear in the same response as TASK_COMPLETE still run.
+        if _has_task_complete:
+            if TASK_TYPE == "playthrough_bot" and not _playthrough_validation_passed:
+                log("TASK_COMPLETE blocked -- playthrough bot has no successful exit-0 self-test")
+                conversation.append({"role": "user", "content": (
+                    "TASK_COMPLETE rejected. Run tests/playthrough_bot.py through run_command "
+                    "and obtain exit code 0 before completing this task. A committed file or a "
+                    "bare completion claim is not execution evidence."
+                )})
+                tool_loop_count += 1
+                continue
+            failures = _has_validation_failures(_last_run_outputs)
+            if failures:
+                log(f"TASK_COMPLETE blocked -- validation failures still present: {failures[:3]}")
+                feedback = (
+                    "TASK_COMPLETE rejected. Your most recent command output still contains errors "
+                    "that must be fixed before the task can be marked complete:\n\n"
+                    + "\n".join(f"  {line}" for line in failures[:10])
+                    + "\n\nFix all errors, re-run validation, and only say TASK_COMPLETE "
+                    "when every check passes cleanly. Use the smallest targeted validation first, "
+                    "then broader validation. Do not rely on grep/tail-only output as final proof."
+                )
+                conversation.append({"role": "user", "content": feedback})
+                # Persist failure evidence across a bare-TASK_COMPLETE retry --
+                # see the twin block above. Line 1251 clears it on the next
+                # real command; clean output then replaces it.
+                tool_loop_count += 1
+                continue
+            log("Task marked complete by LLM")
+            task_complete_hit = True
+            break
+
+        # Context compaction: when conversation grows large, summarise the middle
+        conversation = compact_conversation(
+            conversation, system_prompt, compact_token_threshold, log,
+            compaction_provider=COMPACTION_PROVIDER or None,
+        )
+
+        tool_loop_count += 1
+
+    if tool_loop_count >= MAX_TOOL_LOOPS and not context_limit_hit:
+        loop_limit_hit = True
+        # Loop-limit exit is not automatically success. The generic
+        # continuation-success shortcut only applies once the type-specific
+        # completion condition is met:
+        #   - playthrough_bot: requires a verified exit-0 bot run this session
+        #     (a receipt, not a bare marker).
+        # For all other types, the original task is marked complete here because
+        # the continuation-spawn logic below either carries the work forward
+        # (dependents get reparented onto the continuation in _finish_agent) or
+        # legitimately terminates the chain (deep-chain / unmanaged / already a
+        # continuation). Cases where nothing is carried forward AND no real work
+        # was done are caught downstream by the completion-evidence layer, which
+        # flags zero-commit write-type completions as metadata.unverified.
+        task_complete_hit = TASK_TYPE != "playthrough_bot" or _playthrough_validation_passed
+
+    # If context limit was hit, commit progress then spawn a continuation task.
+    if context_limit_hit:
+        try:
+            code, out, _ = run("git status --porcelain")
+            if code == 0 and out.strip():
+                git_commit(f"WIP: partial progress on {TASK_ID} (context limit)")
+                git_push()
+        except Exception as e:
+            log(f"WARNING: WIP commit failed: {e}")
+        import json as _json
+        is_continuation = TASK_DESC.startswith("CONTINUATION of task")
+        _chain_depth = TASK_ID.count("bug-")  # bug-bug-bug-... indicates deep validation chain
+        _deep_chain = _chain_depth >= 3
+        _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
+        if is_continuation:
+            log("Context limit hit on a continuation task -- stopping chain, marking done")
+            _unlock_claimed_files()
+            print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_end"}))
+            return 0
+        if _deep_chain:
+            log(f"Context limit hit on a deep chain task (depth {_chain_depth}) -- stopping, no continuation spawned")
+            _unlock_claimed_files()
+            print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_deep_chain_end"}))
+            return 0
+        if _project_unmanaged:
+            log(f"Context limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
+            _unlock_claimed_files()
+            print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_unmanaged_no_continuation"}))
+            return 0
+        try:
+            git_context_parts = []
+            try:
+                proj_root = _project_root()
+                _, diff_stat, _ = run("git diff HEAD~5..HEAD --stat")
+                if not diff_stat.strip():
+                    _, diff_stat, _ = run("git diff --stat")
+                if diff_stat.strip():
+                    git_context_parts.append(f"### Files changed (git diff stat):\n{diff_stat.strip()[:1500]}")
+                _, git_log, _ = run("git log --oneline -8")
+                if git_log.strip():
+                    git_context_parts.append(f"### Recent commits:\n{git_log.strip()}")
+                _, staged, _ = run("git diff --cached --stat")
+                if staged.strip():
+                    git_context_parts.append(f"### Staged but uncommitted:\n{staged.strip()[:500]}")
+            except Exception as e:
+                log(f"WARNING: git context gathering failed: {e}")
+            git_context = "\n\n".join(git_context_parts)
+
+            recent_assistant = [m["content"] for m in conversation if m.get("role") == "assistant" and m.get("content")]
+            last_thoughts = "\n---\n".join(c[:600] for c in recent_assistant[-3:]) if recent_assistant else ""
+
+            try:
+                progress_file = Path(proj_root) / "_swarm_progress.md"
+                all_assistant = [m["content"] for m in conversation if m.get("role") == "assistant" and m.get("content")]
+                progress_content = (
+                    f"# Swarm Progress -- {TASK_ID}\n\n"
+                    f"## Original Task\n{TASK_DESC[:1000]}\n\n"
+                    f"## Git Evidence\n{git_context}\n\n"
+                    f"## What Was Done (agent turns)\n"
+                    + "\n\n---\n\n".join(f"**Turn {i+1}:**\n{c[:600]}" for i, c in enumerate(all_assistant[-10:]))
+                )
+                progress_file.write_text(progress_content)
+                log(f"Progress saved to {progress_file}")
+            except Exception as e:
+                log(f"WARNING: could not write progress file: {e}")
+
+            cont_desc = (
+                f"CONTINUATION of task {TASK_ID} (hit context limit mid-task).\n\n"
+                f"## Original task\n{TASK_DESC[:800]}\n\n"
+                f"## What the previous agent did\n{git_context}\n\n"
+                f"## Where it left off\n{last_thoughts}\n\n"
+                f"## How to continue\n"
+                f"1. Read _swarm_progress.md in the project root for the full agent turn history.\n"
+                f"2. Run the appropriate validation (e.g. `godot --headless --script res://check_scripts.gd` or `python -m py_compile`) to see current error state.\n"
+                f"3. Review `git diff HEAD~3..HEAD` to understand what has already been changed.\n"
+                f"4. Continue fixing what remains -- do NOT redo work already committed.\n"
+            )
+            cont_meta: dict = {}
+            if PROJECT_PATH_OVERRIDE:
+                cont_meta["worktree_path"] = PROJECT_PATH_OVERRIDE
+                if WORKTREE_BRANCH:
+                    cont_meta["worktree_branch"] = WORKTREE_BRANCH
+                    cont_meta["worktree_inherited"] = True
+            payload = _json.dumps({
+                "project": PROJECT,
+                "type": TASK_TYPE,
+                "description": cont_desc,
+                "priority": TASK_PRIORITY,
+                "max_attempts": 5,
+                "dependencies": [TASK_ID],
+                **({"metadata": cont_meta} if cont_meta else {}),
+            }).encode()
+            req = _ur.Request(
+                f"http://localhost:{API_PORT}/api/tasks",
+                data=payload,
+                headers={"Content-Type": "application/json", **agent_auth_headers()},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=60) as resp:
+                result = _json.loads(resp.read())
+                new_id = result.get("task", {}).get("id", "?")
+                log(f"Continuation task created: {new_id}" + (f" (inheriting worktree {PROJECT_PATH_OVERRIDE})" if PROJECT_PATH_OVERRIDE else ""))
+        except Exception as e:
+            log(f"WARNING: failed to spawn continuation task: {e}")
+        log("Context limit -- exiting after partial progress")
+        _unlock_claimed_files()
+        print(_json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID, "note": "context_limit_continuation_spawned"}))
+        return 0
+
+    # ---------------------------------------------------------------------------
+    # Post-completion graph reflection loop
+    # Runs outside the main tool budget -- does NOT count toward MAX_TOOL_LOOPS.
+    # Allowed tools: list_tasks + the 5 adaptive graph mutators only.
+    # Cap: 40 calls. Nudge at 35 to wrap up.
+    # Skipped for read-only, qa, manager, project_create, audit, triage, project_plan.
+    # ---------------------------------------------------------------------------
+    _REFLECTION_SKIP_TYPES = {"manager", "project_create", "qa", "audit", "triage", "project_plan", "harness_qa", "scenario_qa"}
+    _REFLECTION_ALLOWED_TOOLS = {
+        "list_tasks", "annotate_downstream_tasks", "split_task",
+        "prune_task", "insert_dependency", "set_task_complexity",
+    }
+    _REFLECTION_MAX = 40
+    _REFLECTION_NUDGE_AT = 35
+
+    if task_complete_hit and not loop_limit_hit and not context_limit_hit \
+            and not READONLY and TASK_TYPE not in _REFLECTION_SKIP_TYPES:
+        try:
+            # Gather context: diff stat from the just-completed work
+            _ref_diff = ""
+            try:
+                _, _ref_diff, _ = run("git diff HEAD~1..HEAD --stat")
+                if not _ref_diff.strip():
+                    _, _ref_diff, _ = run("git diff --stat")
+            except Exception:
+                pass
+
+            _ref_system = (
+                "You are in the GRAPH REFLECTION phase. Your implementation work is done.\n"
+                "Your job now is to review the downstream task queue and improve it based on what you just learned.\n\n"
+                "TOOL CALL FORMAT -- you MUST use this exact format for every tool call:\n"
+                "[TOOL_CALL]{\"tool\": \"tool_name\", \"args\": {\"key\": \"value\"}}[/TOOL_CALL]\n\n"
+                "ALLOWED TOOLS (ONLY these -- no file reads, no writes, no git):\n"
+                "- list_tasks(project): list all tasks for the project with their IDs and status\n"
+                "- annotate_downstream_tasks(findings, task_ids): prepend context to downstream pending tasks\n"
+                "- split_task(task_id, replacement_tasks): replace a pending downstream task with smaller pieces\n"
+                "- prune_task(task_id, reason): mark a downstream task completed if your work made it redundant\n"
+                "- insert_dependency(from_task_id, to_task_id): add an ordering constraint between two pending tasks\n"
+                "- set_task_complexity(task_id, complexity, reason): tag a task 'simple' or 'complex'\n\n"
+                "WORKFLOW:\n"
+                "1. Call list_tasks() to see all tasks for the project (pending, in_progress, completed)\n"
+                "2. Reflect on what you built and what that means for pending tasks\n"
+                "3. Make only changes that are genuinely useful -- do nothing if the plan looks correct\n"
+                "4. When done, output REFLECTION_COMPLETE on its own line\n\n"
+                "IMPORTANT -- how annotate_downstream_tasks works:\n"
+                "- It only annotates tasks that are BOTH pending AND transitively depend on YOUR task\n"
+                "- Most tasks in list_tasks() are parallel branches -- they will NOT be annotated even if pending\n"
+                "- If it returns annotated=0, that means none of your direct dependents are pending (they may\n"
+                "  already be in_progress or there are no downstream tasks). Do NOT retry -- just finish.\n"
+                "- Call it ONCE with your findings. If it annotated 0, accept that and output REFLECTION_COMPLETE.\n\n"
+                "Do NOT: read files, write files, run commands, commit, or do any implementation work.\n"
+                "Do NOT: annotate every task -- only ones where you have specific, concrete information to add."
+            )
+
+            _ref_user_seed = (
+                f"Task just completed: {TASK_DESC[:600]}\n\n"
+                + (f"Files changed:\n{_ref_diff.strip()[:800]}\n\n" if _ref_diff.strip() else "")
+                + f"Project: {PROJECT}\n\n"
+                "Now call list_tasks() to see the downstream queue, then decide what (if anything) to change."
+            )
+
+            _ref_conv = [
+                {"role": "user", "content": _ref_user_seed},
+            ]
+            _ref_loop = 0
+            _ref_nudge_injected = False
+
+            log("[Reflection] Starting post-completion graph reflection loop")
+
+            while _ref_loop < _REFLECTION_MAX:
+                # Nudge at 35
+                if _ref_loop >= _REFLECTION_NUDGE_AT and not _ref_nudge_injected:
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": (
+                            f"You have used {_ref_loop} of {_REFLECTION_MAX} reflection calls. "
+                            "Finish up now. If you have any remaining tool calls to make, make them, "
+                            "then output REFLECTION_COMPLETE."
+                        ),
+                    })
+                    _ref_nudge_injected = True
+
+                _ref_resp, _ref_tokens, _ref_thinking = call_llm(_ref_system, _ref_conv)
+                total_input_tokens += _ref_tokens.get("input", 0)
+                total_output_tokens += _ref_tokens.get("output", 0)
+                total_cache_read_tokens += _ref_tokens.get("cache_read", 0)
+                total_cache_write_tokens += _ref_tokens.get("cache_write", 0)
+
+                _ref_conv.append({"role": "assistant", "content": _ref_resp})
+
+                if "REFLECTION_COMPLETE" in _ref_resp:
+                    log(f"[Reflection] Complete after {_ref_loop + 1} calls")
+                    break
+
+                _ref_tool_calls = parse_tool_calls(_ref_resp)
+
+                # Filter to allowed tools only -- silently drop disallowed calls
+                _ref_allowed = [tc for tc in _ref_tool_calls if tc.get("tool") in _REFLECTION_ALLOWED_TOOLS]
+                _ref_blocked = [tc.get("tool") for tc in _ref_tool_calls if tc.get("tool") not in _REFLECTION_ALLOWED_TOOLS]
+                if _ref_blocked:
+                    log(f"[Reflection] Blocked disallowed tool calls: {_ref_blocked}")
+
+                if not _ref_allowed and not _ref_tool_calls:
+                    # No tool calls -- nudge once then bail
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": "No tool calls detected. If you are done, output REFLECTION_COMPLETE.",
+                    })
+                    _ref_loop += 1
+                    continue
+
+                if not _ref_allowed:
+                    # All calls were blocked
+                    _ref_conv.append({
+                        "role": "user",
+                        "content": (
+                            f"Those tools are not available in reflection mode: {_ref_blocked}. "
+                            "Use only: list_tasks, annotate_downstream_tasks, split_task, "
+                            "prune_task, insert_dependency, set_task_complexity. "
+                            "If you have nothing more to do, output REFLECTION_COMPLETE."
+                        ),
+                    })
+                    _ref_loop += 1
+                    continue
+
+                _ref_results = []
+                for tc in _ref_allowed:
+                    result = execute_tool(tc)
+                    _ref_results.append(f"[{tc['tool']}] → {json.dumps(result)[:8000]}")
+                    log(f"[Reflection] Tool {tc['tool']} → {str(result)[:200]}")
+
+                _ref_conv.append({
+                    "role": "user",
+                    "content": "\n".join(_ref_results),
+                })
+                _ref_loop += 1
+
+            if _ref_loop >= _REFLECTION_MAX:
+                log(f"[Reflection] Hit call cap ({_REFLECTION_MAX}) -- exiting")
+
+        except Exception as _ref_exc:
+            log(f"[Reflection] ERROR (non-fatal): {_ref_exc}")
+
+    # Auto-commit any remaining uncommitted changes
+    if TASK_TYPE in ("manager", "project_create", "qa", "audit", "triage", "project_plan"):
+        pass  # No git commit needed for these task types
+    elif READONLY:
+        log("Read-only task -- skipping auto-commit")
+    else:
+        try:
+            # swarm-controller-5dnz: only ever inspect/commit the pinned project
+            # root (or worktree override). If it is not a git top level, skip --
+            # never let `git status` fall back to the process cwd.
+            from swarm.tools.shell import git_root as _git_root
+            _auto_root, _auto_root_err = _git_root()
+            if _auto_root_err:
+                log(f"Auto-commit skipped: {_auto_root_err}")
+            else:
+                code, out, err = run("git status --porcelain", cwd=_auto_root)
+                if code == 0 and out.strip():
+                    changed = [line[3:].strip() for line in out.strip().splitlines() if line.strip()]
+                    new_files = [f for f in changed if not f.endswith(".md")]
+                    prefixes = {"feature": "feat", "bug": "fix", "refactor": "refactor", "polish": "polish", "qa": "qa", "art_pass": "art", "playthrough_bot": "test"}
+                    prefix = prefixes.get(TASK_TYPE, "chore")
+                    if new_files:
+                        names = ", ".join(os.path.basename(f) for f in new_files[:4])
+                        if len(new_files) > 4:
+                            names += f" (+{len(new_files) - 4} more)"
+                        auto_msg = f"{prefix}: update {names}"
+                    else:
+                        auto_msg = f"{prefix}: update plan for {PROJECT}"
+                    result = git_commit(auto_msg)  # guarded: refuses non-top-level roots
+                    if result.get("ok") and TASK_TYPE != "art_pass":
+                        git_push()
+        except Exception as e:
+            log(f"WARNING: auto-commit failed (non-fatal): {e}")
+
+    # If the loop limit was hit without TASK_COMPLETE, spawn a continuation task
+    if loop_limit_hit and TASK_TYPE not in ("qa", "manager", "project_create", "audit", "triage", "project_plan") and not READONLY:
+        is_continuation = TASK_DESC.startswith("CONTINUATION of task")
+        _chain_depth = TASK_ID.count("bug-")
+        _deep_chain = _chain_depth >= 3
+        _project_unmanaged = bool(MANAGED_PROJECTS) and PROJECT not in MANAGED_PROJECTS
+        if is_continuation:
+            log("Loop limit hit on a continuation task -- stopping chain, marking done")
+        elif _deep_chain:
+            log(f"Loop limit hit on a deep chain task (depth {_chain_depth}) -- stopping, no continuation spawned")
+        elif _project_unmanaged:
+            log(f"Loop limit hit but {PROJECT} is not in managed_projects -- skipping continuation spawn")
+        else:
+            # Write progress file for the continuation agent to pick up
+            try:
+                proj_root = _project_root()
+                progress_file = Path(proj_root) / "_swarm_progress.md"
+                all_assistant = [m["content"] for m in conversation if m.get("role") == "assistant" and m.get("content")]
+                progress_content = (
+                    f"# Swarm Progress -- {TASK_ID}\n\n"
+                    f"## Original Task\n{TASK_DESC[:1000]}\n\n"
+                    f"## What Was Done\n"
+                    + "\n\n---\n\n".join(f"**Turn {i+1}:**\n{c[:600]}" for i, c in enumerate(all_assistant[-8:]))
+                )
+                progress_file.write_text(progress_content)
+                log(f"Progress saved to {progress_file}")
+            except Exception as e:
+                log(f"WARNING: could not write progress file: {e}")
+            spawn_continuation_task(
+                task_id=TASK_ID,
+                task_type=TASK_TYPE,
+                task_desc=TASK_DESC,
+                project=PROJECT,
+                priority=TASK_PRIORITY,
+                managed_projects=MANAGED_PROJECTS,
+                conversation=conversation,
+                api_port=API_PORT,
+                project_path_override=PROJECT_PATH_OVERRIDE or "",
+                worktree_branch=WORKTREE_BRANCH or "",
+                log_fn=log,
+            )
+
+    # H1-H8: determine exit reason and write history record
+    if context_limit_hit:
+        _exit_reason = "context_limit"
+        _task_completed = True  # continuation spawned = success exit
+    elif loop_limit_hit:
+        _exit_reason = "loop_limit"
+        _task_completed = True  # continuation spawned = success exit
+    elif lock_handoff_hit:
+        _exit_reason = "lock_handoff"
+        _task_completed = True
+    elif task_complete_hit:
+        _exit_reason = "task_complete"
+        _task_completed = True
+    else:
+        _exit_reason = "no_task_complete"
+        _task_completed = False
+
+    _h7 = _h7_detect_reread(_session_written_files, _session_read_files)
+    _append_history_record(
+        DATA_DIR, TASK_ID, PROJECT, TASK_TYPE,
+        tool_loop_count, _tool_call_counts,
+        _h7, _task_completed, _exit_reason,
+    )
+
+    # Write token usage to file for orchestrator to pick up
+    try:
+        token_data = {
+            "input": total_input_tokens,
+            "output": total_output_tokens,
+            "cache_read": total_cache_read_tokens,
+            "cache_write": total_cache_write_tokens,
+            "total": total_input_tokens + total_output_tokens,
+            "loop_count": tool_loop_count,
+            "provider": LLM_PROVIDER,
+            "model": _pconf.get("model", ""),
+            "adaptive_flat": _adaptive_flat_stats,
+        }
+        token_file = Path(DATA_DIR) / f"agent_{TASK_ID}_tokens.json"
+        token_file.write_text(json.dumps(token_data))
+    except Exception as e:
+        log(f"WARNING: failed to write token file: {e}")
+        token_data = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "total": 0}
+
+    # Emit a single machine-parseable summary of recovery-mechanism fires so
+    # extract_signals() (swarm/log_rotation.py) can aggregate them into the
+    # agent_signals.mechanism_fires column without re-counting individual lines.
+    try:
+        log("[MechanismSummary] " + json.dumps(_mechanism_fires, sort_keys=True))
+    except Exception:
+        pass
+
+    if task_complete_hit:
+        log("Task complete!")
+        _unlock_claimed_files()
+        print(json.dumps({"status": "success", "project": PROJECT, "task_id": TASK_ID,
+                          "input_tokens": total_input_tokens, "output_tokens": total_output_tokens}))
+        return 0
+    else:
+        log("Task ended without TASK_COMPLETE -- marking as failed")
+        _unlock_claimed_files()
+        print(json.dumps({"status": "failed", "project": PROJECT, "task_id": TASK_ID,
+                          "note": "no_task_complete",
+                          "input_tokens": total_input_tokens, "output_tokens": total_output_tokens}))
+        return 1

@@ -1,0 +1,58 @@
+# Python Project Profile
+# Configuration for Python projects
+
+name: python
+description: Python projects using Python
+
+language: Python
+framework: python
+
+# File extensions to scan
+file_extensions:
+  - .py
+
+# Max lines before refactor is triggered
+max_lines: 500
+
+# Directories to ignore
+ignore_dirs:
+  - .git
+  - .venv
+  - venv
+  - __pycache__
+  - .pytest_cache
+  - build
+  - dist
+  - .eggs
+
+# File extensions to never modify
+ignore_extensions:
+  - .pyc
+  - .pyo
+  - .so
+  - .dll
+  - .whl
+  - .egg-info
+
+# Prompt template to use
+prompt_template: refactor
+
+# Test command
+test_command: python -m pytest
+
+# Lint command
+lint_command: python -m flake8 .
+
+# Task types enabled
+task_types:
+  - refactor
+  - feature
+  - bug
+  - polish
+
+# Priority order
+priority_order:
+  - refactor
+  - bug
+  - feature
+  - polish

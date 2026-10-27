@@ -1,0 +1,60 @@
+# TypeScript/JavaScript Project Profile
+# Configuration for Node.js/TypeScript projects
+
+name: typescript
+description: TypeScript/JavaScript projects using Node.js
+
+language: TypeScript
+framework: nodejs
+
+# File extensions to scan
+file_extensions:
+  - .ts
+  - .tsx
+  - .js
+  - .jsx
+
+# Max lines before refactor is triggered
+max_lines: 500
+
+# Directories to ignore
+ignore_dirs:
+  - .git
+  - node_modules
+  - dist
+  - build
+  - coverage
+  - .next
+  - .nuxt
+
+# File extensions to never modify
+ignore_extensions:
+  - .d.ts
+  - .min.js
+  - .map
+
+# Prompt template to use
+prompt_template: refactor
+
+# Test command
+test_command: npm test
+
+# Build command
+build_command: npm run build
+
+# Lint command
+lint_command: npm run lint
+
+# Task types enabled
+task_types:
+  - refactor
+  - feature
+  - bug
+  - polish
+
+# Priority order
+priority_order:
+  - refactor
+  - bug
+  - feature
+  - polish

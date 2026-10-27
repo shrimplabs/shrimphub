@@ -1,0 +1,14 @@
+flask>=3.0
+flask-compress>=1.14
+gunicorn>=22.0
+requests>=2.31
+certifi>=2024.0
+pyyaml>=6.0
+ddgs>=9.0
+httpx[brotli,http2,socks]>=0.28.1
+html2text>=2024.0
+mcp[cli]>=1.0,<2  # swarm_mcp_server.py uses the v1 FastMCP API, renamed in mcp 2.x
+
+# Optional: RAG backend (heavy deps, install separately if needed)
+# chromadb>=0.4
+# sentence-transformers>=2.0

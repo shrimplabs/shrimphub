@@ -1,0 +1,39 @@
+{
+  "goal": "verify gem-blaster boots, shows main menu, and starts gameplay",
+  "project_path": "~/workspace/gem-blaster",
+  "seed": 42,
+  "steps": [
+    {
+      "op": "capture",
+      "name": "01_boot",
+      "vision": "Is a game main menu or start screen visible? Answer yes or no.",
+      "timeout_seconds": 15
+    },
+    {
+      "op": "assert_invariant",
+      "name": "nonblank_screen",
+      "timeout_seconds": 5
+    },
+    {
+      "op": "press_button",
+      "id": "StartButton",
+      "timeout_seconds": 10
+    },
+    {
+      "op": "wait",
+      "seconds": 2
+    },
+    {
+      "op": "capture",
+      "name": "02_gameplay",
+      "vision": "Is the game showing a gameplay screen (not a menu)? Answer yes or no.",
+      "timeout_seconds": 10
+    },
+    {
+      "op": "assert_state",
+      "path": "game_state.scene",
+      "ne": null,
+      "timeout_seconds": 5
+    }
+  ]
+}

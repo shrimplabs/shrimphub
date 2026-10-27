@@ -1,0 +1,51 @@
+# Example agent profile plugin — rename to .yaml to activate.
+#
+# Each .yaml file in this directory registers a new task_type (or overrides
+# built-in prompt/permission behaviour for an existing one).
+#
+# Required fields: plugin_id, task_type
+# All other fields are optional.
+
+plugin_id: "example_plugin"
+task_type: "example_task"         # must be unique; used in swarm_create_task(type=...)
+display_name: "Example Task"
+
+# Role family — used by the scheduler for capacity planning.
+# One of: implementation | qa | research | planning
+role: "implementation"
+
+# Permission profile — enforced in tool_dispatch (not just prompt text).
+# full        — all tools available
+# read_write  — all tools except run_command
+# read_only   — no writes, no git, no run_command, no task creation
+# qa_write    — can write_file (to specific paths), create_bug_task; no git, no run_command
+permission_profile: "full"
+
+# Path to the prompt YAML (relative to swarm root).
+# Must have 'system' and 'user' keys using << var >> syntax (Jinja2).
+# If omitted, falls back to the built-in prompt for this task_type (if any).
+prompt_file: "plugins/example_task.yaml"
+
+# Allowlist: if non-empty, ONLY these tools are available.
+# Leave empty to allow all tools permitted by permission_profile.
+tools_allowed: []
+
+# Blocklist: these tools are ALWAYS denied, even if in tools_allowed.
+tools_blocked:
+  - "delete_task"
+
+# Context providers: injected into the agent's description before the task runs.
+# Evaluated in order; each section is logged (truncated preview).
+context_providers:
+  - type: file
+    path: "GAME_DESIGN.md"         # relative to project root
+    max_chars: 8000
+
+  - type: command
+    command: "git log --oneline -5 2>&1"
+    timeout_seconds: 5
+    max_chars: 500
+
+  # - type: http
+  #   url: "http://localhost:8080/api/status"
+  #   max_chars: 2000
